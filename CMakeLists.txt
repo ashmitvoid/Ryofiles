@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(ryofiles VERSION 0.2.0 LANGUAGES CXX)
+project(ryofiles VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,12 @@ qt_add_executable(ryofiles
     src/integrations/ClipboardController.cpp
     src/integrations/DesktopIntegration.hpp
     src/integrations/DesktopIntegration.cpp
+    src/thumbnails/ThumbnailStore.hpp
+    src/thumbnails/ThumbnailStore.cpp
+    src/thumbnails/ThumbnailProvider.hpp
+    src/thumbnails/ThumbnailProvider.cpp
+    src/thumbnails/ThumbnailController.hpp
+    src/thumbnails/ThumbnailController.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -55,6 +61,7 @@ qt_add_qml_module(ryofiles
         qml/components/FileContextMenu.qml
         qml/components/OpenWithSheet.qml
         qml/components/PropertiesSheet.qml
+        qml/components/PreviewPanel.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
@@ -121,6 +128,22 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME desktop-integration COMMAND ryofiles_desktop_integration_tests)
+
+    qt_add_executable(ryofiles_thumbnail_tests
+        tests/ThumbnailStoreTest.cpp
+        src/thumbnails/ThumbnailStore.hpp
+        src/thumbnails/ThumbnailStore.cpp
+    )
+
+    target_include_directories(ryofiles_thumbnail_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_thumbnail_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+    )
+
+    add_test(NAME thumbnail-store COMMAND ryofiles_thumbnail_tests)
 endif()
 
 install(TARGETS ryofiles

@@ -23,6 +23,7 @@ class DirectorySession : public QObject {
 
     Q_PROPERTY(qreal scrollPosition READ scrollPosition WRITE setScrollPosition NOTIFY scrollPositionChanged)
     Q_PROPERTY(int viewMode READ viewMode WRITE setViewMode NOTIFY viewModeChanged)
+    Q_PROPERTY(bool previewVisible READ previewVisible WRITE setPreviewVisible NOTIFY previewVisibleChanged)
 
 public:
     enum ViewMode {
@@ -54,6 +55,9 @@ public:
     int viewMode() const { return m_viewMode; }
     void setViewMode(int mode);
 
+    bool previewVisible() const { return m_previewVisible; }
+    void setPreviewVisible(bool visible);
+
     Q_INVOKABLE bool navigate(const QString& path);
     Q_INVOKABLE void goBack();
     Q_INVOKABLE void goForward();
@@ -75,6 +79,7 @@ signals:
     void selectionChanged();
     void scrollPositionChanged();
     void viewModeChanged();
+    void previewVisibleChanged();
     void errorOccurred(const QString& message);
 
 private:
@@ -96,5 +101,6 @@ private:
     QVector<HistoryEntry> m_history;
     int m_historyIndex = -1;
     int m_viewMode = DetailsView;
+    bool m_previewVisible = false;
     quint64 m_selectionRevision = 0;
 };

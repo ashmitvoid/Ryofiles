@@ -2,8 +2,8 @@
 import QtQuick
 import Ryofiles.Core
 
-ListView {
-    id: view
+Item {
+    id: root
 
     required property var session
     required property var files
@@ -12,39 +12,39 @@ ListView {
 
     property bool restoring: false
     property bool pointerSelection: false
+    readonly property bool previewOpen: root.session && root.session.previewVisible
+    readonly property real previewWidth: Math.min(
+        330 * root.uiScale,
+        Math.max(220 * root.uiScale, root.width * 0.34))
+
     signal contextRequested(real sceneX, real sceneY, string path, bool isDirectory)
 
     clip: true
-    model: files
-    spacing: compact ? 0 : 1 * uiScale
-    currentIndex: -1
-    boundsBehavior: Flickable.StopAtBounds
-    reuseItems: true
 
     function restoreState() {
-        if (!session || !files || session.model !== files)
+        if (!root.session || !root.files || root.session.model !== root.files)
             return
 
-        restoring = true
-        if (files.loading)
+        root.restoring = true
+        if (root.files.loading)
             return
 
         Qt.callLater(function() {
-            if (!session || !files || session.model !== files) {
-                restoring = false
+            if (!root.session || !root.files || root.session.model !== root.files) {
+                root.restoring = false
                 return
             }
 
-            var idx = files.indexOfPath(session.selectedPath)
-            if (idx < 0 && files.count > 0)
+            var idx = root.files.indexOfPath(root.session.selectedPath)
+            if (idx < 0 && root.files.count > 0)
                 idx = 0
 
-            currentIndex = idx
-            var maxY = Math.max(0, contentHeight - height)
-            contentY = Math.max(0, Math.min(session.scrollPosition, maxY))
+            view.currentIndex = idx
+            var maxY = Math.max(0, view.contentHeight - view.height)
+            view.contentY = Math.max(0, Math.min(root.session.scrollPosition, maxY))
 
             Qt.callLater(function() {
-                restoring = false
+                root.restoring = false
             })
         })
     }
@@ -58,143 +58,214 @@ ListView {
         restoreState()
     }
 
-    onCurrentIndexChanged: {
-        if (restoring || pointerSelection || !activeFocus || !session || !files ||
-            files.loading || currentIndex < 0)
-            return
-        session.selectSingle(currentIndex)
+    Shortcut {
+        sequence: "Ctrl+Shift+P"
+        enabled: root.session !== null
+        onActivated: root.session.previewVisible = !root.session.previewVisible
     }
 
-    onContentYChanged: {
-        if (!restoring && session && files && !files.loading)
-            session.scrollPosition = Math.max(0, contentY)
-    }
+    ListView {
+        id: view
 
-    Connections {
-        target: view.session
-        function onPathChanged() { view.restoring = true }
-    }
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: previewPanel.left
 
-    Connections {
-        target: view.files
-        function onCountChanged() { view.restoreState() }
-    }
+        clip: true
+        model: root.files
+        spacing: root.compact ? 0 : 1 * root.uiScale
+        currentIndex: -1
+        boundsBehavior: Flickable.StopAtBounds
+        reuseItems: true
 
-    delegate: Rectangle {
-        id: row
-
-        required property int index
-        required property string name
-        required property string filePath
-        required property bool isDir
-        required property string sizeText
-        required property string modifiedText
-
-        readonly property bool selected: {
-            var revision = view.session ? view.session.selectionRevision : 0
-            return revision >= 0 && view.session && view.session.isSelectedPath(filePath)
+        onCurrentIndexChanged: {
+            if (root.restoring || root.pointerSelection || !activeFocus || !root.session || !root.files ||
+                root.files.loading || currentIndex < 0)
+                return
+            root.session.selectSingle(currentIndex)
         }
 
-        width: view.width
-        height: (view.compact ? 34 : 44) * view.uiScale
-        radius: 6 * view.uiScale
-        color: selected
-            ? Ryoku.bone
-            : (mouse.containsMouse ? Ryoku.tint5 : "transparent")
-
-        Row {
-            anchors.fill: parent
-            anchors.leftMargin: 12 * view.uiScale
-            anchors.rightMargin: 12 * view.uiScale
-            spacing: 12 * view.uiScale
-
-            Text {
-                width: 22 * view.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                text: row.isDir ? "▰" : "·"
-                color: row.selected ? Ryoku.inkOnBoneDim : Ryoku.inkFaint
-                font.family: Ryoku.monoFont
-                font.pixelSize: 13 * view.uiScale
-            }
-
-            Text {
-                width: view.compact
-                    ? Math.max(100, parent.width - (22 + 12 + 105) * view.uiScale)
-                    : Math.max(120, parent.width - (22 + 12 + 118 + 12 + 154) * view.uiScale)
-                anchors.verticalCenter: parent.verticalCenter
-                text: row.name
-                elide: Text.ElideMiddle
-                color: row.selected ? Ryoku.inkOnBone : Ryoku.ink
-                font.family: Ryoku.uiFont
-                font.pixelSize: (view.compact ? 12 : 13) * view.uiScale
-            }
-
-            Text {
-                width: (view.compact ? 105 : 118) * view.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                horizontalAlignment: Text.AlignRight
-                text: row.isDir ? "DIR" : row.sizeText
-                color: row.selected ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
-                font.family: Ryoku.monoFont
-                font.pixelSize: 10 * view.uiScale
-            }
-
-            Text {
-                visible: !view.compact
-                width: 154 * view.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                horizontalAlignment: Text.AlignRight
-                text: row.modifiedText
-                color: row.selected ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
-                font.family: Ryoku.monoFont
-                font.pixelSize: 10 * view.uiScale
-            }
+        onContentYChanged: {
+            if (!root.restoring && root.session && root.files && !root.files.loading)
+                root.session.scrollPosition = Math.max(0, contentY)
         }
 
-        MouseArea {
-            id: mouse
-            anchors.fill: parent
-            hoverEnabled: true
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
+        delegate: Rectangle {
+            id: row
 
-            onClicked: function(event) {
-                view.pointerSelection = true
-                view.currentIndex = row.index
+            required property int index
+            required property string name
+            required property string filePath
+            required property bool isDir
+            required property string sizeText
+            required property string modifiedText
 
-                if (event.button === Qt.RightButton) {
-                    if (!row.selected)
-                        view.session.selectSingle(row.index)
+            readonly property bool selected: {
+                var revision = root.session ? root.session.selectionRevision : 0
+                return revision >= 0 && root.session && root.session.isSelectedPath(filePath)
+            }
 
-                    var point = row.mapToItem(null, event.x, event.y)
-                    view.contextRequested(point.x, point.y, row.filePath, row.isDir)
-                    view.pointerSelection = false
-                    view.forceActiveFocus()
-                    return
+            width: view.width
+            height: (root.compact ? 34 : 44) * root.uiScale
+            radius: 6 * root.uiScale
+            color: selected
+                ? Ryoku.bone
+                : (mouse.containsMouse ? Ryoku.tint5 : "transparent")
+
+            Row {
+                anchors.fill: parent
+                anchors.leftMargin: 12 * root.uiScale
+                anchors.rightMargin: 12 * root.uiScale
+                spacing: 12 * root.uiScale
+
+                Text {
+                    width: 22 * root.uiScale
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: row.isDir ? "▰" : "·"
+                    color: row.selected ? Ryoku.inkOnBoneDim : Ryoku.inkFaint
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 13 * root.uiScale
                 }
 
-                if (event.modifiers & Qt.ShiftModifier)
-                    view.session.selectRange(row.index)
-                else if (event.modifiers & Qt.ControlModifier)
-                    view.session.toggleSelection(row.index)
-                else
-                    view.session.selectSingle(row.index)
+                Text {
+                    width: root.compact
+                        ? Math.max(100, parent.width - (22 + 12 + 105) * root.uiScale)
+                        : Math.max(120, parent.width - (22 + 12 + 118 + 12 + 154) * root.uiScale)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: row.name
+                    elide: Text.ElideMiddle
+                    color: row.selected ? Ryoku.inkOnBone : Ryoku.ink
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: (root.compact ? 12 : 13) * root.uiScale
+                }
 
-                view.pointerSelection = false
-                view.forceActiveFocus()
+                Text {
+                    width: (root.compact ? 105 : 118) * root.uiScale
+                    anchors.verticalCenter: parent.verticalCenter
+                    horizontalAlignment: Text.AlignRight
+                    text: row.isDir ? "DIR" : row.sizeText
+                    color: row.selected ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 10 * root.uiScale
+                }
+
+                Text {
+                    visible: !root.compact
+                    width: 154 * root.uiScale
+                    anchors.verticalCenter: parent.verticalCenter
+                    horizontalAlignment: Text.AlignRight
+                    text: row.modifiedText
+                    color: row.selected ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 10 * root.uiScale
+                }
             }
 
-            onDoubleClicked: function(event) {
-                view.currentIndex = row.index
-                view.session.activate(row.index)
+            MouseArea {
+                id: mouse
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+                onClicked: function(event) {
+                    root.pointerSelection = true
+                    view.currentIndex = row.index
+
+                    if (event.button === Qt.RightButton) {
+                        if (!row.selected)
+                            root.session.selectSingle(row.index)
+
+                        var point = row.mapToItem(null, event.x, event.y)
+                        root.contextRequested(point.x, point.y, row.filePath, row.isDir)
+                        root.pointerSelection = false
+                        view.forceActiveFocus()
+                        return
+                    }
+
+                    if (event.modifiers & Qt.ShiftModifier)
+                        root.session.selectRange(row.index)
+                    else if (event.modifiers & Qt.ControlModifier)
+                        root.session.toggleSelection(row.index)
+                    else
+                        root.session.selectSingle(row.index)
+
+                    root.pointerSelection = false
+                    view.forceActiveFocus()
+                }
+
+                onDoubleClicked: function(event) {
+                    view.currentIndex = row.index
+                    root.session.activate(row.index)
+                }
             }
+        }
+
+        Keys.onReturnPressed: if (root.session) root.session.activate(currentIndex)
+        Keys.onEnterPressed: if (root.session) root.session.activate(currentIndex)
+    }
+
+    PreviewPanel {
+        id: previewPanel
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: root.previewOpen ? root.previewWidth : 0
+        visible: root.previewOpen
+        session: root.session
+        desktop: Desktop
+        thumbnails: Thumbnails
+        uiScale: root.uiScale
+    }
+
+    Rectangle {
+        id: previewToggle
+        z: 50
+        anchors.top: parent.top
+        anchors.topMargin: 8 * root.uiScale
+        anchors.right: parent.right
+        anchors.rightMargin: 8 * root.uiScale
+        width: previewLabel.implicitWidth + 18 * root.uiScale
+        height: 28 * root.uiScale
+        visible: !root.previewOpen
+        radius: 6 * root.uiScale
+        color: previewHover.hovered ? Ryoku.tint10 : Ryoku.paperLift
+        border.width: 1
+        border.color: Ryoku.line
+
+        Text {
+            id: previewLabel
+            anchors.centerIn: parent
+            text: "PREVIEW"
+            color: Ryoku.inkDim
+            font.family: Ryoku.uiFont
+            font.pixelSize: 9 * root.uiScale
+            font.weight: Font.Medium
+            font.letterSpacing: 1.0
+        }
+
+        HoverHandler {
+            id: previewHover
+            cursorShape: Qt.PointingHandCursor
+        }
+
+        TapHandler {
+            onTapped: if (root.session) root.session.previewVisible = true
         }
     }
 
-    Keys.onReturnPressed: if (session) session.activate(currentIndex)
-    Keys.onEnterPressed: if (session) session.activate(currentIndex)
+    Connections {
+        target: root.session
+        function onPathChanged() { root.restoring = true }
+    }
+
+    Connections {
+        target: root.files
+        function onCountChanged() { root.restoreState() }
+    }
 
     Component.onCompleted: {
-        forceActiveFocus()
+        view.forceActiveFocus()
         restoreState()
     }
 }
