@@ -29,6 +29,9 @@ Window {
             return
 
         root.restoringView = true
+        if (root.files.loading)
+            return
+
         Qt.callLater(function() {
             if (!root.session || !root.files) {
                 root.restoringView = false
@@ -82,6 +85,11 @@ Window {
 
     Connections {
         target: tabs
+
+        function onCurrentIndexChanged() {
+            root.restoringView = true
+        }
+
         function onCurrentSessionChanged() {
             location.text = root.session ? root.session.path : ""
             root.restoreViewState()
@@ -344,7 +352,7 @@ Window {
                     reuseItems: true
 
                     onCurrentIndexChanged: {
-                        if (root.restoringView || !root.session || !root.files || currentIndex < 0)
+                        if (root.restoringView || !root.session || !root.files || root.files.loading || currentIndex < 0)
                             return
                         var selected = root.files.pathAt(currentIndex)
                         if (selected !== "")
@@ -352,7 +360,7 @@ Window {
                     }
 
                     onContentYChanged: {
-                        if (!root.restoringView && root.session)
+                        if (!root.restoringView && root.session && root.files && !root.files.loading)
                             root.session.scrollPosition = Math.max(0, contentY)
                     }
 
