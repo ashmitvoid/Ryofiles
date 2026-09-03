@@ -14,7 +14,8 @@
 
 class OperationManager : public QAbstractListModel {
     Q_OBJECT
-    Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    Q_PROPERTY(int count READ count NOTIFY countChanged)
+    Q_PROPERTY(int activeCount READ activeCount NOTIFY activeCountChanged)
 
 public:
     enum OperationKind {
@@ -59,6 +60,8 @@ public:
     ~OperationManager() override;
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
+    int count() const { return rowCount(); }
+    int activeCount() const;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
@@ -68,9 +71,13 @@ public:
 
     Q_INVOKABLE void cancel(const QString& jobId);
     Q_INVOKABLE void resolveConflict(const QString& jobId, int decision);
+    Q_INVOKABLE void dismiss(const QString& jobId);
+    Q_INVOKABLE void clearFinished();
+    Q_INVOKABLE QString errorFor(const QString& jobId) const;
 
 signals:
     void countChanged();
+    void activeCountChanged();
     void conflictRaised(const QString& jobId, const QString& source, const QString& destination);
     void jobFinished(const QString& jobId, bool success);
 
@@ -106,6 +113,8 @@ private:
         const QString& renameTarget = QString());
 
     std::shared_ptr<Job> findJob(const QString& id) const;
+    static bool terminal(OperationState state);
+    void pruneFinishedJobs(int keep = 32);
     int indexOfJob(const std::shared_ptr<Job>& job) const;
 
     void runJob(const std::shared_ptr<Job>& job);
