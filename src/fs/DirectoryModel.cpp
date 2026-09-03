@@ -107,17 +107,40 @@ void DirectoryModel::goUp() {
         setPath(directory.absolutePath());
 }
 
-void DirectoryModel::activate(int index) {
+QString DirectoryModel::pathAt(int index) const {
     if (index < 0 || index >= m_entries.size())
+        return {};
+    return m_entries.at(index).path;
+}
+
+bool DirectoryModel::isDirectoryAt(int index) const {
+    if (index < 0 || index >= m_entries.size())
+        return false;
+    return m_entries.at(index).directory;
+}
+
+int DirectoryModel::indexOfPath(const QString& targetPath) const {
+    if (targetPath.isEmpty())
+        return -1;
+
+    for (int i = 0; i < m_entries.size(); ++i) {
+        if (m_entries.at(i).path == targetPath)
+            return i;
+    }
+    return -1;
+}
+
+void DirectoryModel::activate(int index) {
+    const QString target = pathAt(index);
+    if (target.isEmpty())
         return;
 
-    const Entry& entry = m_entries.at(index);
-    if (entry.directory) {
-        setPath(entry.path);
+    if (isDirectoryAt(index)) {
+        setPath(target);
         return;
     }
 
-    QDesktopServices::openUrl(QUrl::fromLocalFile(entry.path));
+    QDesktopServices::openUrl(QUrl::fromLocalFile(target));
 }
 
 void DirectoryModel::setLoading(bool loading) {
