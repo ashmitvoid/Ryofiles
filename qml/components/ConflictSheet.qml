@@ -10,6 +10,7 @@ Item {
     property string destinationPath: ""
     property bool allowApplyToAll: true
     property bool applyToAll: false
+    property bool restoreMode: false
 
     signal choose(int decision, bool applyToAll)
 
@@ -42,7 +43,9 @@ Item {
             spacing: 14 * root.uiScale
 
             Text {
-                text: "// DESTINATION EXISTS"
+                text: root.restoreMode
+                    ? "// RESTORE DESTINATION EXISTS"
+                    : "// DESTINATION EXISTS"
                 color: Ryoku.ink
                 font.family: Ryoku.monoFont
                 font.pixelSize: 11 * root.uiScale
@@ -104,18 +107,26 @@ Item {
                 spacing: 8 * root.uiScale
 
                 Repeater {
-                    model: [
-                        { label: "SKIP", decision: 0, strong: false },
-                        { label: "KEEP BOTH", decision: 1, strong: false },
-                        { label: "REPLACE", decision: 2, strong: true },
-                        { label: "CANCEL", decision: 3, strong: false }
-                    ]
+                    model: root.restoreMode
+                        ? [
+                            { label: "KEEP BOTH", decision: 1, strong: false },
+                            { label: "REPLACE", decision: 2, strong: true },
+                            { label: "CANCEL", decision: 3, strong: false }
+                        ]
+                        : [
+                            { label: "SKIP", decision: 0, strong: false },
+                            { label: "KEEP BOTH", decision: 1, strong: false },
+                            { label: "REPLACE", decision: 2, strong: true },
+                            { label: "CANCEL", decision: 3, strong: false }
+                        ]
 
                     delegate: Rectangle {
                         id: button
                         required property var modelData
 
-                        width: (body.width - 24 * root.uiScale) / 4
+                        width: root.restoreMode
+                            ? (body.width - 16 * root.uiScale) / 3
+                            : (body.width - 24 * root.uiScale) / 4
                         height: 34 * root.uiScale
                         radius: 6 * root.uiScale
                         color: modelData.strong
