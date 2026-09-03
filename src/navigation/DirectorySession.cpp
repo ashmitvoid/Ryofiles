@@ -7,6 +7,8 @@
 #include <QFileInfo>
 #include <QUrl>
 
+#include <utility>
+
 DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     : QObject(parent)
     , m_model(nullptr) {
