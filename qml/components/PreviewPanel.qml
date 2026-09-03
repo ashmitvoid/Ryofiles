@@ -30,6 +30,15 @@ Item {
 
     Component.onCompleted: refreshDetails()
 
+    TextPreviewLoader {
+        id: textPreview
+        active: root.visible
+            && root.session
+            && root.session.selectionCount === 1
+            && !root.thumbnails.isCandidate(root.session.selectedPath)
+        path: active ? root.session.selectedPath : ""
+    }
+
     Rectangle {
         anchors.left: parent.left
         width: 1
@@ -70,6 +79,7 @@ Item {
         }
 
         Rectangle {
+            id: previewArea
             width: parent.width
             height: Math.min(parent.width, 270 * root.uiScale)
             radius: 6 * root.uiScale
@@ -100,17 +110,45 @@ Item {
                 smooth: true
             }
 
+            Flickable {
+                id: textFlick
+                anchors.fill: parent
+                anchors.margins: 10 * root.uiScale
+                visible: textPreview.supported
+                clip: true
+                contentWidth: width
+                contentHeight: previewText.paintedHeight
+                boundsBehavior: Flickable.StopAtBounds
+
+                Text {
+                    id: previewText
+                    width: textFlick.width
+                    text: textPreview.text
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WrapAnywhere
+                    color: Ryoku.inkDim
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 9 * root.uiScale
+                    lineHeight: 1.25
+                }
+            }
+
             Text {
                 anchors.centerIn: parent
                 width: parent.width - 28 * root.uiScale
-                visible: !previewImage.visible || previewImage.status !== Image.Ready
+                visible: !textFlick.visible
+                    && (!previewImage.visible || previewImage.status !== Image.Ready)
                 text: {
                     if (!root.session || root.session.selectionCount === 0)
                         return "// NO SELECTION"
                     if (root.session.selectionCount > 1)
                         return root.session.selectionCount + " ITEMS SELECTED"
                     if (previewImage.visible && previewImage.status === Image.Loading)
-                        return "// LOADING PREVIEW…"
+                        return "// LOADING IMAGE…"
+                    if (textPreview.loading)
+                        return "// READING TEXT…"
+                    if (textPreview.error !== "")
+                        return "// COULD NOT READ PREVIEW"
                     return root.details.isDirectory === true ? "▰" : "□"
                 }
                 horizontalAlignment: Text.AlignHCenter
@@ -141,6 +179,16 @@ Item {
             color: Ryoku.inkMuted
             font.family: Ryoku.monoFont
             font.pixelSize: 9 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: textPreview.supported && textPreview.truncated
+            text: "// TEXT PREVIEW TRUNCATED — 192 KiB / 2,500-line limit"
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
         }
 
         Rectangle {
