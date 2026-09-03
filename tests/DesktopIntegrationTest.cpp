@@ -27,8 +27,9 @@ private slots:
         m_dataHome = m_root->filePath("xdg-data");
         const QString applications = QDir(m_dataHome).filePath("applications");
         QVERIFY(QDir().mkpath(applications));
+
         qputenv("XDG_DATA_HOME", m_dataHome.toUtf8());
-        qputenv("XDG_DATA_DIRS", m_dataHome.toUtf8());
+        qputenv("XDG_DATA_DIRS", QByteArrayLiteral("/usr/local/share:/usr/share"));
 
         QFile desktopFile(QDir(applications).filePath("ryofiles-test-viewer.desktop"));
         QVERIFY(desktopFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
@@ -97,19 +98,19 @@ private slots:
         writeFile(QDir(directory).filePath("a.bin"), QByteArray(1024, 'a'));
         writeFile(QDir(nested).filePath("b.bin"), QByteArray(4096, 'b'));
 
-        DesktopIntegration desktop;
-        const QVariantMap properties = desktop.propertiesForPath(directory);
+        const QVariantMap properties = m_desktop->propertiesForPath(directory);
 
         QCOMPARE(properties.value("isDirectory").toBool(), true);
         QCOMPARE(properties.value("sizeText").toString(), QStringLiteral("Not calculated"));
         QVERIFY(!properties.value("sizeBytes").isValid() || properties.value("sizeBytes").isNull());
         QCOMPARE(properties.value("mime").toString(), QStringLiteral("inode/directory"));
     }
+
 private:
     std::unique_ptr<QTemporaryDir> m_root;
     std::unique_ptr<DesktopIntegration> m_desktop;
     QString m_dataHome;
 };
 
-QTEST_APPLESS_MAIN(DesktopIntegrationTest)
+QTEST_GUILESS_MAIN(DesktopIntegrationTest)
 #include "DesktopIntegrationTest.moc"
