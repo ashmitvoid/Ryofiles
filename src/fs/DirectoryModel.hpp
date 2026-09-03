@@ -57,6 +57,10 @@ public:
     Q_INVOKABLE void goUp();
     Q_INVOKABLE void activate(int index);
 
+    Q_INVOKABLE QString pathAt(int index) const;
+    Q_INVOKABLE bool isDirectoryAt(int index) const;
+    Q_INVOKABLE int indexOfPath(const QString& path) const;
+
 signals:
     void pathChanged();
     void loadingChanged();
