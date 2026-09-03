@@ -35,6 +35,8 @@ qt_add_executable(ryofiles
     src/trash/TrashManager.cpp
     src/integrations/ClipboardController.hpp
     src/integrations/ClipboardController.cpp
+    src/integrations/DesktopIntegration.hpp
+    src/integrations/DesktopIntegration.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -50,6 +52,9 @@ qt_add_qml_module(ryofiles
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
         qml/components/TrashView.qml
+        qml/components/FileContextMenu.qml
+        qml/components/OpenWithSheet.qml
+        qml/components/PropertiesSheet.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
