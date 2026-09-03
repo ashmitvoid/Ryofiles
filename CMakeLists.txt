@@ -104,6 +104,23 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME trash-manager COMMAND ryofiles_trash_tests)
+
+    qt_add_executable(ryofiles_desktop_integration_tests
+        tests/DesktopIntegrationTest.cpp
+        src/integrations/DesktopIntegration.hpp
+        src/integrations/DesktopIntegration.cpp
+    )
+
+    target_include_directories(ryofiles_desktop_integration_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_desktop_integration_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME desktop-integration COMMAND ryofiles_desktop_integration_tests)
 endif()
 
 install(TARGETS ryofiles
