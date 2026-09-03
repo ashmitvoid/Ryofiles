@@ -82,6 +82,18 @@ int DirectorySession::selectionCount() const {
     return entry ? entry->selectedPaths.size() : 0;
 }
 
+QStringList DirectorySession::selectedPaths() const {
+    const auto* entry = currentEntry();
+    if (!entry)
+        return {};
+
+    QStringList paths;
+    paths.reserve(entry->selectedPaths.size());
+    for (const QString& pathValue : entry->selectedPaths)
+        paths.push_back(pathValue);
+    return paths;
+}
+
 bool DirectorySession::isSelectedPath(const QString& pathValue) const {
     const auto* entry = currentEntry();
     return entry && entry->selectedPaths.contains(pathValue);
