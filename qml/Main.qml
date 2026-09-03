@@ -25,6 +25,7 @@ Window {
     property string conflictJobId: ""
     property string restoreConflictItemId: ""
     property string pendingRenamePath: ""
+    property bool pendingCreateFolder: false
     property var cutPasteJobs: ({})
     property var trashDeleteJobs: ({})
 
@@ -96,12 +97,33 @@ Window {
         if (root.trashMode || !root.session || root.session.selectionCount !== 1)
             return
 
+        root.pendingCreateFolder = false
         root.pendingRenamePath = root.session.selectedPath
         var slash = root.pendingRenamePath.lastIndexOf("/")
         var name = slash >= 0
             ? root.pendingRenamePath.substring(slash + 1)
             : root.pendingRenamePath
         renameSheet.open(name)
+    }
+
+    function beginNewFolder() {
+        if (root.trashMode || !root.session)
+            return
+
+        root.pendingRenamePath = ""
+        root.pendingCreateFolder = true
+        renameSheet.openFor("New Folder", "// NEW FOLDER", "CREATE", false)
+    }
+
+    function duplicateSelection() {
+        if (root.trashMode || !root.session || root.session.selectionCount <= 0)
+            return
+
+        var id = operations.duplicate(root.selectedPaths())
+        if (id === "") {
+            root.lastError = "Could not start duplicate operation"
+            errorClear.restart()
+        }
     }
 
     Timer {
@@ -239,6 +261,8 @@ Window {
     Shortcut { sequence: "Ctrl+V"; enabled: root.fileShortcutsEnabled; onActivated: root.pasteClipboard() }
     Shortcut { sequence: "Delete"; enabled: root.fileShortcutsEnabled; onActivated: root.trashSelection() }
     Shortcut { sequence: "F2"; enabled: root.fileShortcutsEnabled; onActivated: root.beginRename() }
+    Shortcut { sequence: "Ctrl+Shift+N"; enabled: root.fileShortcutsEnabled; onActivated: root.beginNewFolder() }
+    Shortcut { sequence: "Ctrl+Shift+D"; enabled: root.fileShortcutsEnabled; onActivated: root.duplicateSelection() }
 
     Rectangle {
         anchors.fill: parent
@@ -369,7 +393,7 @@ Window {
                 Rectangle {
                     anchors.left: navButtons.right
                     anchors.leftMargin: 10 * root.u
-                    anchors.right: viewModes.left
+                    anchors.right: actionButtons.left
                     anchors.rightMargin: 10 * root.u
                     anchors.verticalCenter: parent.verticalCenter
                     height: 34 * root.u
@@ -401,6 +425,68 @@ Window {
                             if (root.session && !root.session.navigate(text))
                                 text = root.session.path
                             focus = false
+                        }
+                    }
+                }
+
+                Row {
+                    id: actionButtons
+                    anchors.right: viewModes.left
+                    anchors.rightMargin: 8 * root.u
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 4 * root.u
+                    visible: !root.trashMode
+
+                    Repeater {
+                        model: [
+                            { label: "NEW", action: "new" },
+                            { label: "DUP", action: "duplicate" }
+                        ]
+
+                        delegate: Rectangle {
+                            id: actionButton
+                            required property var modelData
+
+                            readonly property bool available:
+                                modelData.action === "new"
+                                    || (root.session && root.session.selectionCount > 0)
+
+                            width: actionLabel.implicitWidth + 14 * root.u
+                            height: 30 * root.u
+                            radius: 6 * root.u
+                            color: actionHover.hovered && available
+                                ? Ryoku.tint10
+                                : "transparent"
+                            border.width: 1
+                            border.color: available ? Ryoku.line : Ryoku.lineSoft
+                            opacity: available ? 1.0 : 0.45
+
+                            Text {
+                                id: actionLabel
+                                anchors.centerIn: parent
+                                text: actionButton.modelData.label
+                                color: Ryoku.inkDim
+                                font.family: Ryoku.uiFont
+                                font.pixelSize: 9 * root.u
+                                font.weight: Font.Medium
+                                font.letterSpacing: 1.0
+                            }
+
+                            HoverHandler {
+                                id: actionHover
+                                enabled: actionButton.available
+                                cursorShape: Qt.PointingHandCursor
+                            }
+
+                            TapHandler {
+                                enabled: actionButton.available
+                                onTapped: {
+                                    if (actionButton.modelData.action === "new")
+                                        root.beginNewFolder()
+                                    else
+                                        root.duplicateSelection()
+                                }
+                            }
                         }
                     }
                 }
@@ -628,7 +714,7 @@ Window {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.trashMode
                         ? "RESTORE ITEMS   CTRL+R REFRESH"
-                        : "CTRL+C/X/V   DELETE→TRASH   F2 RENAME"
+                        : "CTRL+SHIFT+N NEW   CTRL+SHIFT+D DUP   F2 RENAME"
                     color: Ryoku.inkFaint
                     font.family: Ryoku.monoFont
                     font.pixelSize: 9 * root.u
@@ -671,19 +757,29 @@ Window {
 
             onAccepted: function(newName) {
                 visible = false
-                if (root.pendingRenamePath !== "") {
-                    var id = operations.rename(root.pendingRenamePath, newName)
-                    if (id === "") {
-                        root.lastError = "Could not start rename operation"
-                        errorClear.restart()
-                    }
+
+                var id = ""
+                if (root.pendingCreateFolder && root.session) {
+                    id = operations.createFolder(root.session.path, newName)
+                } else if (root.pendingRenamePath !== "") {
+                    id = operations.rename(root.pendingRenamePath, newName)
                 }
+
+                if (id === "") {
+                    root.lastError = root.pendingCreateFolder
+                        ? "Could not start new-folder operation"
+                        : "Could not start rename operation"
+                    errorClear.restart()
+                }
+
                 root.pendingRenamePath = ""
+                root.pendingCreateFolder = false
             }
 
             onCancelled: {
                 visible = false
                 root.pendingRenamePath = ""
+                root.pendingCreateFolder = false
             }
         }
     }
