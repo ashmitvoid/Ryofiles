@@ -8,6 +8,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <unistd.h>
+
 class OperationManagerTest final : public QObject {
     Q_OBJECT
 
@@ -23,6 +25,23 @@ private:
         if (!file.open(QIODevice::ReadOnly))
             return {};
         return file.readAll();
+    }
+
+    static QByteArray rawSymlinkTarget(const QString& path) {
+        QByteArray buffer(256, '\0');
+        const QByteArray encoded = QFile::encodeName(path);
+
+        while (true) {
+            const ssize_t length =
+                ::readlink(encoded.constData(), buffer.data(), static_cast<size_t>(buffer.size()));
+            if (length < 0)
+                return {};
+            if (length < buffer.size()) {
+                buffer.resize(static_cast<qsizetype>(length));
+                return buffer;
+            }
+            buffer.resize(buffer.size() * 2);
+        }
     }
 
 private slots:
@@ -132,6 +151,77 @@ private slots:
         QCOMPARE(readFile(QDir(destinationDir).filePath("b.txt")), QByteArray("old-b"));
         QCOMPARE(readFile(QDir(destinationDir).filePath("a (copy).txt")), QByteArray("new-a"));
         QCOMPARE(readFile(QDir(destinationDir).filePath("b (copy).txt")), QByteArray("new-b"));
+    }
+
+    void createFolderIsAsyncAndNeverOverwrites() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        OperationManager manager;
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString firstId = manager.createFolder(temp.path(), "Project");
+        QVERIFY(!firstId.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(finishedSpy.takeFirst().at(1).toBool());
+        QVERIFY(QFileInfo::exists(QDir(temp.path()).filePath("Project")));
+
+        const QString secondId = manager.createFolder(temp.path(), "Project");
+        QVERIFY(!secondId.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(!finishedSpy.takeFirst().at(1).toBool());
+
+        QVERIFY(QFileInfo(QDir(temp.path()).filePath("Project")).isDir());
+    }
+
+    void duplicateUsesUniqueSiblingNames() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString source = QDir(temp.path()).filePath("note.txt");
+        writeFile(source, "payload");
+
+        OperationManager manager;
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.duplicate({source});
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(finishedSpy.takeFirst().at(1).toBool());
+
+        QCOMPARE(
+            readFile(QDir(temp.path()).filePath("note (copy).txt")),
+            QByteArray("payload"));
+        QCOMPARE(readFile(source), QByteArray("payload"));
+    }
+
+    void copyPreservesRelativeSymlinkTarget() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString sourceDir = temp.filePath("source-link");
+        const QString destinationDir = temp.filePath("destination-link");
+        QVERIFY(QDir().mkpath(sourceDir));
+        QVERIFY(QDir().mkpath(destinationDir));
+
+        writeFile(QDir(sourceDir).filePath("target.txt"), "target");
+
+        const QString sourceLink = QDir(sourceDir).filePath("link.txt");
+        const QByteArray encodedLink = QFile::encodeName(sourceLink);
+        QVERIFY(::symlink("target.txt", encodedLink.constData()) == 0);
+        QCOMPARE(rawSymlinkTarget(sourceLink), QByteArray("target.txt"));
+
+        OperationManager manager;
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.copy({sourceLink}, destinationDir);
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(finishedSpy.takeFirst().at(1).toBool());
+
+        const QString copiedLink = QDir(destinationDir).filePath("link.txt");
+        QVERIFY(QFileInfo(copiedLink).isSymLink());
+        QCOMPARE(rawSymlinkTarget(copiedLink), QByteArray("target.txt"));
     }
 
     void rejectsDirectoryCopyIntoOwnDescendant() {
