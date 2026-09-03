@@ -16,7 +16,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <functional>
+#include <QSet>
 
 namespace {
 
@@ -217,9 +219,11 @@ QList<TrashManager::TrashLocation> TrashManager::discoverTrashLocations() {
         if (top.isEmpty())
             continue;
 
+        const QString sharedParent =
+            QDir(top).filePath(QStringLiteral(".Trash"));
         const QString shared =
-            QDir(top).filePath(QStringLiteral(".Trash/%1").arg(uid));
-        if (QDir(shared).exists())
+            QDir(sharedParent).filePath(QString::number(uid));
+        if (QDir(shared).exists() && isSecureSharedTrash(sharedParent))
             locations.push_back({shared, top, false});
 
         const QString privateRoot =
@@ -475,10 +479,22 @@ void TrashManager::rebuildWatches() {
         m_watcher.addPaths(paths);
 }
 
+void TrashManager::pruneFutures() {
+    m_futures.erase(
+        std::remove_if(
+            m_futures.begin(),
+            m_futures.end(),
+            [](const QFuture<void>& future) {
+                return future.isFinished();
+            }),
+        m_futures.end());
+}
+
 void TrashManager::refresh() {
     if (m_stopping.load(std::memory_order_relaxed))
         return;
 
+    pruneFutures();
     setBusy(true);
     QFuture<void> future = QtConcurrent::run([this] {
         QString error;
@@ -509,6 +525,7 @@ void TrashManager::refresh() {
 void TrashManager::startOperation(
     const QString& operationId,
     const std::function<TrashResult()>& work) {
+    pruneFutures();
     setBusy(true);
 
     QFuture<void> future = QtConcurrent::run([this, operationId, work] {
