@@ -31,6 +31,8 @@ qt_add_executable(ryofiles
     src/navigation/TabManager.cpp
     src/operations/OperationManager.hpp
     src/operations/OperationManager.cpp
+    src/trash/TrashManager.hpp
+    src/trash/TrashManager.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -75,6 +77,22 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME operation-manager COMMAND ryofiles_operation_tests)
+
+    qt_add_executable(ryofiles_trash_tests
+        tests/TrashManagerTest.cpp
+        src/trash/TrashManager.hpp
+        src/trash/TrashManager.cpp
+    )
+
+    target_include_directories(ryofiles_trash_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_trash_tests PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME trash-manager COMMAND ryofiles_trash_tests)
 endif()
 
 install(TARGETS ryofiles
