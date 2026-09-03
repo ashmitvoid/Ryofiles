@@ -38,6 +38,21 @@ OperationManager::OperationManager(QObject* parent)
     : QAbstractListModel(parent) {
 }
 
+OperationManager::~OperationManager() {
+    for (const auto& job : m_jobs) {
+        job->cancelRequested.store(true, std::memory_order_relaxed);
+        QMutexLocker locker(&job->conflictMutex);
+        job->conflictDecision = CancelOperation;
+        job->conflictResolved = true;
+        job->conflictCondition.wakeAll();
+    }
+
+    for (const auto& job : m_jobs) {
+        if (job->future.isRunning())
+            job->future.waitForFinished();
+    }
+}
+
 int OperationManager::rowCount(const QModelIndex& parent) const {
     return parent.isValid() ? 0 : m_jobs.size();
 }
@@ -151,7 +166,7 @@ QString OperationManager::startJob(
     endInsertRows();
     emit countChanged();
 
-    (void)QtConcurrent::run([this, job] {
+    job->future = QtConcurrent::run([this, job] {
         runJob(job);
     });
 
@@ -270,6 +285,19 @@ QString OperationManager::targetPathFor(
     const QString& source,
     const QString& destinationDirectory) {
     return QDir(destinationDirectory).filePath(QFileInfo(source).fileName());
+}
+
+bool OperationManager::destinationInsideSource(
+    const QString& source,
+    const QString& destination) {
+    const QFileInfo sourceInfo(source);
+    if (!sourceInfo.isDir() || sourceInfo.isSymLink())
+        return false;
+
+    const QString sourcePath = QDir::cleanPath(sourceInfo.absoluteFilePath());
+    const QString destinationPath = QDir::cleanPath(QFileInfo(destination).absoluteFilePath());
+
+    return destinationPath.startsWith(sourcePath + QDir::separator());
 }
 
 QString OperationManager::uniqueSiblingPath(const QString& desiredPath) {
@@ -463,11 +491,22 @@ void OperationManager::runJob(const std::shared_ptr<Job>& job) {
             mutableJob.currentSource = source;
         });
 
-        if (QFileInfo(source).absoluteFilePath() == QFileInfo(target).absoluteFilePath()) {
+        const bool samePath =
+            QFileInfo(source).absoluteFilePath() == QFileInfo(target).absoluteFilePath();
+
+        if (samePath && job->kind != CopyOperation) {
             updateJob(job, [](Job& mutableJob) {
                 ++mutableJob.completedItems;
             });
             continue;
+        }
+
+        if (destinationInsideSource(source, target)) {
+            finishJob(
+                job,
+                Failed,
+                tr("Cannot copy or move a directory into itself: %1").arg(source));
+            return;
         }
 
         bool replaceExisting = false;
