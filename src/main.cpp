@@ -6,6 +6,7 @@
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
+#include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
 #include "thumbnails/ThumbnailController.hpp"
 #include "thumbnails/ThumbnailProvider.hpp"
@@ -40,6 +41,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
     qmlRegisterType<OperationManager>("Ryofiles.Core", 1, 0, "OperationManager");
     qmlRegisterType<TrashManager>("Ryofiles.Core", 1, 0, "TrashManager");
+    qmlRegisterType<TextPreviewLoader>("Ryofiles.Core", 1, 0, "TextPreviewLoader");
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(

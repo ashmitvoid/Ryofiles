@@ -43,6 +43,10 @@ qt_add_executable(ryofiles
     src/thumbnails/ThumbnailProvider.cpp
     src/thumbnails/ThumbnailController.hpp
     src/thumbnails/ThumbnailController.cpp
+    src/preview/TextPreviewStore.hpp
+    src/preview/TextPreviewStore.cpp
+    src/preview/TextPreviewLoader.hpp
+    src/preview/TextPreviewLoader.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -144,6 +148,21 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME thumbnail-store COMMAND ryofiles_thumbnail_tests)
+
+    qt_add_executable(ryofiles_text_preview_tests
+        tests/TextPreviewStoreTest.cpp
+        src/preview/TextPreviewStore.hpp
+        src/preview/TextPreviewStore.cpp
+    )
+
+    target_include_directories(ryofiles_text_preview_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_text_preview_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    add_test(NAME text-preview-store COMMAND ryofiles_text_preview_tests)
 endif()
 
 install(TARGETS ryofiles
