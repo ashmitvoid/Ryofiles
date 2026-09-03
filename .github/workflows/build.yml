@@ -13,6 +13,8 @@ jobs:
         run: pacman -Syu --noconfirm --needed git base-devel cmake ninja qt6-base qt6-declarative
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRYOFILES_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

@@ -29,6 +29,8 @@ qt_add_executable(ryofiles
     src/navigation/DirectorySession.cpp
     src/navigation/TabManager.hpp
     src/navigation/TabManager.cpp
+    src/operations/OperationManager.hpp
+    src/operations/OperationManager.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -51,6 +53,29 @@ target_link_libraries(ryofiles PRIVATE
     Qt6::Quick
     Qt6::Concurrent
 )
+
+option(RYOFILES_BUILD_TESTS "Build Ryofiles test targets" OFF)
+
+if(RYOFILES_BUILD_TESTS)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    enable_testing()
+
+    qt_add_executable(ryofiles_operation_tests
+        tests/OperationManagerTest.cpp
+        src/operations/OperationManager.hpp
+        src/operations/OperationManager.cpp
+    )
+
+    target_include_directories(ryofiles_operation_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_operation_tests PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME operation-manager COMMAND ryofiles_operation_tests)
+endif()
 
 install(TARGETS ryofiles
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
