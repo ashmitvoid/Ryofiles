@@ -35,6 +35,8 @@ qt_add_executable(ryofiles
     src/trash/TrashManager.cpp
     src/integrations/ClipboardController.hpp
     src/integrations/ClipboardController.cpp
+    src/integrations/DesktopIntegration.hpp
+    src/integrations/DesktopIntegration.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -50,6 +52,9 @@ qt_add_qml_module(ryofiles
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
         qml/components/TrashView.qml
+        qml/components/FileContextMenu.qml
+        qml/components/OpenWithSheet.qml
+        qml/components/PropertiesSheet.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
@@ -99,6 +104,23 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME trash-manager COMMAND ryofiles_trash_tests)
+
+    qt_add_executable(ryofiles_desktop_integration_tests
+        tests/DesktopIntegrationTest.cpp
+        src/integrations/DesktopIntegration.hpp
+        src/integrations/DesktopIntegration.cpp
+    )
+
+    target_include_directories(ryofiles_desktop_integration_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_desktop_integration_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME desktop-integration COMMAND ryofiles_desktop_integration_tests)
 endif()
 
 install(TARGETS ryofiles

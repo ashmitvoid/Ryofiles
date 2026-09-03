@@ -2,6 +2,7 @@
 
 #include "fs/DirectoryModel.hpp"
 #include "integrations/ClipboardController.hpp"
+#include "integrations/DesktopIntegration.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
@@ -20,8 +21,10 @@ int main(int argc, char* argv[]) {
 
     RyokuIntegration ryoku;
     ClipboardController fileClipboard;
+    DesktopIntegration desktop;
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Desktop", &desktop);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",

@@ -11,6 +11,7 @@ GridView {
 
     property bool restoring: false
     property bool pointerSelection: false
+    signal contextRequested(real sceneX, real sceneY, string path, bool isDirectory)
 
     clip: true
     model: files
@@ -145,11 +146,22 @@ GridView {
             id: mouse
             anchors.fill: parent
             hoverEnabled: true
-            acceptedButtons: Qt.LeftButton
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
 
             onClicked: function(event) {
                 view.pointerSelection = true
                 view.currentIndex = tile.index
+
+                if (event.button === Qt.RightButton) {
+                    if (!tile.selected)
+                        view.session.selectSingle(tile.index)
+
+                    var point = tile.mapToItem(null, event.x, event.y)
+                    view.contextRequested(point.x, point.y, tile.filePath, tile.isDir)
+                    view.pointerSelection = false
+                    view.forceActiveFocus()
+                    return
+                }
 
                 if (event.modifiers & Qt.ShiftModifier)
                     view.session.selectRange(tile.index)
