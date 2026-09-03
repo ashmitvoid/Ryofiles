@@ -9,7 +9,7 @@
 
 DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     : QObject(parent)
-    , m_model(this) {
+    , m_model(nullptr) {
     connect(&m_model, &DirectoryModel::errorOccurred, this, &DirectorySession::errorOccurred);
 
     QString start = normalizeDirectoryPath(initialPath);
