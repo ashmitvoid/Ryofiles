@@ -2,12 +2,14 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QFileDevice>
 #include <QFileSystemWatcher>
 #include <QFuture>
 #include <QTimer>
 #include <QVector>
 
 #include <atomic>
+#include <functional>
 
 class TrashManager : public QAbstractListModel {
     Q_OBJECT
@@ -114,6 +116,7 @@ private:
     static TrashResult restoreEntry(const Entry& entry, RestoreDecision decision);
 
     void setBusy(bool busy);
+    void pruneFutures();
     void rebuildWatches();
     void startOperation(const QString& operationId, const std::function<TrashResult()>& work);
 
