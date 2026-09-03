@@ -498,14 +498,20 @@ void TrashManager::refresh() {
 
     pruneFutures();
     setBusy(true);
-    QFuture<void> future = QtConcurrent::run([this] {
+    const quint64 generation =
+        m_refreshGeneration.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    QFuture<void> future = QtConcurrent::run([this, generation] {
         QString error;
         const QVector<Entry> scanned = scanTrash(&error);
 
         if (m_stopping.load(std::memory_order_relaxed))
             return;
 
-        QMetaObject::invokeMethod(this, [this, scanned, error] {
+        QMetaObject::invokeMethod(this, [this, scanned, error, generation] {
+            if (generation != m_refreshGeneration.load(std::memory_order_relaxed))
+                return;
+
             beginResetModel();
             m_entries = scanned;
             endResetModel();
