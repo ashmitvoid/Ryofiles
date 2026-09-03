@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "fs/DirectoryModel.hpp"
+#include "navigation/DirectorySession.hpp"
+#include "navigation/TabManager.hpp"
 #include "ryoku/RyokuIntegration.hpp"
 
 #include <QGuiApplication>
@@ -15,7 +17,14 @@ int main(int argc, char* argv[]) {
 
     RyokuIntegration ryoku;
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
-    qmlRegisterType<DirectoryModel>("Ryofiles.Core", 1, 0, "DirectoryModel");
+
+    qmlRegisterUncreatableType<DirectorySession>(
+        "Ryofiles.Core", 1, 0, "DirectorySession",
+        QStringLiteral("DirectorySession instances are managed by TabManager"));
+    qmlRegisterUncreatableType<DirectoryModel>(
+        "Ryofiles.Core", 1, 0, "DirectoryModel",
+        QStringLiteral("DirectoryModel instances are owned by DirectorySession"));
+    qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
 
     QQmlApplicationEngine engine;
     QObject::connect(
