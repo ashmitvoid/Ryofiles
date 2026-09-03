@@ -5,7 +5,7 @@
 #include <QFileSystemWatcher>
 #include <QTimer>
 
-class DirectoryModel final : public QAbstractListModel {
+class DirectoryModel : public QAbstractListModel {
     Q_OBJECT
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
