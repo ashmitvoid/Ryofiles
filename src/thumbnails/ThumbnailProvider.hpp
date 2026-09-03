@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include <QImage>
 #include <QMutex>
 #include <QQuickAsyncImageProvider>
+#include <QRunnable>
+#include <QSize>
 #include <QThreadPool>
 
 #include <atomic>
