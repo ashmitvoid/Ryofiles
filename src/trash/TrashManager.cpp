@@ -154,7 +154,9 @@ TrashManager::TrashLocation TrashManager::locationForSource(
     }
 
     QStorageInfo sourceStorage(sourceInfo.absoluteFilePath());
-    QStorageInfo homeStorage(dataHome());
+    const QString userDataHome = dataHome();
+    QDir().mkpath(userDataHome);
+    QStorageInfo homeStorage(userDataHome);
 
     if (!sourceStorage.isValid() || !sourceStorage.isReady()) {
         if (error)
