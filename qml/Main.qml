@@ -17,6 +17,8 @@ Window {
     readonly property var session: tabs.currentSession
     readonly property var files: session ? session.model : null
     readonly property bool modalOpen: conflictSheet.visible || renameSheet.visible
+    readonly property bool fileShortcutsEnabled:
+        !root.modalOpen && !root.trashMode && !location.activeFocus
 
     property bool trashMode: false
     property string lastError: ""
@@ -29,6 +31,14 @@ Window {
     TabManager { id: tabs }
     OperationManager { id: operations }
     TrashManager { id: trash }
+
+    function syncLocation() {
+        location.text = root.trashMode
+            ? "trash://"
+            : (root.session ? root.session.path : "")
+    }
+
+    onTrashModeChanged: root.syncLocation()
 
     function selectedPaths() {
         return root.session ? root.session.selectedPaths : []
@@ -109,8 +119,7 @@ Window {
         }
 
         function onPathChanged() {
-            if (!root.trashMode)
-                location.text = root.session ? root.session.path : ""
+            root.syncLocation()
         }
     }
 
@@ -118,7 +127,7 @@ Window {
         target: tabs
         function onCurrentSessionChanged() {
             root.trashMode = false
-            location.text = root.session ? root.session.path : ""
+            root.syncLocation()
         }
     }
 
@@ -218,18 +227,18 @@ Window {
     Shortcut { sequence: "Ctrl+R"; enabled: !root.modalOpen; onActivated: root.trashMode ? trash.refresh() : (root.session ? root.session.refresh() : undefined) }
     Shortcut { sequence: "Ctrl+L"; enabled: !root.modalOpen && !root.trashMode; onActivated: location.forceActiveFocus() }
 
-    Shortcut { sequence: "Ctrl+A"; enabled: !root.modalOpen && !root.trashMode; onActivated: if (root.session) root.session.selectAll() }
-    Shortcut { sequence: "Escape"; enabled: !root.modalOpen && !root.trashMode; onActivated: if (root.session) root.session.clearSelection() }
+    Shortcut { sequence: "Ctrl+A"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.selectAll() }
+    Shortcut { sequence: "Escape"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.clearSelection() }
 
-    Shortcut { sequence: "Ctrl+1"; enabled: !root.modalOpen && !root.trashMode; onActivated: if (root.session) root.session.viewMode = 0 }
-    Shortcut { sequence: "Ctrl+2"; enabled: !root.modalOpen && !root.trashMode; onActivated: if (root.session) root.session.viewMode = 1 }
-    Shortcut { sequence: "Ctrl+3"; enabled: !root.modalOpen && !root.trashMode; onActivated: if (root.session) root.session.viewMode = 2 }
+    Shortcut { sequence: "Ctrl+1"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.viewMode = 0 }
+    Shortcut { sequence: "Ctrl+2"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.viewMode = 1 }
+    Shortcut { sequence: "Ctrl+3"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.viewMode = 2 }
 
-    Shortcut { sequence: "Ctrl+C"; enabled: !root.modalOpen && !root.trashMode; onActivated: root.copySelection() }
-    Shortcut { sequence: "Ctrl+X"; enabled: !root.modalOpen && !root.trashMode; onActivated: root.cutSelection() }
-    Shortcut { sequence: "Ctrl+V"; enabled: !root.modalOpen && !root.trashMode; onActivated: root.pasteClipboard() }
-    Shortcut { sequence: "Delete"; enabled: !root.modalOpen && !root.trashMode; onActivated: root.trashSelection() }
-    Shortcut { sequence: "F2"; enabled: !root.modalOpen && !root.trashMode; onActivated: root.beginRename() }
+    Shortcut { sequence: "Ctrl+C"; enabled: root.fileShortcutsEnabled; onActivated: root.copySelection() }
+    Shortcut { sequence: "Ctrl+X"; enabled: root.fileShortcutsEnabled; onActivated: root.cutSelection() }
+    Shortcut { sequence: "Ctrl+V"; enabled: root.fileShortcutsEnabled; onActivated: root.pasteClipboard() }
+    Shortcut { sequence: "Delete"; enabled: root.fileShortcutsEnabled; onActivated: root.trashSelection() }
+    Shortcut { sequence: "F2"; enabled: root.fileShortcutsEnabled; onActivated: root.beginRename() }
 
     Rectangle {
         anchors.fill: parent
@@ -254,7 +263,7 @@ Window {
             onOpenTrash: {
                 root.trashMode = true
                 trash.refresh()
-                location.text = "trash://"
+                root.syncLocation()
             }
         }
 
