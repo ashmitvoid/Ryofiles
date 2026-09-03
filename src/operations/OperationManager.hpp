@@ -8,6 +8,7 @@
 #include <QWaitCondition>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 class OperationManager : public QAbstractListModel {
