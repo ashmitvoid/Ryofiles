@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(ryofiles VERSION 0.1.0 LANGUAGES CXX)
+project(ryofiles VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +25,10 @@ qt_add_executable(ryofiles
     src/ryoku/RyokuIntegration.cpp
     src/fs/DirectoryModel.hpp
     src/fs/DirectoryModel.cpp
+    src/navigation/DirectorySession.hpp
+    src/navigation/DirectorySession.cpp
+    src/navigation/TabManager.hpp
+    src/navigation/TabManager.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -33,6 +37,7 @@ qt_add_qml_module(ryofiles
     QML_FILES
         qml/Main.qml
         qml/components/RyokuRail.qml
+        qml/components/TabStrip.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
