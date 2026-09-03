@@ -1,0 +1,9 @@
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+*.user
+*.swp
+*~
+.DS_Store
