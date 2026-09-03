@@ -26,22 +26,36 @@ DirectoryModel::DirectoryModel(QObject* parent)
 }
 
 int DirectoryModel::rowCount(const QModelIndex& parent) const {
-    return parent.isValid() ? 0 : m_entries.size();
+    return parent.isValid() ? 0 : m_visibleIndexes.size();
+}
+
+const DirectoryModel::Entry* DirectoryModel::entryForRow(int row) const {
+    if (row < 0 || row >= m_visibleIndexes.size())
+        return nullptr;
+
+    const int sourceIndex = m_visibleIndexes.at(row);
+    if (sourceIndex < 0 || sourceIndex >= m_allEntries.size())
+        return nullptr;
+
+    return &m_allEntries.at(sourceIndex);
 }
 
 QVariant DirectoryModel::data(const QModelIndex& index, int role) const {
-    if (!index.isValid() || index.row() < 0 || index.row() >= m_entries.size())
+    if (!index.isValid())
         return {};
 
-    const Entry& entry = m_entries.at(index.row());
+    const Entry* entry = entryForRow(index.row());
+    if (!entry)
+        return {};
+
     switch (role) {
-    case NameRole: return entry.name;
-    case PathRole: return entry.path;
-    case DirectoryRole: return entry.directory;
-    case SizeTextRole: return entry.sizeText;
-    case ModifiedTextRole: return entry.modifiedText;
-    case HiddenRole: return entry.hidden;
-    case ThumbnailCandidateRole: return entry.thumbnailCandidate;
+    case NameRole: return entry->name;
+    case PathRole: return entry->path;
+    case DirectoryRole: return entry->directory;
+    case SizeTextRole: return entry->sizeText;
+    case ModifiedTextRole: return entry->modifiedText;
+    case HiddenRole: return entry->hidden;
+    case ThumbnailCandidateRole: return entry->thumbnailCandidate;
     default: return {};
     }
 }
@@ -86,6 +100,37 @@ void DirectoryModel::setShowHidden(bool show) {
     scan();
 }
 
+void DirectoryModel::setFilterText(const QString& text) {
+    const QString normalized = text.trimmed();
+    if (m_filterText == normalized)
+        return;
+
+    m_filterText = normalized;
+
+    beginResetModel();
+    rebuildFilterIndexes();
+    endResetModel();
+
+    emit filterTextChanged();
+    emit countChanged();
+}
+
+void DirectoryModel::clearFilter() {
+    setFilterText(QString());
+}
+
+void DirectoryModel::rebuildFilterIndexes() {
+    m_visibleIndexes.clear();
+    m_visibleIndexes.reserve(m_allEntries.size());
+
+    const bool filter = !m_filterText.isEmpty();
+    for (int i = 0; i < m_allEntries.size(); ++i) {
+        const Entry& entry = m_allEntries.at(i);
+        if (!filter || entry.name.contains(m_filterText, Qt::CaseInsensitive))
+            m_visibleIndexes.push_back(i);
+    }
+}
+
 QString DirectoryModel::standardPath(int location) {
     const QString value =
         QStandardPaths::writableLocation(static_cast<QStandardPaths::StandardLocation>(location));
@@ -111,24 +156,23 @@ void DirectoryModel::goUp() {
 }
 
 QString DirectoryModel::pathAt(int index) const {
-    if (index < 0 || index >= m_entries.size())
-        return {};
-    return m_entries.at(index).path;
+    const Entry* entry = entryForRow(index);
+    return entry ? entry->path : QString();
 }
 
 bool DirectoryModel::isDirectoryAt(int index) const {
-    if (index < 0 || index >= m_entries.size())
-        return false;
-    return m_entries.at(index).directory;
+    const Entry* entry = entryForRow(index);
+    return entry ? entry->directory : false;
 }
 
 int DirectoryModel::indexOfPath(const QString& targetPath) const {
     if (targetPath.isEmpty())
         return -1;
 
-    for (int i = 0; i < m_entries.size(); ++i) {
-        if (m_entries.at(i).path == targetPath)
-            return i;
+    for (int row = 0; row < m_visibleIndexes.size(); ++row) {
+        const Entry* entry = entryForRow(row);
+        if (entry && entry->path == targetPath)
+            return row;
     }
     return -1;
 }
@@ -177,8 +221,10 @@ void DirectoryModel::scan() {
             return;
 
         beginResetModel();
-        m_entries = entries;
+        m_allEntries = entries;
+        rebuildFilterIndexes();
         endResetModel();
+
         setLoading(false);
         emit countChanged();
 
