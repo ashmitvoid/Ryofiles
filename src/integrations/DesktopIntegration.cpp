@@ -5,13 +5,16 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QLocale>
 #include <QMimeDatabase>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QUrl>
+#include <QtConcurrent>
 
 #include <algorithm>
 
@@ -51,24 +54,20 @@ QString typeText(const QFileInfo& info) {
 } // namespace
 
 DesktopIntegration::DesktopIntegration(QObject* parent)
-    : QObject(parent)
-    , m_apps(discoverApplications()) {
-    for (const QString& base : desktopSearchPaths()) {
-        QDir root(base);
-        if (!root.exists())
-            continue;
+    : QObject(parent) {
+    connect(
+        &m_discoveryWatcher,
+        &QFutureWatcher<QList<DesktopApp>>::finished,
+        this,
+        [this] {
+            m_apps = m_discoveryWatcher.result();
+            m_applicationsReady = true;
+            emit applicationsReadyChanged();
+        });
 
-        const QFileInfoList entries = root.entryInfoList(
-            {QStringLiteral("*.desktop")},
-            QDir::Files | QDir::Readable,
-            QDir::Name);
-
-        for (const QFileInfo& info : entries) {
-            const QString id = desktopIdForPath(base, info.absoluteFilePath());
-            if (!m_desktopPaths.contains(id))
-                m_desktopPaths.insert(id, info.absoluteFilePath());
-        }
-    }
+    m_discoveryWatcher.setFuture(QtConcurrent::run([] {
+        return discoverApplications();
+    }));
 }
 
 QStringList DesktopIntegration::desktopSearchPaths() {
@@ -168,6 +167,7 @@ QList<DesktopIntegration::DesktopApp> DesktopIntegration::discoverApplications()
 
             DesktopApp app;
             app.id = id;
+            app.desktopFilePath = path;
 
             bool inDesktopEntry = false;
             QTextStream stream(&file);
@@ -444,9 +444,8 @@ bool DesktopIntegration::openWith(
     if (!info.exists() && !info.isSymLink())
         return false;
 
-    const QString desktopFilePath = m_desktopPaths.value(desktopFileId);
     QStringList command =
-        buildCommand(app->exec, app->name, app->icon, desktopFilePath, path);
+        buildCommand(app->exec, app->name, app->icon, app->desktopFilePath, path);
 
     if (command.isEmpty())
         return false;
