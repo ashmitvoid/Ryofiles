@@ -28,6 +28,7 @@ private slots:
         const QString applications = QDir(m_dataHome).filePath("applications");
         QVERIFY(QDir().mkpath(applications));
         qputenv("XDG_DATA_HOME", m_dataHome.toUtf8());
+        qputenv("XDG_DATA_DIRS", m_dataHome.toUtf8());
 
         QFile desktopFile(QDir(applications).filePath("ryofiles-test-viewer.desktop"));
         QVERIFY(desktopFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
@@ -43,6 +44,8 @@ private slots:
 
         QCOMPARE(desktopFile.write(desktopEntry), desktopEntry.size());
         desktopFile.close();
+
+        m_desktop = std::make_unique<DesktopIntegration>();
     }
 
     void filePropertiesReportDirectMetadata() {
@@ -52,8 +55,7 @@ private slots:
         const QString path = QDir(temp.path()).filePath("sample.txt");
         writeFile(path, "hello");
 
-        DesktopIntegration desktop;
-        const QVariantMap properties = desktop.propertiesForPath(path);
+        const QVariantMap properties = m_desktop->propertiesForPath(path);
 
         QCOMPARE(properties.value("name").toString(), QStringLiteral("sample.txt"));
         QCOMPARE(properties.value("path").toString(), path);
@@ -67,10 +69,9 @@ private slots:
         const QString path = m_root->filePath("open-with.txt");
         writeFile(path, "hello");
 
-        DesktopIntegration desktop;
-        QTRY_VERIFY_WITH_TIMEOUT(desktop.applicationsReady(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(m_desktop->applicationsReady(), 5000);
 
-        const QVariantList applications = desktop.applicationsForPath(path);
+        const QVariantList applications = m_desktop->applicationsForPath(path);
         QString appId;
 
         for (const QVariant& item : applications) {
@@ -82,7 +83,7 @@ private slots:
         }
 
         QVERIFY(!appId.isEmpty());
-        QVERIFY(desktop.openWith(appId, path));
+        QVERIFY(m_desktop->openWith(appId, path));
     }
 
     void directoryPropertiesNeverCalculateRecursiveSize() {
@@ -106,6 +107,7 @@ private slots:
     }
 private:
     std::unique_ptr<QTemporaryDir> m_root;
+    std::unique_ptr<DesktopIntegration> m_desktop;
     QString m_dataHome;
 };
 
