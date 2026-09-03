@@ -5,6 +5,8 @@
 #include <QFutureWatcher>
 #include <QtConcurrent>
 
+#include <utility>
+
 TextPreviewLoader::TextPreviewLoader(QObject* parent)
     : QObject(parent) {
     m_debounce.setSingleShot(true);
