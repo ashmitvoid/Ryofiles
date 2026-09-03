@@ -70,7 +70,7 @@ public:
     Q_INVOKABLE QString rename(const QString& source, const QString& newName);
 
     Q_INVOKABLE void cancel(const QString& jobId);
-    Q_INVOKABLE void resolveConflict(const QString& jobId, int decision);
+    Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
     Q_INVOKABLE void dismiss(const QString& jobId);
     Q_INVOKABLE void clearFinished();
     Q_INVOKABLE QString errorFor(const QString& jobId) const;
@@ -104,6 +104,8 @@ private:
         QWaitCondition conflictCondition;
         bool conflictResolved = false;
         ConflictDecision conflictDecision = Skip;
+        bool persistentConflictDecision = false;
+        ConflictDecision persistentDecision = Skip;
     };
 
     QString startJob(
