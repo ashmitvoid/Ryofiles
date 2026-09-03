@@ -98,6 +98,42 @@ private slots:
         QVERIFY(leftovers.isEmpty());
     }
 
+    void applyToAllKeepBothHandlesRemainingConflicts() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString sourceDir = temp.filePath("source-all");
+        const QString destinationDir = temp.filePath("destination-all");
+        QVERIFY(QDir().mkpath(sourceDir));
+        QVERIFY(QDir().mkpath(destinationDir));
+
+        const QString a = QDir(sourceDir).filePath("a.txt");
+        const QString b = QDir(sourceDir).filePath("b.txt");
+        writeFile(a, "new-a");
+        writeFile(b, "new-b");
+        writeFile(QDir(destinationDir).filePath("a.txt"), "old-a");
+        writeFile(QDir(destinationDir).filePath("b.txt"), "old-b");
+
+        OperationManager manager;
+        QSignalSpy conflictSpy(&manager, &OperationManager::conflictRaised);
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.copy({a, b}, destinationDir);
+        QVERIFY(!id.isEmpty());
+
+        QTRY_COMPARE_WITH_TIMEOUT(conflictSpy.count(), 1, 5000);
+        manager.resolveConflict(id, OperationManager::KeepBoth, true);
+
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(finishedSpy.at(0).at(1).toBool());
+        QCOMPARE(conflictSpy.count(), 1);
+
+        QCOMPARE(readFile(QDir(destinationDir).filePath("a.txt")), QByteArray("old-a"));
+        QCOMPARE(readFile(QDir(destinationDir).filePath("b.txt")), QByteArray("old-b"));
+        QCOMPARE(readFile(QDir(destinationDir).filePath("a (copy).txt")), QByteArray("new-a"));
+        QCOMPARE(readFile(QDir(destinationDir).filePath("b (copy).txt")), QByteArray("new-b"));
+    }
+
     void rejectsDirectoryCopyIntoOwnDescendant() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());

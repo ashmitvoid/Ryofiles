@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "fs/DirectoryModel.hpp"
+#include "integrations/ClipboardController.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
@@ -18,7 +19,9 @@ int main(int argc, char* argv[]) {
     QGuiApplication::setOrganizationName(QStringLiteral("Ryoku"));
 
     RyokuIntegration ryoku;
+    ClipboardController fileClipboard;
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",

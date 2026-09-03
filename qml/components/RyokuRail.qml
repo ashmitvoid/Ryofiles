@@ -7,7 +7,10 @@ Item {
 
     required property var fs
     property real uiScale: 1
+    property int trashCount: 0
+    property bool trashActive: false
     signal navigate(string path)
+    signal openTrash()
 
     width: 268 * uiScale
 
@@ -119,11 +122,58 @@ Item {
             }
         }
 
+        Column {
+            width: parent.width
+            spacing: 2 * rail.uiScale
+
+            Text {
+                text: "02  SYSTEM"
+                color: Ryoku.inkFaint
+                font.family: Ryoku.monoFont
+                font.pixelSize: 9 * rail.uiScale
+                font.letterSpacing: 1.5
+                bottomPadding: 5 * rail.uiScale
+            }
+
+            Rectangle {
+                id: trashButton
+                width: parent.width
+                height: 34 * rail.uiScale
+                radius: 6 * rail.uiScale
+                color: rail.trashActive
+                    ? Ryoku.bone
+                    : (trashHover.hovered ? Ryoku.tint10 : "transparent")
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 12 * rail.uiScale
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: (rail.trashActive ? "//  " : "    ") + "Trash"
+                    color: rail.trashActive ? Ryoku.inkOnBone : Ryoku.inkDim
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 13 * rail.uiScale
+                }
+
+                Text {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 12 * rail.uiScale
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: rail.trashCount > 0 ? String(rail.trashCount) : ""
+                    color: rail.trashActive ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 9 * rail.uiScale
+                }
+
+                HoverHandler { id: trashHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: rail.openTrash() }
+            }
+        }
+
         Item { width: 1; height: 1 }
 
         Text {
             width: parent.width
-            text: "Ryoku-native file manager\nPhase 0 // foundation"
+            text: "Ryoku-native file manager\nPhase 2 // daily actions"
             color: Ryoku.inkFaint
             font.family: Ryoku.monoFont
             font.pixelSize: 9 * rail.uiScale
