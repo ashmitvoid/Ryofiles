@@ -163,6 +163,23 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME text-preview-store COMMAND ryofiles_text_preview_tests)
+
+    qt_add_executable(ryofiles_directory_filter_tests
+        tests/DirectoryModelFilterTest.cpp
+        src/fs/DirectoryModel.hpp
+        src/fs/DirectoryModel.cpp
+    )
+
+    target_include_directories(ryofiles_directory_filter_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_directory_filter_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME directory-filter COMMAND ryofiles_directory_filter_tests)
 endif()
 
 install(TARGETS ryofiles
