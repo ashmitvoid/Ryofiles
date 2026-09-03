@@ -5,6 +5,7 @@
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
 #include "ryoku/RyokuIntegration.hpp"
+#include "trash/TrashManager.hpp"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -27,6 +28,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("DirectoryModel instances are owned by DirectorySession"));
     qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
     qmlRegisterType<OperationManager>("Ryofiles.Core", 1, 0, "OperationManager");
+    qmlRegisterType<TrashManager>("Ryofiles.Core", 1, 0, "TrashManager");
 
     QQmlApplicationEngine engine;
     QObject::connect(
