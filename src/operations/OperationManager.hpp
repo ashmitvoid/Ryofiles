@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QFuture>
 #include <QMutex>
 #include <QStringList>
 #include <QVector>
@@ -55,6 +56,7 @@ public:
     Q_ENUM(Role)
 
     explicit OperationManager(QObject* parent = nullptr);
+    ~OperationManager() override;
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -89,6 +91,7 @@ private:
         int totalItems = 0;
 
         std::atomic_bool cancelRequested = false;
+        QFuture<void> future;
 
         QMutex conflictMutex;
         QWaitCondition conflictCondition;
@@ -129,6 +132,7 @@ private:
     static QString uniqueSiblingPath(const QString& desiredPath);
     static QString backupSiblingPath(const QString& desiredPath);
     static QString targetPathFor(const QString& source, const QString& destinationDirectory);
+    static bool destinationInsideSource(const QString& source, const QString& destination);
 
     QVector<std::shared_ptr<Job>> m_jobs;
 };
