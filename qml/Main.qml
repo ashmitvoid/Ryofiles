@@ -16,7 +16,12 @@ Window {
     readonly property real u: Ryoku.uiScaleFor(Screen.name)
     readonly property var session: tabs.currentSession
     readonly property var files: session ? session.model : null
-    readonly property bool modalOpen: conflictSheet.visible || renameSheet.visible
+    readonly property bool modalOpen:
+        conflictSheet.visible
+        || renameSheet.visible
+        || contextMenu.visible
+        || openWithSheet.visible
+        || propertiesSheet.visible
     readonly property bool fileShortcutsEnabled:
         !root.modalOpen && !root.trashMode && !location.activeFocus
 
@@ -57,17 +62,21 @@ Window {
         FileClipboard.cutFiles(root.selectedPaths())
     }
 
-    function pasteClipboard() {
+    function pasteClipboard(destinationPath) {
         if (root.trashMode || !root.session || !FileClipboard.hasFiles)
             return
+
+        var destination = destinationPath && destinationPath !== ""
+            ? destinationPath
+            : root.session.path
 
         var paths = FileClipboard.filePaths()
         if (!paths || paths.length === 0)
             return
 
         var id = FileClipboard.cut
-            ? operations.move(paths, root.session.path)
-            : operations.copy(paths, root.session.path)
+            ? operations.move(paths, destination)
+            : operations.copy(paths, destination)
 
         if (id === "") {
             root.lastError = "Could not start paste operation"
@@ -124,6 +133,38 @@ Window {
             root.lastError = "Could not start duplicate operation"
             errorClear.restart()
         }
+    }
+
+    function openContextMenu(sceneX, sceneY, path, isDirectory) {
+        if (root.trashMode || !root.session)
+            return
+
+        contextMenu.openAt(
+            sceneX,
+            sceneY,
+            path,
+            isDirectory,
+            root.session.selectionCount,
+            FileClipboard.hasFiles)
+    }
+
+    function openContextTarget() {
+        if (contextMenu.targetPath === "")
+            return
+
+        if (contextMenu.targetIsDirectory) {
+            root.session.navigate(contextMenu.targetPath)
+        } else if (!Desktop.openDefault(contextMenu.targetPath)) {
+            root.lastError = "Could not open file with the default application"
+            errorClear.restart()
+        }
+    }
+
+    function closeTransientUi() {
+        contextMenu.visible = false
+        openWithSheet.visible = false
+        propertiesSheet.visible = false
+        renameSheet.visible = false
     }
 
     Timer {
@@ -250,6 +291,7 @@ Window {
     Shortcut { sequence: "Ctrl+L"; enabled: !root.modalOpen && !root.trashMode; onActivated: location.forceActiveFocus() }
 
     Shortcut { sequence: "Ctrl+A"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.selectAll() }
+    Shortcut { sequence: "Escape"; enabled: root.modalOpen; onActivated: root.closeTransientUi() }
     Shortcut { sequence: "Escape"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.clearSelection() }
 
     Shortcut { sequence: "Ctrl+1"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.viewMode = 0 }
@@ -591,6 +633,9 @@ Window {
                         files: root.files
                         uiScale: root.u
                         compact: true
+                        onContextRequested: function(sceneX, sceneY, path, isDirectory) {
+                            root.openContextMenu(sceneX, sceneY, path, isDirectory)
+                        }
                     }
                 }
 
@@ -600,6 +645,9 @@ Window {
                         session: root.session
                         files: root.files
                         uiScale: root.u
+                        onContextRequested: function(sceneX, sceneY, path, isDirectory) {
+                            root.openContextMenu(sceneX, sceneY, path, isDirectory)
+                        }
                     }
                 }
 
@@ -610,6 +658,9 @@ Window {
                         files: root.files
                         uiScale: root.u
                         compact: false
+                        onContextRequested: function(sceneX, sceneY, path, isDirectory) {
+                            root.openContextMenu(sceneX, sceneY, path, isDirectory)
+                        }
                     }
                 }
 
@@ -720,6 +771,52 @@ Window {
                     font.pixelSize: 9 * root.u
                 }
             }
+        }
+
+        FileContextMenu {
+            id: contextMenu
+            uiScale: root.u
+
+            onOpenRequested: root.openContextTarget()
+
+            onOpenNewTabRequested: {
+                if (targetIsDirectory && targetPath !== "")
+                    tabs.newTab(targetPath)
+            }
+
+            onOpenWithRequested: {
+                if (targetPath !== "")
+                    openWithSheet.openFor(targetPath)
+            }
+
+            onCopyRequested: root.copySelection()
+            onCutRequested: root.cutSelection()
+
+            onPasteIntoRequested: {
+                if (targetIsDirectory && targetPath !== "")
+                    root.pasteClipboard(targetPath)
+            }
+
+            onDuplicateRequested: root.duplicateSelection()
+            onRenameRequested: root.beginRename()
+            onTrashRequested: root.trashSelection()
+
+            onPropertiesRequested: {
+                if (targetPath !== "")
+                    propertiesSheet.openFor(targetPath)
+            }
+        }
+
+        OpenWithSheet {
+            id: openWithSheet
+            desktop: Desktop
+            uiScale: root.u
+        }
+
+        PropertiesSheet {
+            id: propertiesSheet
+            desktop: Desktop
+            uiScale: root.u
         }
 
         OperationDrawer {
