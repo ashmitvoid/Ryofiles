@@ -7,6 +7,8 @@
 #include <QFileInfo>
 #include <QUrl>
 
+#include <utility>
+
 DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     : QObject(parent)
     , m_model(nullptr) {
@@ -16,7 +18,7 @@ DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     if (start.isEmpty() || !QDir(start).exists())
         start = QDir::homePath();
 
-    m_history.push_back({start, QString(), 0.0});
+    m_history.push_back({start, {}, QString(), QString(), 0.0});
     m_historyIndex = 0;
     m_model.setPath(start);
 }
@@ -72,15 +74,145 @@ bool DirectorySession::canGoForward() const {
 
 QString DirectorySession::selectedPath() const {
     const auto* entry = currentEntry();
-    return entry ? entry->selectedPath : QString();
+    return entry ? entry->primarySelectedPath : QString();
+}
+
+int DirectorySession::selectionCount() const {
+    const auto* entry = currentEntry();
+    return entry ? entry->selectedPaths.size() : 0;
+}
+
+bool DirectorySession::isSelectedPath(const QString& pathValue) const {
+    const auto* entry = currentEntry();
+    return entry && entry->selectedPaths.contains(pathValue);
+}
+
+void DirectorySession::emitSelectionChanged() {
+    ++m_selectionRevision;
+    emit selectionChanged();
 }
 
 void DirectorySession::setSelectedPath(const QString& pathValue) {
     auto* entry = currentEntry();
-    if (!entry || entry->selectedPath == pathValue)
+    if (!entry)
         return;
-    entry->selectedPath = pathValue;
-    emit selectedPathChanged();
+
+    QSet<QString> next;
+    if (!pathValue.isEmpty())
+        next.insert(pathValue);
+
+    if (entry->selectedPaths == next && entry->primarySelectedPath == pathValue)
+        return;
+
+    entry->selectedPaths = std::move(next);
+    entry->primarySelectedPath = pathValue;
+    entry->anchorPath = pathValue;
+    emitSelectionChanged();
+}
+
+void DirectorySession::selectSingle(int index) {
+    const QString target = m_model.pathAt(index);
+    if (target.isEmpty())
+        return;
+    setSelectedPath(target);
+}
+
+void DirectorySession::toggleSelection(int index) {
+    const QString target = m_model.pathAt(index);
+    if (target.isEmpty())
+        return;
+
+    auto* entry = currentEntry();
+    if (!entry)
+        return;
+
+    if (entry->selectedPaths.contains(target)) {
+        entry->selectedPaths.remove(target);
+        if (entry->primarySelectedPath == target) {
+            entry->primarySelectedPath =
+                entry->selectedPaths.isEmpty() ? QString() : *entry->selectedPaths.constBegin();
+        }
+    } else {
+        entry->selectedPaths.insert(target);
+        entry->primarySelectedPath = target;
+    }
+
+    entry->anchorPath = target;
+    emitSelectionChanged();
+}
+
+void DirectorySession::selectRange(int index) {
+    const QString target = m_model.pathAt(index);
+    if (target.isEmpty())
+        return;
+
+    auto* entry = currentEntry();
+    if (!entry)
+        return;
+
+    int anchorIndex = m_model.indexOfPath(entry->anchorPath);
+    if (anchorIndex < 0)
+        anchorIndex = m_model.indexOfPath(entry->primarySelectedPath);
+    if (anchorIndex < 0)
+        anchorIndex = index;
+
+    const int first = qMin(anchorIndex, index);
+    const int last = qMax(anchorIndex, index);
+
+    QSet<QString> range;
+    range.reserve(last - first + 1);
+    for (int i = first; i <= last; ++i) {
+        const QString pathValue = m_model.pathAt(i);
+        if (!pathValue.isEmpty())
+            range.insert(pathValue);
+    }
+
+    entry->selectedPaths = std::move(range);
+    entry->primarySelectedPath = target;
+    if (entry->anchorPath.isEmpty())
+        entry->anchorPath = m_model.pathAt(anchorIndex);
+    emitSelectionChanged();
+}
+
+void DirectorySession::selectAll() {
+    auto* entry = currentEntry();
+    if (!entry)
+        return;
+
+    QSet<QString> all;
+    all.reserve(m_model.rowCount());
+    for (int i = 0; i < m_model.rowCount(); ++i) {
+        const QString pathValue = m_model.pathAt(i);
+        if (!pathValue.isEmpty())
+            all.insert(pathValue);
+    }
+
+    if (entry->selectedPaths == all)
+        return;
+
+    entry->selectedPaths = std::move(all);
+    if (!entry->primarySelectedPath.isEmpty() &&
+        !entry->selectedPaths.contains(entry->primarySelectedPath)) {
+        entry->primarySelectedPath.clear();
+    }
+    if (entry->primarySelectedPath.isEmpty() && m_model.rowCount() > 0)
+        entry->primarySelectedPath = m_model.pathAt(0);
+    if (entry->anchorPath.isEmpty())
+        entry->anchorPath = entry->primarySelectedPath;
+    emitSelectionChanged();
+}
+
+void DirectorySession::clearSelection() {
+    auto* entry = currentEntry();
+    if (!entry || (entry->selectedPaths.isEmpty() &&
+                   entry->primarySelectedPath.isEmpty() &&
+                   entry->anchorPath.isEmpty()))
+        return;
+
+    entry->selectedPaths.clear();
+    entry->primarySelectedPath.clear();
+    entry->anchorPath.clear();
+    emitSelectionChanged();
 }
 
 qreal DirectorySession::scrollPosition() const {
@@ -101,6 +233,19 @@ void DirectorySession::setScrollPosition(qreal position) {
     emit scrollPositionChanged();
 }
 
+void DirectorySession::setViewMode(int mode) {
+    const int bounded = qBound(
+        static_cast<int>(CompactView),
+        mode,
+        static_cast<int>(DetailsView));
+
+    if (m_viewMode == bounded)
+        return;
+
+    m_viewMode = bounded;
+    emit viewModeChanged();
+}
+
 bool DirectorySession::navigate(const QString& requestedPath) {
     const QString target = normalizeDirectoryPath(requestedPath);
     if (target.isEmpty() || !QDir(target).exists()) {
@@ -114,7 +259,7 @@ bool DirectorySession::navigate(const QString& requestedPath) {
     while (m_history.size() > m_historyIndex + 1)
         m_history.removeLast();
 
-    m_history.push_back({target, QString(), 0.0});
+    m_history.push_back({target, {}, QString(), QString(), 0.0});
     m_historyIndex = m_history.size() - 1;
     applyHistoryEntry();
     return true;
@@ -129,7 +274,7 @@ void DirectorySession::applyHistoryEntry() {
     emit pathChanged();
     emit titleChanged();
     emit historyChanged();
-    emit selectedPathChanged();
+    emitSelectionChanged();
     emit scrollPositionChanged();
 }
 

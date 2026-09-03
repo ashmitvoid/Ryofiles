@@ -38,6 +38,8 @@ qt_add_qml_module(ryofiles
         qml/Main.qml
         qml/components/RyokuRail.qml
         qml/components/TabStrip.qml
+        qml/components/FileListView.qml
+        qml/components/FileGridView.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)

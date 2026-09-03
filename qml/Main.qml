@@ -18,40 +18,8 @@ Window {
     readonly property var files: session ? session.model : null
 
     property string lastError: ""
-    property bool restoringView: false
 
-    TabManager {
-        id: tabs
-    }
-
-    function restoreViewState() {
-        if (!root.session || !root.files)
-            return
-
-        root.restoringView = true
-        if (root.files.loading)
-            return
-
-        Qt.callLater(function() {
-            if (!root.session || !root.files) {
-                root.restoringView = false
-                return
-            }
-
-            var idx = root.files.indexOfPath(root.session.selectedPath)
-            if (idx < 0 && root.files.count > 0)
-                idx = 0
-
-            list.currentIndex = idx
-
-            var maxY = Math.max(0, list.contentHeight - list.height)
-            list.contentY = Math.max(0, Math.min(root.session.scrollPosition, maxY))
-
-            Qt.callLater(function() {
-                root.restoringView = false
-            })
-        })
-    }
+    TabManager { id: tabs }
 
     Timer {
         id: errorClear
@@ -69,77 +37,39 @@ Window {
 
         function onPathChanged() {
             location.text = root.session ? root.session.path : ""
-            root.restoreViewState()
         }
-
-        function onSelectedPathChanged() {
-            if (!root.restoringView)
-                root.restoreViewState()
-        }
-    }
-
-    Connections {
-        target: root.files
-        function onCountChanged() { root.restoreViewState() }
     }
 
     Connections {
         target: tabs
-
-        function onCurrentIndexChanged() {
-            root.restoringView = true
-        }
-
         function onCurrentSessionChanged() {
             location.text = root.session ? root.session.path : ""
-            root.restoreViewState()
         }
     }
 
-    Shortcut {
-        sequence: "Ctrl+T"
-        onActivated: tabs.newTab("")
-    }
-    Shortcut {
-        sequence: "Ctrl+W"
-        onActivated: tabs.closeCurrentTab()
-    }
-    Shortcut {
-        sequence: "Ctrl+Shift+T"
-        onActivated: tabs.reopenClosedTab()
-    }
-    Shortcut {
-        sequence: "Ctrl+Tab"
-        onActivated: tabs.nextTab()
-    }
-    Shortcut {
-        sequence: "Ctrl+Shift+Tab"
-        onActivated: tabs.previousTab()
-    }
-    Shortcut {
-        sequence: "Alt+Left"
-        onActivated: if (root.session) root.session.goBack()
-    }
-    Shortcut {
-        sequence: "Alt+Right"
-        onActivated: if (root.session) root.session.goForward()
-    }
-    Shortcut {
-        sequence: "Alt+Up"
-        onActivated: if (root.session) root.session.goUp()
-    }
+    Shortcut { sequence: "Ctrl+T"; onActivated: tabs.newTab("") }
+    Shortcut { sequence: "Ctrl+W"; onActivated: tabs.closeCurrentTab() }
+    Shortcut { sequence: "Ctrl+Shift+T"; onActivated: tabs.reopenClosedTab() }
+    Shortcut { sequence: "Ctrl+Tab"; onActivated: tabs.nextTab() }
+    Shortcut { sequence: "Ctrl+Shift+Tab"; onActivated: tabs.previousTab() }
+
+    Shortcut { sequence: "Alt+Left"; onActivated: if (root.session) root.session.goBack() }
+    Shortcut { sequence: "Alt+Right"; onActivated: if (root.session) root.session.goForward() }
+    Shortcut { sequence: "Alt+Up"; onActivated: if (root.session) root.session.goUp() }
+
     Shortcut {
         sequence: "Ctrl+H"
         onActivated: if (root.files) root.files.showHidden = !root.files.showHidden
     }
-    Shortcut {
-        sequence: "Ctrl+R"
-        onActivated: if (root.session) root.session.refresh()
-    }
-    Shortcut {
-        sequence: "Ctrl+L"
-        onActivated: location.forceActiveFocus()
-    }
+    Shortcut { sequence: "Ctrl+R"; onActivated: if (root.session) root.session.refresh() }
+    Shortcut { sequence: "Ctrl+L"; onActivated: location.forceActiveFocus() }
+
+    Shortcut { sequence: "Ctrl+A"; onActivated: if (root.session) root.session.selectAll() }
+    Shortcut { sequence: "Escape"; onActivated: if (root.session) root.session.clearSelection() }
+
+    Shortcut { sequence: "Ctrl+1"; onActivated: if (root.session) root.session.viewMode = 0 }
+    Shortcut { sequence: "Ctrl+2"; onActivated: if (root.session) root.session.viewMode = 1 }
+    Shortcut { sequence: "Ctrl+3"; onActivated: if (root.session) root.session.viewMode = 2 }
 
     Rectangle {
         anchors.fill: parent
@@ -261,7 +191,7 @@ Window {
                 Rectangle {
                     anchors.left: navButtons.right
                     anchors.leftMargin: 10 * root.u
-                    anchors.right: hiddenBadge.left
+                    anchors.right: viewModes.left
                     anchors.rightMargin: 10 * root.u
                     anchors.verticalCenter: parent.verticalCenter
                     height: 34 * root.u
@@ -288,6 +218,59 @@ Window {
                             if (root.session && !root.session.navigate(text))
                                 text = root.session.path
                             focus = false
+                        }
+                    }
+                }
+
+                Row {
+                    id: viewModes
+                    anchors.right: hiddenBadge.left
+                    anchors.rightMargin: 8 * root.u
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 4 * root.u
+
+                    Repeater {
+                        model: [
+                            { label: "LIST", mode: 0 },
+                            { label: "GRID", mode: 1 },
+                            { label: "DETAILS", mode: 2 }
+                        ]
+
+                        delegate: Rectangle {
+                            id: modeButton
+                            required property var modelData
+
+                            readonly property bool selected:
+                                root.session && root.session.viewMode === modelData.mode
+
+                            width: modeLabel.implicitWidth + 14 * root.u
+                            height: 30 * root.u
+                            radius: 6 * root.u
+                            color: selected
+                                ? Ryoku.bone
+                                : (modeHover.hovered ? Ryoku.tint10 : "transparent")
+                            border.width: 1
+                            border.color: selected ? Ryoku.bone : Ryoku.line
+
+                            Text {
+                                id: modeLabel
+                                anchors.centerIn: parent
+                                text: modeButton.modelData.label
+                                color: modeButton.selected ? Ryoku.inkOnBone : Ryoku.inkDim
+                                font.family: Ryoku.uiFont
+                                font.pixelSize: 9 * root.u
+                                font.weight: Font.Medium
+                                font.letterSpacing: 1.1
+                            }
+
+                            HoverHandler {
+                                id: modeHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            TapHandler {
+                                onTapped: if (root.session)
+                                    root.session.viewMode = modeButton.modelData.mode
+                            }
                         }
                     }
                 }
@@ -330,6 +313,49 @@ Window {
                 anchors.bottom: status.top
                 anchors.margins: 20 * root.u
 
+                Component {
+                    id: compactView
+                    FileListView {
+                        session: root.session
+                        files: root.files
+                        uiScale: root.u
+                        compact: true
+                    }
+                }
+
+                Component {
+                    id: gridView
+                    FileGridView {
+                        session: root.session
+                        files: root.files
+                        uiScale: root.u
+                    }
+                }
+
+                Component {
+                    id: detailsView
+                    FileListView {
+                        session: root.session
+                        files: root.files
+                        uiScale: root.u
+                        compact: false
+                    }
+                }
+
+                Loader {
+                    anchors.fill: parent
+                    active: root.session !== null && root.files !== null
+                    sourceComponent: {
+                        if (!root.session)
+                            return null
+                        if (root.session.viewMode === 0)
+                            return compactView
+                        if (root.session.viewMode === 1)
+                            return gridView
+                        return detailsView
+                    }
+                }
+
                 Text {
                     anchors.centerIn: parent
                     visible: root.files && !root.files.loading && root.files.count === 0
@@ -339,130 +365,6 @@ Window {
                     font.family: Ryoku.monoFont
                     font.pixelSize: 11 * root.u
                     lineHeight: 1.7
-                }
-
-                ListView {
-                    id: list
-                    anchors.fill: parent
-                    clip: true
-                    model: root.files
-                    spacing: 1 * root.u
-                    currentIndex: -1
-                    boundsBehavior: Flickable.StopAtBounds
-                    reuseItems: true
-
-                    onCurrentIndexChanged: {
-                        if (root.restoringView || !root.session || !root.files || root.files.loading || currentIndex < 0)
-                            return
-                        var selected = root.files.pathAt(currentIndex)
-                        if (selected !== "")
-                            root.session.selectedPath = selected
-                    }
-
-                    onContentYChanged: {
-                        if (!root.restoringView && root.session && root.files && !root.files.loading)
-                            root.session.scrollPosition = Math.max(0, contentY)
-                    }
-
-                    delegate: Rectangle {
-                        id: row
-                        required property int index
-                        required property string name
-                        required property string filePath
-                        required property bool isDir
-                        required property string sizeText
-                        required property string modifiedText
-
-                        width: list.width
-                        height: 44 * root.u
-                        radius: 6 * root.u
-                        color: list.currentIndex === index
-                            ? Ryoku.bone
-                            : (rowHover.hovered ? Ryoku.tint5 : "transparent")
-
-                        Row {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12 * root.u
-                            anchors.rightMargin: 12 * root.u
-                            spacing: 12 * root.u
-
-                            Text {
-                                width: 22 * root.u
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: row.isDir ? "▰" : "·"
-                                color: list.currentIndex === row.index
-                                    ? Ryoku.inkOnBoneDim
-                                    : Ryoku.inkFaint
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 13 * root.u
-                            }
-
-                            Text {
-                                width: Math.max(120, parent.width - (22 + 12 + 118 + 12 + 154) * root.u)
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: row.name
-                                elide: Text.ElideMiddle
-                                color: list.currentIndex === row.index
-                                    ? Ryoku.inkOnBone
-                                    : Ryoku.ink
-                                font.family: Ryoku.uiFont
-                                font.pixelSize: 13 * root.u
-                            }
-
-                            Text {
-                                width: 118 * root.u
-                                anchors.verticalCenter: parent.verticalCenter
-                                horizontalAlignment: Text.AlignRight
-                                text: row.isDir ? "DIR" : row.sizeText
-                                color: list.currentIndex === row.index
-                                    ? Ryoku.inkOnBoneDim
-                                    : Ryoku.inkMuted
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 10 * root.u
-                            }
-
-                            Text {
-                                width: 154 * root.u
-                                anchors.verticalCenter: parent.verticalCenter
-                                horizontalAlignment: Text.AlignRight
-                                text: row.modifiedText
-                                color: list.currentIndex === row.index
-                                    ? Ryoku.inkOnBoneDim
-                                    : Ryoku.inkMuted
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 10 * root.u
-                            }
-                        }
-
-                        HoverHandler {
-                            id: rowHover
-                            cursorShape: Qt.PointingHandCursor
-                        }
-
-                        TapHandler {
-                            acceptedButtons: Qt.LeftButton
-                            onTapped: list.currentIndex = row.index
-                            onDoubleTapped: {
-                                list.currentIndex = row.index
-                                if (root.session)
-                                    root.session.activate(row.index)
-                            }
-                        }
-                    }
-
-                    Keys.onReturnPressed: {
-                        if (root.session)
-                            root.session.activate(currentIndex)
-                    }
-                    Keys.onEnterPressed: {
-                        if (root.session)
-                            root.session.activate(currentIndex)
-                    }
-
-                    Component.onCompleted: {
-                        forceActiveFocus()
-                        root.restoreViewState()
-                    }
                 }
 
                 Rectangle {
@@ -511,7 +413,10 @@ Window {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.lastError !== ""
                         ? root.lastError
-                        : ((root.files ? root.files.count : 0) + " items"
+                        : ((root.session && root.session.selectionCount > 0
+                            ? root.session.selectionCount + " selected  // "
+                            : "")
+                           + (root.files ? root.files.count : 0) + " items"
                            + (root.files && root.files.showHidden ? "  // hidden visible" : "")
                            + "  // " + tabs.count + (tabs.count === 1 ? " tab" : " tabs"))
                     color: root.lastError !== "" ? Ryoku.sun : Ryoku.inkMuted
@@ -523,7 +428,7 @@ Window {
                     anchors.right: parent.right
                     anchors.rightMargin: 20 * root.u
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "CTRL+T NEW   CTRL+W CLOSE   ALT+←/→ HISTORY"
+                    text: "CTRL+A SELECT ALL   CTRL+1/2/3 VIEW   ESC CLEAR"
                     color: Ryoku.inkFaint
                     font.family: Ryoku.monoFont
                     font.pixelSize: 9 * root.u
