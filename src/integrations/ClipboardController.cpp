@@ -163,6 +163,27 @@ void ClipboardController::cutFiles(const QStringList& paths) {
     setFiles(paths, true);
 }
 
+bool ClipboardController::matchesFiles(
+    const QStringList& requestedPaths,
+    bool cutExpected) const {
+    QStringList expected = normalizedPaths(requestedPaths);
+    QStringList actual = normalizedPaths(filePaths());
+
+    expected.sort();
+    actual.sort();
+
+    return !expected.isEmpty()
+        && expected == actual
+        && isCut() == cutExpected;
+}
+
+void ClipboardController::clearIfMatches(
+    const QStringList& paths,
+    bool cutExpected) {
+    if (matchesFiles(paths, cutExpected))
+        clear();
+}
+
 void ClipboardController::clear() {
     if (auto* clipboard = QGuiApplication::clipboard())
         clipboard->clear();
