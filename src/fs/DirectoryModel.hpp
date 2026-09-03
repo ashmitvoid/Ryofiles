@@ -29,6 +29,7 @@ public:
         SizeTextRole,
         ModifiedTextRole,
         HiddenRole,
+        ThumbnailCandidateRole,
     };
     Q_ENUM(Role)
 
@@ -76,6 +77,7 @@ private:
         QString modifiedText;
         bool directory = false;
         bool hidden = false;
+        bool thumbnailCandidate = false;
     };
 
     void scan();
@@ -84,6 +86,7 @@ private:
     static QList<Entry> scanDirectory(const QString& path, bool showHidden, QString* error);
     static QString formatSize(qint64 bytes);
     static QString standardPath(int location);
+    static bool thumbnailCandidateFor(const QFileInfo& info);
 
     QList<Entry> m_entries;
     QString m_path;
