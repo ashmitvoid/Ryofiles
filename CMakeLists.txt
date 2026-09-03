@@ -58,6 +58,7 @@ qt_add_qml_module(ryofiles
         qml/components/TabStrip.qml
         qml/components/FileListView.qml
         qml/components/FileGridView.qml
+        qml/components/FolderFilterBar.qml
         qml/components/OperationDrawer.qml
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
