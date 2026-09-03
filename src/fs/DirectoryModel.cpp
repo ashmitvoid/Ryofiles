@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
 #include <QtConcurrent>
@@ -40,6 +41,7 @@ QVariant DirectoryModel::data(const QModelIndex& index, int role) const {
     case SizeTextRole: return entry.sizeText;
     case ModifiedTextRole: return entry.modifiedText;
     case HiddenRole: return entry.hidden;
+    case ThumbnailCandidateRole: return entry.thumbnailCandidate;
     default: return {};
     }
 }
@@ -52,6 +54,7 @@ QHash<int, QByteArray> DirectoryModel::roleNames() const {
         {SizeTextRole, "sizeText"},
         {ModifiedTextRole, "modifiedText"},
         {HiddenRole, "isHidden"},
+        {ThumbnailCandidateRole, "thumbnailCandidate"},
     };
 }
 
@@ -190,6 +193,27 @@ void DirectoryModel::scan() {
     }));
 }
 
+bool DirectoryModel::thumbnailCandidateFor(const QFileInfo& info) {
+    if (!info.isFile() || info.isSymLink())
+        return false;
+
+    static const QSet<QString> suffixes = {
+        QStringLiteral("jpg"),
+        QStringLiteral("jpeg"),
+        QStringLiteral("png"),
+        QStringLiteral("webp"),
+        QStringLiteral("gif"),
+        QStringLiteral("bmp"),
+        QStringLiteral("tif"),
+        QStringLiteral("tiff"),
+        QStringLiteral("avif"),
+        QStringLiteral("heic"),
+        QStringLiteral("heif"),
+    };
+
+    return suffixes.contains(info.suffix().toLower());
+}
+
 QList<DirectoryModel::Entry> DirectoryModel::scanDirectory(
     const QString& path,
     bool showHidden,
@@ -217,6 +241,7 @@ QList<DirectoryModel::Entry> DirectoryModel::scanDirectory(
         entry.path = info.absoluteFilePath();
         entry.directory = info.isDir();
         entry.hidden = info.isHidden() || entry.name.startsWith(QLatin1Char('.'));
+        entry.thumbnailCandidate = thumbnailCandidateFor(info);
         entry.sizeText = entry.directory ? QString() : formatSize(info.size());
         entry.modifiedText = info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         entries.push_back(std::move(entry));
