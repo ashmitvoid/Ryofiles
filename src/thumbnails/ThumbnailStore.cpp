@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMutex>
+#include <QObject>
 #include <QSet>
 #include <QStandardPaths>
 #include <QUuid>
