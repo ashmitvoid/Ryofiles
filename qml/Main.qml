@@ -65,7 +65,7 @@ Window {
         }
 
         if (FileClipboard.cut)
-            root.cutPasteJobs[id] = true
+            root.cutPasteJobs[id] = paths
     }
 
     function trashSelection() {
@@ -139,7 +139,7 @@ Window {
         function onJobFinished(jobId, success) {
             if (root.cutPasteJobs[jobId] !== undefined) {
                 if (success)
-                    FileClipboard.clear()
+                    FileClipboard.clearIfMatches(root.cutPasteJobs[jobId], true)
                 delete root.cutPasteJobs[jobId]
             }
 
