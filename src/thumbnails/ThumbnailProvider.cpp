@@ -4,11 +4,13 @@
 
 #include "ThumbnailStore.hpp"
 
-#include <QMetaObject>
+#include <QByteArray>
+#include <QQuickTextureFactory>
 #include <QThread>
 #include <QUrlQuery>
 
 #include <algorithm>
+#include <utility>
 
 ThumbnailScheduler::ThumbnailScheduler() {
     const int ideal = QThread::idealThreadCount();
