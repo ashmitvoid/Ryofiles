@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QTimer>
 
