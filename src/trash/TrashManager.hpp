@@ -126,5 +126,6 @@ private:
     QTimer m_refreshDebounce;
     bool m_busy = false;
     std::atomic_bool m_stopping = false;
+    std::atomic<quint64> m_refreshGeneration = 0;
     QVector<QFuture<void>> m_futures;
 };
