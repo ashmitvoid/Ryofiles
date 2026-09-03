@@ -57,6 +57,19 @@ int OperationManager::rowCount(const QModelIndex& parent) const {
     return parent.isValid() ? 0 : m_jobs.size();
 }
 
+int OperationManager::activeCount() const {
+    int countValue = 0;
+    for (const auto& job : m_jobs) {
+        if (!terminal(job->state))
+            ++countValue;
+    }
+    return countValue;
+}
+
+bool OperationManager::terminal(OperationState state) {
+    return state == Completed || state == Failed || state == Cancelled;
+}
+
 QVariant OperationManager::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_jobs.size())
         return {};
@@ -131,6 +144,27 @@ QString OperationManager::rename(const QString& source, const QString& newName) 
         cleanName);
 }
 
+void OperationManager::pruneFinishedJobs(int keep) {
+    int finished = 0;
+    for (const auto& job : m_jobs) {
+        if (terminal(job->state))
+            ++finished;
+    }
+
+    for (int row = 0; row < m_jobs.size() && finished > keep;) {
+        if (!terminal(m_jobs.at(row)->state)) {
+            ++row;
+            continue;
+        }
+
+        beginRemoveRows({}, row, row);
+        m_jobs.removeAt(row);
+        endRemoveRows();
+        --finished;
+        emit countChanged();
+    }
+}
+
 QString OperationManager::startJob(
     OperationKind kind,
     const QStringList& requestedSources,
@@ -152,6 +186,8 @@ QString OperationManager::startJob(
     if (!destinationDir.exists())
         return {};
 
+    pruneFinishedJobs();
+
     auto job = std::make_shared<Job>();
     job->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     job->kind = kind;
@@ -165,6 +201,7 @@ QString OperationManager::startJob(
     m_jobs.push_back(job);
     endInsertRows();
     emit countChanged();
+    emit activeCountChanged();
 
     job->future = QtConcurrent::run([this, job] {
         runJob(job);
@@ -195,6 +232,7 @@ void OperationManager::updateJob(
 
         update(*job);
         emit dataChanged(index(row), index(row));
+        emit activeCountChanged();
     }, Qt::QueuedConnection);
 }
 
@@ -212,6 +250,7 @@ void OperationManager::finishJob(
         job->conflictSource.clear();
         job->conflictDestination.clear();
         emit dataChanged(index(row), index(row));
+        emit activeCountChanged();
         emit jobFinished(job->id, state == Completed);
     }, Qt::QueuedConnection);
 }
@@ -227,6 +266,38 @@ void OperationManager::cancel(const QString& jobId) {
     job->conflictDecision = CancelOperation;
     job->conflictResolved = true;
     job->conflictCondition.wakeAll();
+}
+
+QString OperationManager::errorFor(const QString& jobId) const {
+    const auto job = findJob(jobId);
+    return job ? job->error : QString();
+}
+
+void OperationManager::dismiss(const QString& jobId) {
+    for (int row = 0; row < m_jobs.size(); ++row) {
+        if (m_jobs.at(row)->id != jobId)
+            continue;
+        if (!terminal(m_jobs.at(row)->state))
+            return;
+
+        beginRemoveRows({}, row, row);
+        m_jobs.removeAt(row);
+        endRemoveRows();
+        emit countChanged();
+        return;
+    }
+}
+
+void OperationManager::clearFinished() {
+    for (int row = m_jobs.size() - 1; row >= 0; --row) {
+        if (!terminal(m_jobs.at(row)->state))
+            continue;
+
+        beginRemoveRows({}, row, row);
+        m_jobs.removeAt(row);
+        endRemoveRows();
+    }
+    emit countChanged();
 }
 
 void OperationManager::resolveConflict(const QString& jobId, int decisionValue) {
