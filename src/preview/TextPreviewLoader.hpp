@@ -9,7 +9,7 @@
 #include <atomic>
 #include <memory>
 
-class TextPreviewLoader final : public QObject {
+class TextPreviewLoader : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
