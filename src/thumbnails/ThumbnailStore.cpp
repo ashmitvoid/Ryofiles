@@ -10,7 +10,9 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMutex>
+#include <QSet>
 #include <QStandardPaths>
+#include <QUuid>
 
 #include <algorithm>
 
@@ -222,8 +224,9 @@ QImage ThumbnailStore::load(
     insertMemory(key, image);
 
     if (!diskPath.isEmpty() && !cancelled.load(std::memory_order_relaxed)) {
-        const QString temporary = diskPath + QStringLiteral(".tmp-%1")
-            .arg(QString::number(QDateTime::currentMSecsSinceEpoch()));
+        const QString temporary = diskPath
+            + QStringLiteral(".tmp-")
+            + QUuid::createUuid().toString(QUuid::WithoutBraces);
 
         if (image.save(temporary, "PNG")) {
             QFile::remove(diskPath);
