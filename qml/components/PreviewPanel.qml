@@ -12,7 +12,7 @@ Item {
     property var details: ({})
 
     function refreshDetails() {
-        if (!session || session.selectionCount !== 1 || session.selectedPath === "") {
+        if (!root.visible || !session || session.selectionCount !== 1 || session.selectedPath === "") {
             details = ({})
             return
         }
@@ -20,6 +20,7 @@ Item {
     }
 
     onSessionChanged: refreshDetails()
+    onVisibleChanged: refreshDetails()
 
     Connections {
         target: root.session
@@ -81,7 +82,8 @@ Item {
                 id: previewImage
                 anchors.fill: parent
                 anchors.margins: 8 * root.uiScale
-                visible: root.session
+                visible: root.visible
+                    && root.session
                     && root.session.selectionCount === 1
                     && root.thumbnails.isCandidate(root.session.selectedPath)
                 source: visible
