@@ -300,7 +300,10 @@ void OperationManager::clearFinished() {
     emit countChanged();
 }
 
-void OperationManager::resolveConflict(const QString& jobId, int decisionValue) {
+void OperationManager::resolveConflict(
+    const QString& jobId,
+    int decisionValue,
+    bool applyToAll) {
     const auto job = findJob(jobId);
     if (!job)
         return;
@@ -313,6 +316,10 @@ void OperationManager::resolveConflict(const QString& jobId, int decisionValue) 
         return;
 
     job->conflictDecision = static_cast<ConflictDecision>(decisionValue);
+    if (applyToAll && job->conflictDecision != CancelOperation) {
+        job->persistentConflictDecision = true;
+        job->persistentDecision = job->conflictDecision;
+    }
     job->conflictResolved = true;
     job->conflictCondition.wakeAll();
 }
@@ -321,6 +328,12 @@ OperationManager::ConflictDecision OperationManager::waitForConflict(
     const std::shared_ptr<Job>& job,
     const QString& source,
     const QString& destination) {
+    {
+        QMutexLocker locker(&job->conflictMutex);
+        if (job->persistentConflictDecision)
+            return job->persistentDecision;
+    }
+
     updateJob(job, [source, destination](Job& mutableJob) {
         mutableJob.state = WaitingForConflict;
         mutableJob.conflictSource = source;
