@@ -8,6 +8,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <memory>
+
 class TrashManagerTest final : public QObject {
     Q_OBJECT
 
