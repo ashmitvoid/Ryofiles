@@ -33,6 +33,8 @@ qt_add_executable(ryofiles
     src/operations/OperationManager.cpp
     src/trash/TrashManager.hpp
     src/trash/TrashManager.cpp
+    src/integrations/ClipboardController.hpp
+    src/integrations/ClipboardController.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -44,6 +46,10 @@ qt_add_qml_module(ryofiles
         qml/components/TabStrip.qml
         qml/components/FileListView.qml
         qml/components/FileGridView.qml
+        qml/components/OperationDrawer.qml
+        qml/components/ConflictSheet.qml
+        qml/components/RenameSheet.qml
+        qml/components/TrashView.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
