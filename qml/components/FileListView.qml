@@ -12,6 +12,7 @@ ListView {
 
     property bool restoring: false
     property bool pointerSelection: false
+    signal contextRequested(real sceneX, real sceneY, string path, bool isDirectory)
 
     clip: true
     model: files
@@ -154,11 +155,22 @@ ListView {
             id: mouse
             anchors.fill: parent
             hoverEnabled: true
-            acceptedButtons: Qt.LeftButton
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
 
             onClicked: function(event) {
                 view.pointerSelection = true
                 view.currentIndex = row.index
+
+                if (event.button === Qt.RightButton) {
+                    if (!row.selected)
+                        view.session.selectSingle(row.index)
+
+                    var point = row.mapToItem(null, event.x, event.y)
+                    view.contextRequested(point.x, point.y, row.filePath, row.isDir)
+                    view.pointerSelection = false
+                    view.forceActiveFocus()
+                    return
+                }
 
                 if (event.modifiers & Qt.ShiftModifier)
                     view.session.selectRange(row.index)
