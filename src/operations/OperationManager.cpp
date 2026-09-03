@@ -9,6 +9,8 @@
 #include <QUuid>
 #include <QtConcurrent>
 
+#include <unistd.h>
+
 namespace {
 
 QString stateText(OperationManager::OperationState state) {
@@ -28,6 +30,8 @@ QString kindText(OperationManager::OperationKind kind) {
     case OperationManager::CopyOperation: return QStringLiteral("copy");
     case OperationManager::MoveOperation: return QStringLiteral("move");
     case OperationManager::RenameOperation: return QStringLiteral("rename");
+    case OperationManager::DuplicateOperation: return QStringLiteral("duplicate");
+    case OperationManager::CreateFolderOperation: return QStringLiteral("new folder");
     }
     return QStringLiteral("unknown");
 }
@@ -123,6 +127,14 @@ QString OperationManager::move(const QStringList& sources, const QString& destin
     return startJob(MoveOperation, sources, destinationDirectory);
 }
 
+bool OperationManager::validLeafName(const QString& name) {
+    const QString clean = name.trimmed();
+    return !clean.isEmpty()
+        && !clean.contains(QLatin1Char('/'))
+        && clean != QStringLiteral(".")
+        && clean != QStringLiteral("..");
+}
+
 QString OperationManager::rename(const QString& source, const QString& newName) {
     if (source.trimmed().isEmpty() || newName.trimmed().isEmpty())
         return {};
@@ -132,16 +144,77 @@ QString OperationManager::rename(const QString& source, const QString& newName) 
         return {};
 
     const QString cleanName = newName.trimmed();
-    if (cleanName.contains(QLatin1Char('/')) || cleanName == QStringLiteral(".") ||
-        cleanName == QStringLiteral("..")) {
+    if (!validLeafName(cleanName))
         return {};
-    }
 
     return startJob(
         RenameOperation,
         {info.absoluteFilePath()},
         info.absolutePath(),
         cleanName);
+}
+
+QString OperationManager::duplicate(const QStringList& requestedSources) {
+    QStringList sources;
+    QString parent;
+
+    for (const QString& source : requestedSources) {
+        const QFileInfo info(source);
+        if (!info.exists() && !info.isSymLink())
+            continue;
+
+        if (parent.isEmpty())
+            parent = info.absolutePath();
+        else if (parent != info.absolutePath())
+            return {};
+
+        sources.push_back(info.absoluteFilePath());
+    }
+
+    if (sources.isEmpty() || parent.isEmpty())
+        return {};
+
+    return startJob(DuplicateOperation, sources, parent);
+}
+
+QString OperationManager::createFolder(
+    const QString& parentDirectory,
+    const QString& name) {
+    const QString cleanName = name.trimmed();
+    if (!validLeafName(cleanName))
+        return {};
+
+    return startCreateFolderJob(parentDirectory, cleanName);
+}
+
+QString OperationManager::startCreateFolderJob(
+    const QString& parentDirectory,
+    const QString& name) {
+    const QDir parent(parentDirectory);
+    if (!parent.exists())
+        return {};
+
+    pruneFinishedJobs();
+
+    auto job = std::make_shared<Job>();
+    job->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    job->kind = CreateFolderOperation;
+    job->destinationDirectory = parent.absolutePath();
+    job->renameTarget = name;
+    job->totalItems = 1;
+
+    const int row = m_jobs.size();
+    beginInsertRows({}, row, row);
+    m_jobs.push_back(job);
+    endInsertRows();
+    emit countChanged();
+    emit activeCountChanged();
+
+    job->future = QtConcurrent::run([this, job] {
+        runJob(job);
+    });
+
+    return job->id;
 }
 
 void OperationManager::pruneFinishedJobs(int keep) {
@@ -424,6 +497,46 @@ bool OperationManager::renamePath(const QString& source, const QString& destinat
     return QDir().rename(source, destination);
 }
 
+bool OperationManager::copySymbolicLink(
+    const QString& source,
+    const QString& destination,
+    QString* error) {
+    const QByteArray sourceBytes = QFile::encodeName(source);
+    QByteArray target(256, '\0');
+
+    while (true) {
+        const ssize_t length =
+            ::readlink(sourceBytes.constData(), target.data(), static_cast<size_t>(target.size()));
+
+        if (length < 0) {
+            if (error)
+                *error = QObject::tr("Could not read symbolic link: %1").arg(source);
+            return false;
+        }
+
+        if (length < target.size()) {
+            target.resize(static_cast<qsizetype>(length));
+            break;
+        }
+
+        if (target.size() >= 1024 * 1024) {
+            if (error)
+                *error = QObject::tr("Symbolic link target is unexpectedly large: %1").arg(source);
+            return false;
+        }
+
+        target.resize(target.size() * 2);
+    }
+
+    const QByteArray destinationBytes = QFile::encodeName(destination);
+    if (::symlink(target.constData(), destinationBytes.constData()) == 0)
+        return true;
+
+    if (error)
+        *error = QObject::tr("Could not copy symbolic link: %1").arg(source);
+    return false;
+}
+
 bool OperationManager::removePath(const QString& path, QString* error) {
     const QFileInfo info(path);
     if (!info.exists() && !info.isSymLink())
@@ -464,13 +577,8 @@ bool OperationManager::copyPath(
         return false;
     }
 
-    if (info.isSymLink()) {
-        if (QFile::link(info.symLinkTarget(), destination))
-            return true;
-        if (error)
-            *error = QObject::tr("Could not copy symbolic link %1").arg(source);
-        return false;
-    }
+    if (info.isSymLink())
+        return copySymbolicLink(source, destination, error);
 
     if (info.isFile()) {
         if (QFile::copy(source, destination))
@@ -560,6 +668,33 @@ void OperationManager::runJob(const std::shared_ptr<Job>& job) {
         mutableJob.state = Running;
     });
 
+    if (job->kind == CreateFolderOperation) {
+        if (job->cancelRequested.load(std::memory_order_relaxed)) {
+            finishJob(job, Cancelled);
+            return;
+        }
+
+        const QString target =
+            QDir(job->destinationDirectory).filePath(job->renameTarget);
+
+        if (QFileInfo::exists(target) || QFileInfo(target).isSymLink()) {
+            finishJob(job, Failed, tr("A file or folder already exists: %1").arg(target));
+            return;
+        }
+
+        if (!QDir(job->destinationDirectory).mkdir(job->renameTarget)) {
+            finishJob(job, Failed, tr("Could not create folder: %1").arg(target));
+            return;
+        }
+
+        updateJob(job, [](Job& mutableJob) {
+            mutableJob.currentSource = mutableJob.renameTarget;
+            mutableJob.completedItems = 1;
+        });
+        finishJob(job, Completed);
+        return;
+    }
+
     for (int i = 0; i < job->sources.size(); ++i) {
         if (job->cancelRequested.load(std::memory_order_relaxed)) {
             finishJob(job, Cancelled);
@@ -567,9 +702,18 @@ void OperationManager::runJob(const std::shared_ptr<Job>& job) {
         }
 
         const QString source = job->sources.at(i);
-        QString target = job->kind == RenameOperation
-            ? QDir(job->destinationDirectory).filePath(job->renameTarget)
-            : targetPathFor(source, job->destinationDirectory);
+        QString target;
+        if (job->kind == RenameOperation) {
+            target = QDir(job->destinationDirectory).filePath(job->renameTarget);
+        } else if (job->kind == DuplicateOperation) {
+            target = uniqueSiblingPath(source);
+            if (target.isEmpty()) {
+                finishJob(job, Failed, tr("Could not generate a unique duplicate name"));
+                return;
+            }
+        } else {
+            target = targetPathFor(source, job->destinationDirectory);
+        }
 
         updateJob(job, [source](Job& mutableJob) {
             mutableJob.currentSource = source;
@@ -633,7 +777,7 @@ void OperationManager::runJob(const std::shared_ptr<Job>& job) {
 
         QString error;
         bool success = false;
-        if (job->kind == CopyOperation) {
+        if (job->kind == CopyOperation || job->kind == DuplicateOperation) {
             success = copyPath(source, target, job->cancelRequested, &error);
             if (!success) {
                 QString cleanupError;
