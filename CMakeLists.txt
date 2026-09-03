@@ -29,6 +29,8 @@ qt_add_executable(ryofiles
     src/navigation/DirectorySession.cpp
     src/navigation/TabManager.hpp
     src/navigation/TabManager.cpp
+    src/operations/OperationManager.hpp
+    src/operations/OperationManager.cpp
 )
 
 qt_add_qml_module(ryofiles
