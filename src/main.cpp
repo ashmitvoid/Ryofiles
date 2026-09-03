@@ -7,6 +7,8 @@
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
 #include "ryoku/RyokuIntegration.hpp"
+#include "thumbnails/ThumbnailController.hpp"
+#include "thumbnails/ThumbnailProvider.hpp"
 #include "trash/TrashManager.hpp"
 
 #include <QGuiApplication>
@@ -22,9 +24,12 @@ int main(int argc, char* argv[]) {
     RyokuIntegration ryoku;
     ClipboardController fileClipboard;
     DesktopIntegration desktop;
+    ThumbnailController thumbnails;
+
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Desktop", &desktop);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Thumbnails", &thumbnails);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
@@ -37,6 +42,10 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<TrashManager>("Ryofiles.Core", 1, 0, "TrashManager");
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(
+        QStringLiteral("ryofiles-thumb"),
+        new ThumbnailImageProvider);
+
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
