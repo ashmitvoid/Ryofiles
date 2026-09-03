@@ -17,6 +17,7 @@ GridView {
     model: files
     cellWidth: 158 * uiScale
     cellHeight: 126 * uiScale
+    cacheBuffer: 0
     currentIndex: -1
     boundsBehavior: Flickable.StopAtBounds
     reuseItems: true
@@ -88,6 +89,7 @@ GridView {
         required property string filePath
         required property bool isDir
         required property string sizeText
+        required property bool thumbnailCandidate
 
         readonly property bool selected: {
             var revision = view.session ? view.session.selectionRevision : 0
@@ -111,13 +113,37 @@ GridView {
             Item {
                 width: parent.width
                 height: 56 * view.uiScale
+                clip: true
+
+                Image {
+                    id: thumbnail
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width, 96 * view.uiScale)
+                    height: parent.height
+                    visible: tile.thumbnailCandidate
+                    source: visible
+                        ? Thumbnails.urlForPath(
+                            tile.filePath,
+                            Math.max(64, Math.round(128 * view.uiScale)),
+                            0)
+                        : ""
+                    sourceSize.width: Math.max(64, Math.round(128 * view.uiScale))
+                    sourceSize.height: Math.max(64, Math.round(128 * view.uiScale))
+                    fillMode: Image.PreserveAspectFit
+                    cache: false
+                    asynchronous: false
+                    smooth: true
+                }
 
                 Text {
                     anchors.centerIn: parent
-                    text: tile.isDir ? "▰" : "□"
+                    visible: !tile.thumbnailCandidate || thumbnail.status !== Image.Ready
+                    text: tile.isDir
+                        ? "▰"
+                        : (tile.thumbnailCandidate && thumbnail.status === Image.Loading ? "···" : "□")
                     color: tile.selected ? Ryoku.inkOnBoneDim : Ryoku.inkDim
                     font.family: Ryoku.monoFont
-                    font.pixelSize: 30 * view.uiScale
+                    font.pixelSize: tile.thumbnailCandidate ? 15 * view.uiScale : 30 * view.uiScale
                 }
             }
 
