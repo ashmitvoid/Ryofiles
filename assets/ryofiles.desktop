@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ryofiles
+Comment=Ryoku-native file manager
+Exec=ryofiles %U
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;
+StartupNotify=true
+StartupWMClass=ryofiles
