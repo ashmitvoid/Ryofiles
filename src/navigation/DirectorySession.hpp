@@ -18,6 +18,7 @@ class DirectorySession : public QObject {
 
     Q_PROPERTY(QString selectedPath READ selectedPath WRITE setSelectedPath NOTIFY selectionChanged)
     Q_PROPERTY(int selectionCount READ selectionCount NOTIFY selectionChanged)
+    Q_PROPERTY(QStringList selectedPaths READ selectedPaths NOTIFY selectionChanged)
     Q_PROPERTY(quint64 selectionRevision READ selectionRevision NOTIFY selectionChanged)
 
     Q_PROPERTY(qreal scrollPosition READ scrollPosition WRITE setScrollPosition NOTIFY scrollPositionChanged)
@@ -44,6 +45,7 @@ public:
     QString selectedPath() const;
     void setSelectedPath(const QString& path);
     int selectionCount() const;
+    QStringList selectedPaths() const;
     quint64 selectionRevision() const { return m_selectionRevision; }
 
     qreal scrollPosition() const;
