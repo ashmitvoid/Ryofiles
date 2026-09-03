@@ -258,6 +258,14 @@ void DirectorySession::setViewMode(int mode) {
     emit viewModeChanged();
 }
 
+void DirectorySession::setPreviewVisible(bool visible) {
+    if (m_previewVisible == visible)
+        return;
+
+    m_previewVisible = visible;
+    emit previewVisibleChanged();
+}
+
 bool DirectorySession::navigate(const QString& requestedPath) {
     const QString target = normalizeDirectoryPath(requestedPath);
     if (target.isEmpty() || !QDir(target).exists()) {
