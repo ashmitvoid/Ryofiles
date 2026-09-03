@@ -7,6 +7,9 @@ Item {
 
     property real uiScale: 1
     property string originalName: ""
+    property string heading: "// RENAME"
+    property string actionLabel: "RENAME"
+    property bool selectBaseName: true
     signal accepted(string newName)
     signal cancelled()
 
@@ -14,15 +17,27 @@ Item {
     anchors.fill: parent
     z: 1000
 
-    function open(name) {
+    function openFor(name, headingText, actionText, selectBase) {
         originalName = name
+        heading = headingText
+        actionLabel = actionText
+        selectBaseName = selectBase
         field.text = name
         visible = true
+
         Qt.callLater(function() {
             field.forceActiveFocus()
-            var dot = name.lastIndexOf(".")
-            field.select(0, dot > 0 ? dot : name.length)
+            if (selectBaseName) {
+                var dot = name.lastIndexOf(".")
+                field.select(0, dot > 0 ? dot : name.length)
+            } else {
+                field.selectAll()
+            }
         })
+    }
+
+    function open(name) {
+        openFor(name, "// RENAME", "RENAME", true)
     }
 
     Rectangle {
@@ -46,7 +61,7 @@ Item {
             spacing: 14 * root.uiScale
 
             Text {
-                text: "// RENAME"
+                text: root.heading
                 color: Ryoku.ink
                 font.family: Ryoku.monoFont
                 font.pixelSize: 11 * root.uiScale
@@ -112,7 +127,7 @@ Item {
                     border.color: Ryoku.bone
                     Text {
                         anchors.centerIn: parent
-                        text: "RENAME"
+                        text: root.actionLabel
                         color: Ryoku.inkOnBone
                         font.family: Ryoku.uiFont
                         font.pixelSize: 9 * root.uiScale
