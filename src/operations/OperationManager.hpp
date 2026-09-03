@@ -22,6 +22,8 @@ public:
         CopyOperation = 0,
         MoveOperation,
         RenameOperation,
+        DuplicateOperation,
+        CreateFolderOperation,
     };
     Q_ENUM(OperationKind)
 
@@ -68,6 +70,8 @@ public:
     Q_INVOKABLE QString copy(const QStringList& sources, const QString& destinationDirectory);
     Q_INVOKABLE QString move(const QStringList& sources, const QString& destinationDirectory);
     Q_INVOKABLE QString rename(const QString& source, const QString& newName);
+    Q_INVOKABLE QString duplicate(const QStringList& sources);
+    Q_INVOKABLE QString createFolder(const QString& parentDirectory, const QString& name);
 
     Q_INVOKABLE void cancel(const QString& jobId);
     Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
@@ -113,6 +117,7 @@ private:
         const QStringList& sources,
         const QString& destinationDirectory,
         const QString& renameTarget = QString());
+    QString startCreateFolderJob(const QString& parentDirectory, const QString& name);
 
     std::shared_ptr<Job> findJob(const QString& id) const;
     static bool terminal(OperationState state);
@@ -140,6 +145,8 @@ private:
         QString* error);
     static bool removePath(const QString& path, QString* error);
     static bool renamePath(const QString& source, const QString& destination);
+    static bool copySymbolicLink(const QString& source, const QString& destination, QString* error);
+    static bool validLeafName(const QString& name);
     static QString uniqueSiblingPath(const QString& desiredPath);
     static QString backupSiblingPath(const QString& desiredPath);
     static QString targetPathFor(const QString& source, const QString& destinationDirectory);
