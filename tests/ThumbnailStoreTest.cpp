@@ -3,6 +3,7 @@
 #include "thumbnails/ThumbnailStore.hpp"
 
 #include <QDir>
+#include <QFile>
 #include <QImage>
 #include <QTemporaryDir>
 #include <QtTest>
