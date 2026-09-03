@@ -23,9 +23,6 @@ Ryofiles is Ryoku-first:
 The implementation is developed against exact upstream snapshots so behavior does not drift silently:
 
 - **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `e5b259c85bd187367fc1da337814c29f8b5de16c` (0.55.9-beta.19)
-- **Atlas reference:** `AstraSuite/Atlas` `main` at `f3c8e58336d72d9581be1b598c8af4be751c74e5`
-
-Atlas is the technical upstream/reference for proven file-manager subsystems. Ryofiles keeps a distinct product identity and replaces Caelestia-specific presentation/integration with Ryoku-native equivalents. Imported or adapted upstream code will retain required attribution and license notices.
 
 ## Non-negotiable performance rules
 
