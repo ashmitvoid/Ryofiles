@@ -12,6 +12,7 @@ class DirectoryModel : public QAbstractListModel {
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
+    Q_PROPERTY(QString filterQuery READ filterQuery WRITE setFilterQuery NOTIFY filterQueryChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
 
     Q_PROPERTY(QString home READ home CONSTANT)
@@ -47,6 +48,9 @@ public:
     bool showHidden() const { return m_showHidden; }
     void setShowHidden(bool show);
 
+    QString filterQuery() const { return m_filterQuery; }
+    void setFilterQuery(const QString& query);
+
     QString home() const;
     QString desktop() const;
     QString documents() const;
@@ -67,6 +71,7 @@ signals:
     void pathChanged();
     void loadingChanged();
     void showHiddenChanged();
+    void filterQueryChanged();
     void countChanged();
     void errorOccurred(const QString& message);
 
@@ -84,13 +89,17 @@ private:
     void scan();
     void watchCurrentDirectory();
     void setLoading(bool loading);
+    void rebuildFilteredEntries();
     static QList<Entry> scanDirectory(const QString& path, bool showHidden, QString* error);
+    static QList<Entry> filterEntries(const QList<Entry>& entries, const QString& query);
     static QString formatSize(qint64 bytes);
     static QString standardPath(int location);
     static bool thumbnailCandidateFor(const QFileInfo& info);
 
+    QList<Entry> m_allEntries;
     QList<Entry> m_entries;
     QString m_path;
+    QString m_filterQuery;
     bool m_loading = false;
     bool m_showHidden = false;
     quint64 m_generation = 0;

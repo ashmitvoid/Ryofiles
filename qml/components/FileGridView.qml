@@ -63,11 +63,22 @@ Item {
         onActivated: root.session.previewVisible = !root.session.previewVisible
     }
 
+    FolderFilterBar {
+        id: filterBar
+        z: 60
+        anchors.left: parent.left
+        anchors.right: previewPanel.left
+        anchors.top: parent.top
+        session: root.session
+        files: root.files
+        uiScale: root.uiScale
+    }
+
     GridView {
         id: view
 
         anchors.left: parent.left
-        anchors.top: parent.top
+        anchors.top: filterBar.bottom
         anchors.bottom: parent.bottom
         anchors.right: previewPanel.left
 
@@ -238,7 +249,7 @@ Item {
     Rectangle {
         id: previewToggle
         z: 50
-        anchors.top: parent.top
+        anchors.top: filterBar.bottom
         anchors.topMargin: 8 * root.uiScale
         anchors.right: parent.right
         anchors.rightMargin: 8 * root.uiScale

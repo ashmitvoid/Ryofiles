@@ -58,6 +58,7 @@ qt_add_qml_module(ryofiles
         qml/components/TabStrip.qml
         qml/components/FileListView.qml
         qml/components/FileGridView.qml
+        qml/components/FolderFilterBar.qml
         qml/components/OperationDrawer.qml
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
@@ -163,6 +164,23 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME text-preview-store COMMAND ryofiles_text_preview_tests)
+
+    qt_add_executable(ryofiles_directory_filter_tests
+        tests/DirectoryModelFilterTest.cpp
+        src/fs/DirectoryModel.hpp
+        src/fs/DirectoryModel.cpp
+    )
+
+    target_include_directories(ryofiles_directory_filter_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_directory_filter_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME directory-filter COMMAND ryofiles_directory_filter_tests)
 endif()
 
 install(TARGETS ryofiles
