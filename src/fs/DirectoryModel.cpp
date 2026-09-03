@@ -11,6 +11,8 @@
 #include <QUrl>
 #include <QtConcurrent>
 
+#include <utility>
+
 DirectoryModel::DirectoryModel(QObject* parent)
     : QAbstractListModel(parent) {
     m_refreshDebounce.setSingleShot(true);
@@ -72,6 +74,11 @@ void DirectoryModel::setPath(const QString& requestedPath) {
     if (absolute == m_path)
         return;
 
+    if (!m_filterQuery.isEmpty()) {
+        m_filterQuery.clear();
+        emit filterQueryChanged();
+    }
+
     m_path = absolute;
     emit pathChanged();
     watchCurrentDirectory();
@@ -84,6 +91,16 @@ void DirectoryModel::setShowHidden(bool show) {
     m_showHidden = show;
     emit showHiddenChanged();
     scan();
+}
+
+void DirectoryModel::setFilterQuery(const QString& query) {
+    const QString normalized = query.trimmed();
+    if (m_filterQuery == normalized)
+        return;
+
+    m_filterQuery = normalized;
+    emit filterQueryChanged();
+    rebuildFilteredEntries();
 }
 
 QString DirectoryModel::standardPath(int location) {
@@ -162,6 +179,30 @@ void DirectoryModel::watchCurrentDirectory() {
         m_watcher.addPath(m_path);
 }
 
+QList<DirectoryModel::Entry> DirectoryModel::filterEntries(
+    const QList<Entry>& entries,
+    const QString& query) {
+    if (query.isEmpty())
+        return entries;
+
+    QList<Entry> filtered;
+    filtered.reserve(entries.size());
+    for (const Entry& entry : entries) {
+        if (entry.name.contains(query, Qt::CaseInsensitive))
+            filtered.push_back(entry);
+    }
+    return filtered;
+}
+
+void DirectoryModel::rebuildFilteredEntries() {
+    QList<Entry> filtered = filterEntries(m_allEntries, m_filterQuery);
+
+    beginResetModel();
+    m_entries = std::move(filtered);
+    endResetModel();
+    emit countChanged();
+}
+
 void DirectoryModel::scan() {
     const quint64 generation = ++m_generation;
     const QString scanPath = m_path;
@@ -170,14 +211,17 @@ void DirectoryModel::scan() {
 
     auto* watcher = new QFutureWatcher<QPair<QList<Entry>, QString>>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, scanPath] {
-        const auto [entries, error] = watcher->result();
+        auto [entries, error] = watcher->result();
         watcher->deleteLater();
 
         if (generation != m_generation || scanPath != m_path)
             return;
 
+        QList<Entry> filtered = filterEntries(entries, m_filterQuery);
+
         beginResetModel();
-        m_entries = entries;
+        m_allEntries = std::move(entries);
+        m_entries = std::move(filtered);
         endResetModel();
         setLoading(false);
         emit countChanged();
