@@ -14,7 +14,7 @@
 class TrashManager : public QAbstractListModel {
     Q_OBJECT
 
-    Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
 
 public:
@@ -40,6 +40,7 @@ public:
     ~TrashManager() override;
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
+    int count() const { return rowCount(); }
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
