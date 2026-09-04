@@ -4,10 +4,14 @@
 #include <glib.h>
 
 #include <QAbstractListModel>
+#include <QFuture>
+#include <QMutex>
 #include <QPointer>
 #include <QString>
 #include <QVector>
+#include <QWaitCondition>
 
+#include <atomic>
 #include <memory>
 
 typedef struct _GAsyncResult GAsyncResult;
@@ -104,6 +108,7 @@ public:
         const QString& name);
     static bool validLeafName(const QString& name);
     static QString keepBothName(const QString& originalName, int attempt);
+    static bool nonDestructiveConflictDecision(int decision);
 
 signals:
     void countChanged();
@@ -126,6 +131,11 @@ private:
         double progress = 0.0;
         bool persistentConflictDecision = false;
         ConflictDecision persistentDecision = Skip;
+
+        QMutex conflictMutex;
+        QWaitCondition conflictCondition;
+        bool conflictResolved = false;
+        ConflictDecision conflictDecision = Skip;
     };
 
     struct ActiveContext {
@@ -138,9 +148,13 @@ private:
         int keepBothAttempt = 0;
         bool keepBothMode = false;
         bool overwrite = false;
+        bool treeMode = false;
 
         ~ActiveContext();
     };
+
+    static constexpr int MaxTreeDepth = 256;
+    static constexpr int MaxKeepBothAttempts = 1000;
 
     static bool terminal(OperationState state);
     static bool validConflictDecision(int decision);
@@ -161,6 +175,7 @@ private:
     void startTransferTypeQuery(ActiveContext* context);
     bool prepareTransferDestination(ActiveContext* context, const QString& displayName);
     void startTransfer(ActiveContext* context);
+    void startDirectoryTransfer(ActiveContext* context);
     void handleTransferExists(ActiveContext* context);
     void raiseConflict(ActiveContext* context);
     void clearConflict(const std::shared_ptr<Job>& job);
@@ -169,6 +184,53 @@ private:
         OperationState state,
         const QString& error = QString());
     void setProgress(ActiveContext* context, double progress);
+
+    ConflictDecision waitForTreeConflict(
+        ActiveContext* context,
+        GFile* source,
+        GFile* destination);
+    void resumeTreeJobAfterConflict(const std::shared_ptr<Job>& job);
+    void updateTreeCurrentSource(const std::shared_ptr<Job>& job, GFile* source);
+    bool copyDirectoryTree(
+        ActiveContext* context,
+        GFile* source,
+        GFile* desiredDestination,
+        const QString& displayName,
+        int depth,
+        bool* skipped,
+        QString* error);
+    bool copyTreeEntry(
+        ActiveContext* context,
+        GFile* source,
+        GFile* desiredDestination,
+        const QString& displayName,
+        int depth,
+        bool* skipped,
+        QString* error);
+    bool copyLeafWithConflicts(
+        ActiveContext* context,
+        GFile* source,
+        GFile* desiredDestination,
+        const QString& displayName,
+        bool* skipped,
+        QString* error);
+    GFile* createDirectoryWithConflicts(
+        ActiveContext* context,
+        GFile* source,
+        GFile* desiredDestination,
+        const QString& displayName,
+        bool* skipped,
+        QString* error);
+    bool deleteTree(
+        ActiveContext* context,
+        GFile* root,
+        int depth,
+        QString* error);
+    GFile* keepBothSibling(
+        GFile* desiredDestination,
+        const QString& displayName,
+        int attempt,
+        QString* error) const;
 
     static void transferTypeReady(GObject* source, GAsyncResult* result, gpointer userData);
     static void transferProgress(goffset currentBytes, goffset totalBytes, gpointer userData);
@@ -180,4 +242,6 @@ private:
 
     QVector<std::shared_ptr<Job>> m_jobs;
     ActiveContext* m_active = nullptr;
+    QFuture<void> m_treeFuture;
+    std::atomic_bool m_stopping = false;
 };
