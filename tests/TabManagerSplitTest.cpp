@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "integrations/MountRecoveryRegistry.hpp"
 #include "navigation/TabManager.hpp"
 
 #include <QDir>
@@ -164,6 +165,113 @@ private slots:
         QCOMPARE(tabs.secondarySession()->path(), right);
         QCOMPARE(tabs.activePane(), 1);
         QCOMPARE(tabs.currentSession(), tabs.secondarySession());
+    }
+
+    void unmountRecoveryCoversInactiveSplitSessions() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString mountRoot = makeDir(temp.path(), QStringLiteral("mounted"));
+        const QString left = makeDir(mountRoot, QStringLiteral("left"));
+        const QString right = makeDir(mountRoot, QStringLiteral("right"));
+        const QString outside = makeDir(temp.path(), QStringLiteral("outside"));
+        QVERIFY(!mountRoot.isEmpty());
+        QVERIFY(!left.isEmpty());
+        QVERIFY(!right.isEmpty());
+        QVERIFY(!outside.isEmpty());
+
+        TabManager tabs;
+        QVERIFY(tabs.primarySession()->navigate(left));
+        tabs.openSplit(right);
+        tabs.setActivePane(1);
+        tabs.newTab(outside);
+
+        QCOMPARE(tabs.currentSession()->path(), outside);
+        MountRecoveryRegistry::instance().notifyUnmounted(mountRoot);
+        QCOMPARE(tabs.currentSession()->path(), outside);
+
+        tabs.previousTab();
+        QVERIFY(tabs.split());
+        QCOMPARE(tabs.primarySession()->path(), temp.path());
+        QCOMPARE(tabs.secondarySession()->path(), temp.path());
+        QCOMPARE(tabs.activePane(), 1);
+    }
+
+    void unmountRecoveryPrunesHistoryAndDeepSearch() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString safe = makeDir(temp.path(), QStringLiteral("safe"));
+        const QString mountRoot = makeDir(temp.path(), QStringLiteral("mounted"));
+        const QString nested = makeDir(mountRoot, QStringLiteral("nested"));
+        QVERIFY(!safe.isEmpty());
+        QVERIFY(!mountRoot.isEmpty());
+        QVERIFY(!nested.isEmpty());
+
+        TabManager tabs;
+        DirectorySession* session = tabs.currentSession();
+        QVERIFY(session);
+        QVERIFY(session->navigate(safe));
+        QVERIFY(session->navigate(mountRoot));
+        QVERIFY(session->navigate(nested));
+        session->setSelectedPath(QDir(nested).filePath(QStringLiteral("stale.txt")));
+        session->deepSearch()->start(mountRoot, QStringLiteral("needle"));
+        QVERIFY(session->deepSearch()->active());
+
+        QCOMPARE(tabs.recoverUnmountedMount(mountRoot, safe), 1);
+        QCOMPARE(session->path(), safe);
+        QCOMPARE(session->selectionCount(), 0);
+        QVERIFY(!session->deepSearch()->active());
+        QVERIFY(session->canGoBack());
+
+        session->goBack();
+        QVERIFY(!DirectorySession::pathInsideRoot(session->path(), mountRoot));
+        session->goForward();
+        QCOMPARE(session->path(), safe);
+    }
+
+    void unmountRecoverySanitizesClosedSplitRestore() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString fallback = makeDir(temp.path(), QStringLiteral("fallback"));
+        const QString mountRoot = makeDir(temp.path(), QStringLiteral("mounted"));
+        const QString left = makeDir(mountRoot, QStringLiteral("left"));
+        const QString right = makeDir(mountRoot, QStringLiteral("right"));
+        const QString outside = makeDir(temp.path(), QStringLiteral("outside"));
+        QVERIFY(!fallback.isEmpty());
+        QVERIFY(!mountRoot.isEmpty());
+        QVERIFY(!left.isEmpty());
+        QVERIFY(!right.isEmpty());
+        QVERIFY(!outside.isEmpty());
+
+        TabManager tabs;
+        QVERIFY(tabs.primarySession()->navigate(left));
+        tabs.openSplit(right);
+        tabs.setActivePane(1);
+        tabs.newTab(outside);
+        tabs.previousTab();
+        tabs.closeCurrentTab();
+
+        QCOMPARE(tabs.rowCount(), 1);
+        QCOMPARE(tabs.recoverUnmountedMount(mountRoot, fallback), 0);
+
+        tabs.reopenClosedTab();
+        QVERIFY(tabs.split());
+        QCOMPARE(tabs.primarySession()->path(), fallback);
+        QCOMPARE(tabs.secondarySession()->path(), fallback);
+        QCOMPARE(tabs.activePane(), 1);
+    }
+
+    void unmountRecoveryUsesPathBoundaries() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString mountRoot = makeDir(temp.path(), QStringLiteral("usb"));
+        const QString sibling = makeDir(temp.path(), QStringLiteral("usb-backup"));
+        QVERIFY(!mountRoot.isEmpty());
+        QVERIFY(!sibling.isEmpty());
+
+        TabManager tabs;
+        QVERIFY(tabs.currentSession()->navigate(sibling));
+        QCOMPARE(tabs.recoverUnmountedMount(mountRoot, temp.path()), 0);
+        QCOMPARE(tabs.currentSession()->path(), sibling);
     }
 };
 

@@ -5,6 +5,7 @@
 #include "git/GitStatusController.hpp"
 #include "integrations/ClipboardController.hpp"
 #include "integrations/DesktopIntegration.hpp"
+#include "integrations/MountRecoveryRegistry.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
@@ -33,6 +34,24 @@ int main(int argc, char* argv[]) {
     GitStatusController gitStatus;
     GitActionController gitActions;
     DriveModel drives;
+
+    QObject::connect(
+        &drives,
+        &DriveModel::unmounted,
+        &app,
+        [&drives](const QString& objectPath) {
+            for (int row = 0; row < drives.rowCount(); ++row) {
+                const QModelIndex index = drives.index(row, 0);
+                if (drives.data(index, DriveModel::ObjectPathRole).toString() != objectPath)
+                    continue;
+
+                const QString mountRoot =
+                    drives.data(index, DriveModel::MountPointRole).toString();
+                if (!mountRoot.isEmpty())
+                    MountRecoveryRegistry::instance().notifyUnmounted(mountRoot);
+                break;
+            }
+        });
 
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);

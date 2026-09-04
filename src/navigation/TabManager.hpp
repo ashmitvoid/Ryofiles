@@ -27,6 +27,7 @@ public:
     Q_ENUM(Role)
 
     explicit TabManager(QObject* parent = nullptr);
+    ~TabManager() override;
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -54,6 +55,10 @@ public:
     Q_INVOKABLE void openSplit(const QString& path = QString());
     Q_INVOKABLE void closeSplit();
     Q_INVOKABLE void swapPanes();
+
+    Q_INVOKABLE int recoverUnmountedMount(
+        const QString& mountRoot,
+        const QString& preferredFallback = QString());
 
 signals:
     void currentIndexChanged();
@@ -84,4 +89,5 @@ private:
     QVector<SplitState> m_splitStates;
     QVector<ClosedTab> m_closedTabs;
     int m_currentIndex = -1;
+    quint64 m_mountRecoverySubscription = 0;
 };

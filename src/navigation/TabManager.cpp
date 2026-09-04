@@ -2,13 +2,23 @@
 
 #include "TabManager.hpp"
 
+#include "../integrations/MountRecoveryRegistry.hpp"
+
 #include <QDir>
 
 #include <utility>
 
 TabManager::TabManager(QObject* parent)
     : QAbstractListModel(parent) {
+    m_mountRecoverySubscription = MountRecoveryRegistry::instance().subscribe(
+        [this](const QString& mountRoot) {
+            recoverUnmountedMount(mountRoot);
+        });
     newTab(QDir::homePath());
+}
+
+TabManager::~TabManager() {
+    MountRecoveryRegistry::instance().unsubscribe(m_mountRecoverySubscription);
 }
 
 int TabManager::rowCount(const QModelIndex& parent) const {
@@ -309,4 +319,34 @@ void TabManager::swapPanes() {
         {TitleRole, PathRole, SessionRole});
     emit splitChanged();
     emit currentSessionChanged();
+}
+
+int TabManager::recoverUnmountedMount(
+    const QString& mountRoot,
+    const QString& preferredFallback) {
+    if (mountRoot.trimmed().isEmpty())
+        return 0;
+
+    const QString fallback = DirectorySession::recoveryPathForUnmount(
+        mountRoot,
+        preferredFallback);
+    int recoveredSessions = 0;
+
+    for (int i = 0; i < m_tabs.size(); ++i) {
+        if (m_tabs.at(i)->recoverFromUnmount(mountRoot, fallback))
+            ++recoveredSessions;
+
+        DirectorySession* secondary = m_splitStates.at(i).secondary;
+        if (secondary && secondary->recoverFromUnmount(mountRoot, fallback))
+            ++recoveredSessions;
+    }
+
+    for (ClosedTab& tab : m_closedTabs) {
+        if (DirectorySession::pathInsideRoot(tab.primaryPath, mountRoot))
+            tab.primaryPath = fallback;
+        if (tab.split && DirectorySession::pathInsideRoot(tab.secondaryPath, mountRoot))
+            tab.secondaryPath = fallback;
+    }
+
+    return recoveredSessions;
 }
