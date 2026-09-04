@@ -126,8 +126,11 @@ QVariant DriveModel::data(const QModelIndex& index, int role) const {
         return item.readOnly;
     case CanPowerOffRole:
         return item.canPowerOff;
+    case CanPowerOffNowRole:
+        return item.canPowerOffNow;
     case BusyRole:
-        return m_busyObjects.contains(item.objectPath);
+        return m_busyObjects.contains(item.objectPath) ||
+            m_busyDriveObjects.contains(item.driveObjectPath);
     case Qt::DisplayRole:
         return item.name;
     default:
@@ -150,6 +153,7 @@ QHash<int, QByteArray> DriveModel::roleNames() const {
         {RemovableRole, "removable"},
         {ReadOnlyRole, "readOnly"},
         {CanPowerOffRole, "canPowerOff"},
+        {CanPowerOffNowRole, "canPowerOffNow"},
         {BusyRole, "busy"},
     };
 }
@@ -253,6 +257,110 @@ QString DriveModel::displayName(
     return name;
 }
 
+DrivePowerOffPlan DriveModel::powerOffPlan(
+    const UDisksManagedObjectMap& objects,
+    const QString& volumeObjectPath) {
+    DrivePowerOffPlan plan;
+
+    const auto volumeIt = objects.constFind(QDBusObjectPath(volumeObjectPath));
+    if (volumeIt == objects.cend()) {
+        plan.reason = tr("Storage volume is no longer available");
+        return plan;
+    }
+
+    const UDisksInterfaceMap& volumeInterfaces = volumeIt.value();
+    const auto blockIt = volumeInterfaces.constFind(QString::fromLatin1(kBlockInterface));
+    if (blockIt == volumeInterfaces.cend()) {
+        plan.reason = tr("Storage volume is not attached to a block device");
+        return plan;
+    }
+
+    const QString drivePath = objectPath(blockIt.value().value(QStringLiteral("Drive")));
+    if (drivePath.isEmpty() || drivePath == QStringLiteral("/")) {
+        plan.reason = tr("Storage volume is not attached to a physical drive");
+        return plan;
+    }
+
+    const auto driveIt = objects.constFind(QDBusObjectPath(drivePath));
+    if (driveIt == objects.cend()) {
+        plan.reason = tr("Physical drive is no longer available");
+        return plan;
+    }
+
+    const UDisksPropertyMap drive =
+        driveIt.value().value(QString::fromLatin1(kDriveInterface));
+    if (drive.isEmpty() || !boolProperty(drive, "CanPowerOff")) {
+        plan.reason = tr("This storage device does not support safe power off");
+        return plan;
+    }
+
+    plan.driveObjectPath = drivePath;
+    plan.affectedDrivePaths.insert(drivePath);
+
+    const QString siblingId = textProperty(drive, "SiblingId");
+    if (!siblingId.isEmpty()) {
+        for (auto it = objects.cbegin(); it != objects.cend(); ++it) {
+            const auto siblingDriveIt =
+                it.value().constFind(QString::fromLatin1(kDriveInterface));
+            if (siblingDriveIt == it.value().cend())
+                continue;
+            if (textProperty(siblingDriveIt.value(), "SiblingId") == siblingId)
+                plan.affectedDrivePaths.insert(it.key().path());
+        }
+    }
+
+    auto belongsToAffectedDrive = [&](const QString& initialBlockPath) {
+        QString blockPath = initialBlockPath;
+        QSet<QString> visited;
+
+        while (!blockPath.isEmpty() && blockPath != QStringLiteral("/") &&
+               !visited.contains(blockPath)) {
+            visited.insert(blockPath);
+
+            const auto currentIt = objects.constFind(QDBusObjectPath(blockPath));
+            if (currentIt == objects.cend())
+                break;
+
+            const auto currentBlockIt =
+                currentIt.value().constFind(QString::fromLatin1(kBlockInterface));
+            if (currentBlockIt == currentIt.value().cend())
+                break;
+
+            const UDisksPropertyMap& currentBlock = currentBlockIt.value();
+            const QString currentDrive =
+                objectPath(currentBlock.value(QStringLiteral("Drive")));
+            if (plan.affectedDrivePaths.contains(currentDrive))
+                return true;
+
+            blockPath = objectPath(
+                currentBlock.value(QStringLiteral("CryptoBackingDevice")));
+        }
+        return false;
+    };
+
+    for (auto it = objects.cbegin(); it != objects.cend(); ++it) {
+        const UDisksInterfaceMap& interfaces = it.value();
+        const auto filesystemIt =
+            interfaces.constFind(QString::fromLatin1(kFilesystemInterface));
+        if (filesystemIt == interfaces.cend() ||
+            !interfaces.contains(QString::fromLatin1(kBlockInterface))) {
+            continue;
+        }
+
+        if (firstMountPoint(filesystemIt.value().value(QStringLiteral("MountPoints"))).isEmpty())
+            continue;
+
+        if (belongsToAffectedDrive(it.key().path())) {
+            plan.reason = tr(
+                "Unmount all filesystems on this physical device before powering it off");
+            return plan;
+        }
+    }
+
+    plan.allowed = true;
+    return plan;
+}
+
 QVector<DriveItem> DriveModel::volumesFromManagedObjects(const UDisksManagedObjectMap& objects) {
     QVector<DriveItem> items;
 
@@ -310,8 +418,12 @@ QVector<DriveItem> DriveModel::volumesFromManagedObjects(const UDisksManagedObje
             removable,
             boolProperty(block, "ReadOnly"),
             boolProperty(drive, "CanPowerOff"),
+            false,
         });
     }
+
+    for (DriveItem& item : items)
+        item.canPowerOffNow = powerOffPlan(objects, item.objectPath).allowed;
 
     std::sort(items.begin(), items.end(), [](const DriveItem& left, const DriveItem& right) {
         if (left.removable != right.removable)
@@ -342,6 +454,7 @@ QString DriveModel::formatSize(quint64 bytes) {
 void DriveModel::refresh() {
     if (!m_bus.isConnected()) {
         setAvailable(false);
+        m_managedObjects.clear();
         setLastError(tr("System D-Bus is unavailable"));
         return;
     }
@@ -367,6 +480,7 @@ void DriveModel::refresh() {
 
         if (reply.isError()) {
             setAvailable(false);
+            m_managedObjects.clear();
             replaceItems({});
             setLastError(reply.error().message().isEmpty()
                 ? tr("UDisks2 is unavailable")
@@ -374,7 +488,8 @@ void DriveModel::refresh() {
         } else {
             setAvailable(true);
             setLastError({});
-            replaceItems(volumesFromManagedObjects(reply.value()));
+            m_managedObjects = reply.value();
+            replaceItems(volumesFromManagedObjects(m_managedObjects));
         }
 
         if (std::exchange(m_refreshPending, false))
@@ -392,8 +507,10 @@ void DriveModel::mount(const QString& targetObjectPath) {
     }
 
     const DriveItem item = m_items.at(row);
-    if (m_busyObjects.contains(targetObjectPath))
+    if (m_busyObjects.contains(targetObjectPath) ||
+        m_busyDriveObjects.contains(item.driveObjectPath)) {
         return;
+    }
     if (item.mounted) {
         emit mounted(targetObjectPath, item.mountPoint);
         return;
@@ -442,8 +559,10 @@ void DriveModel::unmount(const QString& targetObjectPath) {
     }
 
     const DriveItem item = m_items.at(row);
-    if (m_busyObjects.contains(targetObjectPath))
+    if (m_busyObjects.contains(targetObjectPath) ||
+        m_busyDriveObjects.contains(item.driveObjectPath)) {
         return;
+    }
     if (!item.mounted) {
         emit unmounted(targetObjectPath);
         return;
@@ -478,6 +597,70 @@ void DriveModel::unmount(const QString& targetObjectPath) {
 
             setLastError({});
             emit unmounted(targetObjectPath);
+            requestRefreshAfterCurrent();
+        });
+}
+
+void DriveModel::powerOff(const QString& targetObjectPath) {
+    const int row = indexForObjectPath(targetObjectPath);
+    if (row < 0) {
+        const QString message = tr("Storage volume is no longer available");
+        setLastError(message);
+        emit operationFailed(targetObjectPath, message);
+        return;
+    }
+
+    const DrivePowerOffPlan plan = powerOffPlan(m_managedObjects, targetObjectPath);
+    if (!plan.allowed) {
+        const QString message = plan.reason.isEmpty()
+            ? tr("Storage device cannot be powered off safely")
+            : plan.reason;
+        setLastError(message);
+        emit operationFailed(targetObjectPath, message);
+        return;
+    }
+
+    if (!m_busyObjects.isEmpty()) {
+        const QString message = tr("Wait for the current storage operation to finish");
+        setLastError(message);
+        emit operationFailed(targetObjectPath, message);
+        return;
+    }
+
+    for (const QString& drivePath : plan.affectedDrivePaths) {
+        if (m_busyDriveObjects.contains(drivePath))
+            return;
+    }
+
+    setDriveBusy(plan.affectedDrivePaths, true);
+    setLastError({});
+
+    QDBusMessage message = QDBusMessage::createMethodCall(
+        QString::fromLatin1(kService),
+        plan.driveObjectPath,
+        QString::fromLatin1(kDriveInterface),
+        QStringLiteral("PowerOff"));
+    message << QVariantMap{};
+
+    auto* watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(message), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+        [this, targetObjectPath, plan](QDBusPendingCallWatcher* call) {
+            QDBusPendingReply<> reply = *call;
+            call->deleteLater();
+            setDriveBusy(plan.affectedDrivePaths, false);
+
+            if (reply.isError()) {
+                const QString error = reply.error().message().isEmpty()
+                    ? tr("Could not power off storage device")
+                    : reply.error().message();
+                setLastError(error);
+                emit operationFailed(targetObjectPath, error);
+                requestRefreshAfterCurrent();
+                return;
+            }
+
+            setLastError({});
+            emit poweredOff(plan.driveObjectPath);
             requestRefreshAfterCurrent();
         });
 }
@@ -523,6 +706,9 @@ void DriveModel::onServiceUnregistered(const QString& serviceName) {
     if (serviceName != QString::fromLatin1(kService))
         return;
     m_refreshPending = false;
+    m_managedObjects.clear();
+    m_busyObjects.clear();
+    m_busyDriveObjects.clear();
     setAvailable(false);
     replaceItems({});
     setLastError(tr("UDisks2 service stopped"));
@@ -579,6 +765,23 @@ void DriveModel::setBusy(const QString& targetObjectPath, bool busy) {
     const int row = indexForObjectPath(targetObjectPath);
     if (row >= 0)
         emit dataChanged(index(row), index(row), {BusyRole});
+}
+
+void DriveModel::setDriveBusy(const QSet<QString>& drivePaths, bool busy) {
+    if (drivePaths.isEmpty())
+        return;
+
+    for (const QString& drivePath : drivePaths) {
+        if (busy)
+            m_busyDriveObjects.insert(drivePath);
+        else
+            m_busyDriveObjects.remove(drivePath);
+    }
+
+    for (int row = 0; row < m_items.size(); ++row) {
+        if (drivePaths.contains(m_items.at(row).driveObjectPath))
+            emit dataChanged(index(row), index(row), {BusyRole});
+    }
 }
 
 void DriveModel::requestRefreshAfterCurrent() {
