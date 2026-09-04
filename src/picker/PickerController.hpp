@@ -11,67 +11,52 @@
 #include <QSet>
 #include <QStringList>
 
-class PickerController final : public QObject {
-    Q_OBJECT
-    Q_PROPERTY(QString mode READ modeName CONSTANT)
-    Q_PROPERTY(bool folderMode READ folderMode CONSTANT)
-    Q_PROPERTY(bool multiple READ multiple CONSTANT)
-    Q_PROPERTY(QString initialDirectory READ initialDirectory CONSTANT)
-    Q_PROPERTY(QStringList mimeTypes READ mimeTypes CONSTANT)
-    Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+struct PickerContract {
+    bool valid = false;
+    bool folderMode = false;
+    bool multiple = false;
+    QString initialDirectory = QDir::homePath();
+    QStringList mimeTypes;
+    QString error;
 
-public:
-    enum Mode {
-        OpenMode = 0,
-        FolderMode,
-    };
-    Q_ENUM(Mode)
-
-    explicit PickerController(QObject* parent = nullptr)
-        : QObject(parent) {
-    }
-
-    bool configure(
+    static PickerContract parse(
         const QString& modeText,
         bool multipleSelection,
         const QString& requestedInitialDirectory,
-        const QStringList& requestedMimeTypes,
-        QString* errorOut = nullptr) {
+        const QStringList& requestedMimeTypes) {
+        PickerContract contract;
+
         const QString normalizedMode = modeText.trimmed().toLower();
         if (normalizedMode == QStringLiteral("open")) {
-            m_mode = OpenMode;
+            contract.folderMode = false;
         } else if (normalizedMode == QStringLiteral("folder")) {
-            m_mode = FolderMode;
+            contract.folderMode = true;
         } else {
-            return failConfiguration(
-                QStringLiteral("Picker mode must be 'open' or 'folder'"),
-                errorOut);
+            contract.error = QStringLiteral("Picker mode must be 'open' or 'folder'");
+            return contract;
         }
 
-        if (m_mode == FolderMode && multipleSelection) {
-            return failConfiguration(
-                QStringLiteral("Folder picker does not support --multiple"),
-                errorOut);
+        if (contract.folderMode && multipleSelection) {
+            contract.error = QStringLiteral("Folder picker does not support --multiple");
+            return contract;
         }
 
         QString initial = requestedInitialDirectory.trimmed();
         if (initial.isEmpty())
             initial = QDir::homePath();
         if (LocalPathGuard::isUriLike(initial)) {
-            return failConfiguration(
-                QStringLiteral("Picker initial directory must be a local path"),
-                errorOut);
+            contract.error = QStringLiteral("Picker initial directory must be a local path");
+            return contract;
         }
 
         const QFileInfo initialInfo(initial);
         if (!initialInfo.exists() || !initialInfo.isDir()) {
-            return failConfiguration(
-                QStringLiteral("Picker initial directory does not exist: %1").arg(initial),
-                errorOut);
+            contract.error =
+                QStringLiteral("Picker initial directory does not exist: %1").arg(initial);
+            return contract;
         }
 
-        QStringList mimeTypes;
-        QSet<QString> seen;
+        QSet<QString> seenMimeTypes;
         for (const QString& requested : requestedMimeTypes) {
             const QStringList parts = requested.split(
                 QLatin1Char(','),
@@ -84,55 +69,48 @@ public:
                 const qsizetype slash = filter.indexOf(QLatin1Char('/'));
                 if (slash <= 0 || slash == filter.size() - 1
                     || filter.indexOf(QLatin1Char('/'), slash + 1) >= 0) {
-                    return failConfiguration(
-                        QStringLiteral("Invalid MIME filter: %1").arg(part.trimmed()),
-                        errorOut);
+                    contract.error =
+                        QStringLiteral("Invalid MIME filter: %1").arg(part.trimmed());
+                    return contract;
                 }
 
-                if (!seen.contains(filter)) {
-                    seen.insert(filter);
-                    mimeTypes.push_back(filter);
+                if (!seenMimeTypes.contains(filter)) {
+                    seenMimeTypes.insert(filter);
+                    contract.mimeTypes.push_back(filter);
                 }
             }
         }
 
-        if (m_mode == FolderMode && !mimeTypes.isEmpty()) {
-            return failConfiguration(
-                QStringLiteral("Folder picker does not use MIME filters"),
-                errorOut);
+        if (contract.folderMode && !contract.mimeTypes.isEmpty()) {
+            contract.error = QStringLiteral("Folder picker does not use MIME filters");
+            return contract;
         }
 
-        m_multiple = m_mode == OpenMode && multipleSelection;
-        m_initialDirectory = QDir::cleanPath(initialInfo.absoluteFilePath());
-        m_mimeTypes = mimeTypes;
-        setError(QString());
-        return true;
+        contract.multiple = !contract.folderMode && multipleSelection;
+        contract.initialDirectory = QDir::cleanPath(initialInfo.absoluteFilePath());
+        contract.valid = true;
+        return contract;
     }
 
     QString modeName() const {
-        return m_mode == FolderMode
-            ? QStringLiteral("folder")
-            : QStringLiteral("open");
+        return folderMode ? QStringLiteral("folder") : QStringLiteral("open");
     }
-    bool folderMode() const { return m_mode == FolderMode; }
-    bool multiple() const { return m_multiple; }
-    QString initialDirectory() const { return m_initialDirectory; }
-    QStringList mimeTypes() const { return m_mimeTypes; }
-    QString error() const { return m_error; }
 
-    Q_INVOKABLE QString validationError(
+    QString validationError(
         const QStringList& selectedPaths,
         const QString& currentDirectory) const {
-        if (m_mode == FolderMode) {
-            const QString directory = normalizeExistingDirectory(currentDirectory);
-            return directory.isEmpty()
+        if (!valid)
+            return error.isEmpty() ? QStringLiteral("Picker is not configured") : error;
+
+        if (folderMode) {
+            return normalizeExistingDirectory(currentDirectory).isEmpty()
                 ? QStringLiteral("Current folder is not selectable")
                 : QString();
         }
 
         if (selectedPaths.isEmpty())
             return QStringLiteral("Select a file");
-        if (!m_multiple && selectedPaths.size() != 1)
+        if (!multiple && selectedPaths.size() != 1)
             return QStringLiteral("Select exactly one file");
 
         QSet<QString> seen;
@@ -149,46 +127,150 @@ public:
                 continue;
             seen.insert(path);
 
-            if (!matchesMimeFilters(path)) {
+            if (!matchesMimeFilters(path))
                 return QStringLiteral("Selection does not match the requested MIME filter");
-            }
         }
 
         if (seen.isEmpty())
             return QStringLiteral("Select a file");
-        if (!m_multiple && seen.size() != 1)
+        if (!multiple && seen.size() != 1)
             return QStringLiteral("Select exactly one file");
         return {};
     }
 
-    Q_INVOKABLE bool canAccept(
+    bool canAccept(
         const QStringList& selectedPaths,
         const QString& currentDirectory) const {
         return validationError(selectedPaths, currentDirectory).isEmpty();
     }
 
+    QStringList acceptedPaths(
+        const QStringList& selectedPaths,
+        const QString& currentDirectory) const {
+        if (!canAccept(selectedPaths, currentDirectory))
+            return {};
+
+        if (folderMode)
+            return {normalizeExistingDirectory(currentDirectory)};
+
+        QStringList accepted;
+        QSet<QString> seen;
+        for (const QString& requested : selectedPaths) {
+            const QFileInfo info(requested);
+            const QString path = QDir::cleanPath(info.absoluteFilePath());
+            if (seen.contains(path))
+                continue;
+            seen.insert(path);
+            accepted.push_back(path);
+        }
+        return accepted;
+    }
+
+private:
+    static QString normalizeExistingDirectory(const QString& requested) {
+        if (requested.trimmed().isEmpty() || LocalPathGuard::isUriLike(requested))
+            return {};
+
+        const QFileInfo info(requested);
+        if (!info.exists() || !info.isDir())
+            return {};
+        return QDir::cleanPath(info.absoluteFilePath());
+    }
+
+    bool matchesMimeFilters(const QString& path) const {
+        if (mimeTypes.isEmpty())
+            return true;
+
+        QMimeDatabase database;
+        const QMimeType mime = database.mimeTypeForFile(path, QMimeDatabase::MatchExtension);
+        if (!mime.isValid())
+            return false;
+
+        const QString name = mime.name().toLower();
+        for (const QString& filter : mimeTypes) {
+            if (filter.endsWith(QStringLiteral("/*"))) {
+                const QString prefix = filter.left(filter.size() - 1);
+                if (name.startsWith(prefix))
+                    return true;
+                continue;
+            }
+
+            if (name == filter || mime.inherits(filter))
+                return true;
+        }
+        return false;
+    }
+};
+
+class PickerController final : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QString mode READ modeName CONSTANT)
+    Q_PROPERTY(bool folderMode READ folderMode CONSTANT)
+    Q_PROPERTY(bool multiple READ multiple CONSTANT)
+    Q_PROPERTY(QString initialDirectory READ initialDirectory CONSTANT)
+    Q_PROPERTY(QStringList mimeTypes READ mimeTypes CONSTANT)
+    Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+
+public:
+    explicit PickerController(QObject* parent = nullptr)
+        : QObject(parent) {
+    }
+
+    bool configure(
+        const QString& modeText,
+        bool multipleSelection,
+        const QString& requestedInitialDirectory,
+        const QStringList& requestedMimeTypes,
+        QString* errorOut = nullptr) {
+        PickerContract contract = PickerContract::parse(
+            modeText,
+            multipleSelection,
+            requestedInitialDirectory,
+            requestedMimeTypes);
+        if (!contract.valid) {
+            setError(contract.error);
+            if (errorOut)
+                *errorOut = contract.error;
+            return false;
+        }
+
+        m_contract = std::move(contract);
+        setError(QString());
+        return true;
+    }
+
+    QString modeName() const { return m_contract.modeName(); }
+    bool folderMode() const { return m_contract.folderMode; }
+    bool multiple() const { return m_contract.multiple; }
+    QString initialDirectory() const { return m_contract.initialDirectory; }
+    QStringList mimeTypes() const { return m_contract.mimeTypes; }
+    QString error() const { return m_error; }
+
+    Q_INVOKABLE QString validationError(
+        const QStringList& selectedPaths,
+        const QString& currentDirectory) const {
+        return m_contract.validationError(selectedPaths, currentDirectory);
+    }
+
+    Q_INVOKABLE bool canAccept(
+        const QStringList& selectedPaths,
+        const QString& currentDirectory) const {
+        return m_contract.canAccept(selectedPaths, currentDirectory);
+    }
+
     Q_INVOKABLE bool accept(
         const QStringList& selectedPaths,
         const QString& currentDirectory) {
-        const QString validation = validationError(selectedPaths, currentDirectory);
+        const QString validation = m_contract.validationError(selectedPaths, currentDirectory);
         if (!validation.isEmpty()) {
             setError(validation);
             return false;
         }
 
-        QStringList accepted;
-        if (m_mode == FolderMode) {
-            accepted.push_back(normalizeExistingDirectory(currentDirectory));
-        } else {
-            QSet<QString> seen;
-            for (const QString& requested : selectedPaths) {
-                const QFileInfo info(requested);
-                const QString path = QDir::cleanPath(info.absoluteFilePath());
-                if (seen.contains(path))
-                    continue;
-                seen.insert(path);
-                accepted.push_back(path);
-            }
+        const QStringList accepted = m_contract.acceptedPaths(selectedPaths, currentDirectory);
+        if (accepted.isEmpty()) {
+            setError(QStringLiteral("Picker selection is empty"));
+            return false;
         }
 
         setError(QString());
@@ -207,47 +289,6 @@ signals:
     void cancelled();
 
 private:
-    static QString normalizeExistingDirectory(const QString& requested) {
-        if (requested.trimmed().isEmpty() || LocalPathGuard::isUriLike(requested))
-            return {};
-
-        const QFileInfo info(requested);
-        if (!info.exists() || !info.isDir())
-            return {};
-        return QDir::cleanPath(info.absoluteFilePath());
-    }
-
-    bool matchesMimeFilters(const QString& path) const {
-        if (m_mimeTypes.isEmpty())
-            return true;
-
-        QMimeDatabase database;
-        const QMimeType mime = database.mimeTypeForFile(path, QMimeDatabase::MatchExtension);
-        if (!mime.isValid())
-            return false;
-
-        const QString name = mime.name().toLower();
-        for (const QString& filter : m_mimeTypes) {
-            if (filter.endsWith(QStringLiteral("/*"))) {
-                const QString prefix = filter.left(filter.size() - 1);
-                if (name.startsWith(prefix))
-                    return true;
-                continue;
-            }
-
-            if (name == filter || mime.inherits(filter))
-                return true;
-        }
-        return false;
-    }
-
-    bool failConfiguration(const QString& message, QString* errorOut) {
-        setError(message);
-        if (errorOut)
-            *errorOut = message;
-        return false;
-    }
-
     void setError(const QString& message) {
         if (m_error == message)
             return;
@@ -255,9 +296,6 @@ private:
         emit errorChanged();
     }
 
-    Mode m_mode = OpenMode;
-    bool m_multiple = false;
-    QString m_initialDirectory = QDir::homePath();
-    QStringList m_mimeTypes;
+    PickerContract m_contract;
     QString m_error;
 };
