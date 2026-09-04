@@ -3,7 +3,6 @@
 #include "DriveModel.hpp"
 
 #include <QDBusArgument>
-#include <QDBusError>
 #include <QDBusMessage>
 #include <QDBusMetaType>
 #include <QDBusPendingCallWatcher>
@@ -45,7 +44,8 @@ DriveModel::DriveModel(QObject* parent)
     , m_serviceWatcher(
           QString::fromLatin1(kService),
           m_bus,
-          QDBusServiceWatcher::WatchForRegistration | QDBusServiceWatcher::WatchForUnregistration,
+          QDBusServiceWatcher::WatchForRegistration |
+              QDBusServiceWatcher::WatchForUnregistration,
           this) {
     registerDbusTypes();
 
@@ -158,7 +158,6 @@ void DriveModel::registerDbusTypes() {
     static const bool registered = [] {
         qRegisterMetaType<UDisksInterfaceMap>("UDisksInterfaceMap");
         qRegisterMetaType<UDisksManagedObjectMap>("UDisksManagedObjectMap");
-        qDBusRegisterMetaType<QVariantMap>();
         qDBusRegisterMetaType<UDisksInterfaceMap>();
         qDBusRegisterMetaType<UDisksManagedObjectMap>();
         return true;
@@ -176,9 +175,7 @@ QString DriveModel::bytePath(const QVariant& rawValue) {
     const QVariant value = unwrapped(rawValue);
     QByteArray bytes;
 
-    if (value.metaType() == QMetaType::fromType<QByteArray>())
-        bytes = value.toByteArray();
-    else if (value.canConvert<QByteArray>())
+    if (value.metaType() == QMetaType::fromType<QByteArray>() || value.canConvert<QByteArray>())
         bytes = value.toByteArray();
 
     while (!bytes.isEmpty() && bytes.endsWith('\0'))
@@ -201,8 +198,7 @@ QString DriveModel::firstMountPoint(const QVariant& rawValue) {
     }
 
     if (value.metaType() == QMetaType::fromType<QVariantList>()) {
-        const QVariantList paths = value.toList();
-        for (const QVariant& pathValue : paths) {
+        for (const QVariant& pathValue : value.toList()) {
             const QString path = bytePath(pathValue);
             if (!path.isEmpty())
                 return path;
@@ -213,17 +209,17 @@ QString DriveModel::firstMountPoint(const QVariant& rawValue) {
     if (value.metaType() == QMetaType::fromType<QDBusArgument>()) {
         const QDBusArgument argument = value.value<QDBusArgument>();
         argument.beginArray();
+        QString result;
         while (!argument.atEnd()) {
             QByteArray bytes;
             argument >> bytes;
             while (!bytes.isEmpty() && bytes.endsWith('\0'))
                 bytes.chop(1);
-            if (!bytes.isEmpty()) {
-                argument.endArray();
-                return QFile::decodeName(bytes);
-            }
+            if (result.isEmpty() && !bytes.isEmpty())
+                result = QFile::decodeName(bytes);
         }
         argument.endArray();
+        return result;
     }
 
     return {};
@@ -277,6 +273,8 @@ QVector<DriveItem> DriveModel::volumesFromManagedObjects(const UDisksManagedObje
         QString devicePath = bytePath(block.value(QStringLiteral("PreferredDevice")));
         if (devicePath.isEmpty())
             devicePath = bytePath(block.value(QStringLiteral("Device")));
+        if (devicePath.isEmpty())
+            continue;
 
         const QString drivePath = objectPath(block.value(QStringLiteral("Drive")));
         UDisksPropertyMap drive;
@@ -569,11 +567,14 @@ void DriveModel::setLastError(const QString& error) {
 }
 
 void DriveModel::setBusy(const QString& targetObjectPath, bool busy) {
-    const bool changed = busy
-        ? m_busyObjects.insert(targetObjectPath).second
-        : m_busyObjects.remove(targetObjectPath) > 0;
-    if (!changed)
+    const bool contained = m_busyObjects.contains(targetObjectPath);
+    if (busy == contained)
         return;
+
+    if (busy)
+        m_busyObjects.insert(targetObjectPath);
+    else
+        m_busyObjects.remove(targetObjectPath);
 
     const int row = indexForObjectPath(targetObjectPath);
     if (row >= 0)
