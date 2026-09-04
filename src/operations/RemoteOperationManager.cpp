@@ -10,9 +10,10 @@
 #include <QMetaObject>
 #include <QMutexLocker>
 #include <QUuid>
-#include <QtConcurrent>
 
 #include <algorithm>
+#include <chrono>
+#include <future>
 
 namespace {
 QString stateText(RemoteOperationManager::OperationState state) {
@@ -77,8 +78,8 @@ RemoteOperationManager::~RemoteOperationManager() {
             context->job->conflictResolved = true;
             context->job->conflictCondition.wakeAll();
         }
-        if (m_treeFuture.isRunning())
-            m_treeFuture.waitForFinished();
+        if (m_treeFuture.valid())
+            m_treeFuture.wait();
         m_active = nullptr;
         delete context;
         return;
@@ -651,14 +652,16 @@ void RemoteOperationManager::startTransfer(ActiveContext* context) {
 }
 
 void RemoteOperationManager::startDirectoryTransfer(ActiveContext* context) {
-    if (!context || context != m_active || m_treeFuture.isRunning()) {
+    const bool workerRunning = m_treeFuture.valid()
+        && m_treeFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
+    if (!context || context != m_active || workerRunning) {
         if (context && context == m_active)
             finishActive(context, Failed, tr("Another recursive transfer is still finishing"));
         return;
     }
 
     context->treeMode = true;
-    m_treeFuture = QtConcurrent::run([this, context] {
+    m_treeFuture = std::async(std::launch::async, [this, context] {
         bool skipped = false;
         QString error;
         const bool copied = copyDirectoryTree(
@@ -675,7 +678,10 @@ void RemoteOperationManager::startDirectoryTransfer(ActiveContext* context) {
             state = g_cancellable_is_cancelled(context->cancellable)
                 ? Cancelled
                 : Failed;
-        } else if (!skipped && context->job->kind == MoveOperation) {
+        } else if (context->job->kind == MoveOperation && skipped) {
+            state = Failed;
+            error = tr("Move left the source in place because one or more conflicts were skipped");
+        } else if (context->job->kind == MoveOperation) {
             QString deleteError;
             if (!deleteTree(context, context->sourceFile, 0, &deleteError)) {
                 state = g_cancellable_is_cancelled(context->cancellable)
@@ -975,48 +981,6 @@ bool RemoteOperationManager::copyLeafWithConflicts(
     return false;
 }
 
-bool RemoteOperationManager::copyTreeEntry(
-    ActiveContext* context,
-    GFile* source,
-    GFile* desiredDestination,
-    const QString& displayName,
-    int depth,
-    bool* skipped,
-    QString* error) {
-    GError* gioError = nullptr;
-    GFileInfo* info = g_file_query_info(
-        source,
-        G_FILE_ATTRIBUTE_STANDARD_TYPE,
-        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-        context->cancellable,
-        &gioError);
-    if (!info) {
-        if (error)
-            *error = gioErrorText(gioError, tr("Could not inspect recursive transfer entry"));
-        g_clear_error(&gioError);
-        return false;
-    }
-
-    const GFileType type = g_file_info_get_file_type(info);
-    g_object_unref(info);
-    if (type == G_FILE_TYPE_DIRECTORY) {
-        return copyDirectoryTree(
-            context,
-            source,
-            desiredDestination,
-            displayName,
-            depth,
-            skipped,
-            error);
-    }
-    if (type == G_FILE_TYPE_REGULAR || type == G_FILE_TYPE_SYMBOLIC_LINK)
-        return copyLeafWithConflicts(context, source, desiredDestination, displayName, skipped, error);
-
-    if (error)
-        *error = tr("Special files inside remote directory transfers are not supported");
-    return false;
-}
-
 bool RemoteOperationManager::copyDirectoryTree(
     ActiveContext* context,
     GFile* source,
@@ -1075,6 +1039,7 @@ bool RemoteOperationManager::copyDirectoryTree(
     }
 
     bool success = true;
+    bool anySkipped = false;
     while (!g_cancellable_is_cancelled(context->cancellable)) {
         GFileInfo* info = g_file_enumerator_next_file(
             enumerator,
@@ -1127,6 +1092,8 @@ bool RemoteOperationManager::copyDirectoryTree(
             success = false;
         }
 
+        if (childSkipped)
+            anySkipped = true;
         if (childDestination)
             g_object_unref(childDestination);
         if (childSource)
@@ -1154,6 +1121,8 @@ bool RemoteOperationManager::copyDirectoryTree(
         }
     }
 
+    if (success && skipped)
+        *skipped = anySkipped;
     g_object_unref(actualDestination);
     return success;
 }
