@@ -189,6 +189,43 @@ private slots:
         QVERIFY(!m_desktop->canRyokuCompress({QStringLiteral("smb://host.invalid/photo.jpg")}));
     }
 
+    void ryokuMixedSelectionRunsEligibleSubsetInSelectionOrder() {
+        QFile::remove(m_actionLog);
+
+        const QString unsupported = m_root->filePath("mixed notes.txt");
+        const QString first = m_root->filePath("mixed first.AppImage");
+        const QString second = m_root->filePath("mixed second.tar.xz");
+        writeFile(unsupported, "notes");
+        writeFile(first, "first");
+        writeFile(second, "second");
+
+        QSignalSpy started(m_desktop.get(), &DesktopIntegration::ryokuActionStarted);
+        QSignalSpy finished(m_desktop.get(), &DesktopIntegration::ryokuActionFinished);
+
+        QVERIFY(m_desktop->installWithRyoku({
+            unsupported,
+            first,
+            QStringLiteral("sftp://example.invalid/remote.AppImage"),
+            second,
+            first,
+        }));
+
+        QTRY_COMPARE_WITH_TIMEOUT(started.count(), 1, 5000);
+        QCOMPARE(started.at(0).at(0).toString(), QStringLiteral("install"));
+        QCOMPARE(started.at(0).at(1).toInt(), 2);
+
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        const QList<QVariant> result = finished.takeFirst();
+        QCOMPARE(result.at(0).toString(), QStringLiteral("install"));
+        QCOMPARE(result.at(1).toInt(), 2);
+        QCOMPARE(result.at(2).toInt(), 0);
+
+        const QList<QByteArray> lines = readFile(m_actionLog).trimmed().split('\n');
+        QCOMPARE(lines.size(), 2);
+        QCOMPARE(lines.at(0), QByteArray("install|1|") + first.toUtf8());
+        QCOMPARE(lines.at(1), QByteArray("install|1|") + second.toUtf8());
+    }
+
     void ryokuInstallRunsSequentiallyWithLiteralArgumentsAndKeepsSources() {
         QFile::remove(m_actionLog);
 
