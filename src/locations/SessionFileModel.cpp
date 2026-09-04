@@ -10,12 +10,12 @@
 
 #include <utility>
 
-static_assert(DirectoryModel::NameRole == RemoteDirectoryModel::NameRole);
-static_assert(DirectoryModel::PathRole == RemoteDirectoryModel::UriRole);
-static_assert(DirectoryModel::DirectoryRole == RemoteDirectoryModel::DirectoryRole);
-static_assert(DirectoryModel::SizeTextRole == RemoteDirectoryModel::SizeTextRole);
-static_assert(DirectoryModel::ModifiedTextRole == RemoteDirectoryModel::ModifiedTextRole);
-static_assert(DirectoryModel::HiddenRole == RemoteDirectoryModel::HiddenRole);
+static_assert(static_cast<int>(DirectoryModel::NameRole) == static_cast<int>(RemoteDirectoryModel::NameRole));
+static_assert(static_cast<int>(DirectoryModel::PathRole) == static_cast<int>(RemoteDirectoryModel::UriRole));
+static_assert(static_cast<int>(DirectoryModel::DirectoryRole) == static_cast<int>(RemoteDirectoryModel::DirectoryRole));
+static_assert(static_cast<int>(DirectoryModel::SizeTextRole) == static_cast<int>(RemoteDirectoryModel::SizeTextRole));
+static_assert(static_cast<int>(DirectoryModel::ModifiedTextRole) == static_cast<int>(RemoteDirectoryModel::ModifiedTextRole));
+static_assert(static_cast<int>(DirectoryModel::HiddenRole) == static_cast<int>(RemoteDirectoryModel::HiddenRole));
 
 SessionFileModel::SessionFileModel(QObject* parent)
     : QIdentityProxyModel(parent) {
