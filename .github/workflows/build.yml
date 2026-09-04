@@ -4,17 +4,37 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ryofiles-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
     container: archlinux:latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Install build dependencies
-        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja glib2 qt6-base qt6-declarative
+        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja ccache glib2 qt6-base qt6-declarative
       - uses: actions/checkout@v4
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ryofiles-ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ryofiles-ccache-${{ runner.os }}-
+      - name: Configure compiler cache
+        run: |
+          ccache --max-size=500M
+          ccache --zero-stats
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRYOFILES_BUILD_TESTS=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRYOFILES_BUILD_TESTS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build --parallel 2
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --parallel 2
+      - name: Compiler cache stats
+        if: always()
+        run: ccache --show-stats
