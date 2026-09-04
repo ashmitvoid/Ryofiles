@@ -3,6 +3,7 @@
 #include "ThumbnailController.hpp"
 
 #include "ThumbnailStore.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QFileInfo>
 
@@ -18,6 +19,9 @@ QString ThumbnailController::urlForPath(
     const QString& path,
     int targetPixels,
     int priority) const {
+    if (LocalPathGuard::isUriLike(path))
+        return {};
+
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile() || info.isSymLink())
         return {};
