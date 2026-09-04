@@ -25,6 +25,8 @@ Window {
         || commandPalette.visible
     readonly property bool fileShortcutsEnabled:
         !root.modalOpen && !root.trashMode && !location.activeFocus
+    readonly property bool localFileActionsEnabled:
+        root.fileShortcutsEnabled && root.session !== null && !root.session.remote
 
     property bool trashMode: false
     property string lastError: ""
@@ -52,19 +54,19 @@ Window {
     }
 
     function copySelection() {
-        if (!root.session || root.session.selectionCount <= 0)
+        if (!root.session || root.session.remote || root.session.selectionCount <= 0)
             return
         FileClipboard.copyFiles(root.selectedPaths())
     }
 
     function cutSelection() {
-        if (!root.session || root.session.selectionCount <= 0)
+        if (!root.session || root.session.remote || root.session.selectionCount <= 0)
             return
         FileClipboard.cutFiles(root.selectedPaths())
     }
 
     function pasteClipboard(destinationPath) {
-        if (root.trashMode || !root.session || !FileClipboard.hasFiles)
+        if (root.trashMode || !root.session || root.session.remote || !FileClipboard.hasFiles)
             return
 
         var destination = destinationPath && destinationPath !== ""
@@ -90,7 +92,7 @@ Window {
     }
 
     function trashSelection() {
-        if (root.trashMode || !root.session || root.session.selectionCount <= 0)
+        if (root.trashMode || !root.session || root.session.remote || root.session.selectionCount <= 0)
             return
 
         var id = trash.trash(root.selectedPaths())
@@ -104,7 +106,7 @@ Window {
     }
 
     function beginRename() {
-        if (root.trashMode || !root.session || root.session.selectionCount !== 1)
+        if (root.trashMode || !root.session || root.session.remote || root.session.selectionCount !== 1)
             return
 
         root.pendingCreateFolder = false
@@ -117,7 +119,7 @@ Window {
     }
 
     function beginNewFolder() {
-        if (root.trashMode || !root.session)
+        if (root.trashMode || !root.session || root.session.remote)
             return
 
         root.pendingRenamePath = ""
@@ -126,7 +128,7 @@ Window {
     }
 
     function duplicateSelection() {
-        if (root.trashMode || !root.session || root.session.selectionCount <= 0)
+        if (root.trashMode || !root.session || root.session.remote || root.session.selectionCount <= 0)
             return
 
         var id = operations.duplicate(root.selectedPaths())
@@ -139,11 +141,12 @@ Window {
     function paletteCommands() {
         var hasSession = root.session !== null
         var browsing = hasSession && !root.trashMode
+        var localBrowsing = browsing && !root.session.remote
         var selectionCount = hasSession ? root.session.selectionCount : 0
         var hasSelection = selectionCount > 0
         var oneSelected = selectionCount === 1
         var hiddenVisible = root.files ? root.files.showHidden : false
-        var previewVisible = hasSession ? root.session.previewVisible : false
+        var previewVisible = localBrowsing ? root.session.previewVisible : false
 
         return [
             { id: "nav.location", label: "Go to Location", detail: "Focus the path field", keywords: "path address folder location", shortcut: "Ctrl+L", category: "NAV", enabled: browsing },
@@ -163,26 +166,26 @@ Window {
             { id: "view.grid", label: "Grid View", detail: "Thumbnail grid in active pane", keywords: "tiles view mode", shortcut: "Ctrl+2", category: "VIEW", enabled: browsing && root.session.viewMode !== 1 },
             { id: "view.details", label: "Details View", detail: "Detailed rows in active pane", keywords: "columns view mode", shortcut: "Ctrl+3", category: "VIEW", enabled: browsing && root.session.viewMode !== 2 },
             { id: "view.hidden", label: hiddenVisible ? "Hide Hidden Files" : "Show Hidden Files", detail: "Toggle dotfiles in active pane", keywords: "dotfiles hidden visibility", shortcut: "Ctrl+H", category: "VIEW", enabled: browsing && root.files !== null },
-            { id: "view.preview", label: previewVisible ? "Close Preview" : "Open Preview", detail: "Toggle the active pane preview", keywords: "preview inspect pane", shortcut: "Ctrl+Shift+P", category: "VIEW", enabled: browsing },
+            { id: "view.preview", label: previewVisible ? "Close Preview" : "Open Preview", detail: "Toggle the active pane preview", keywords: "preview inspect pane", shortcut: "Ctrl+Shift+P", category: "VIEW", enabled: localBrowsing },
             { id: "view.split", label: tabs.split ? "Close Split View" : "Open Split View", detail: tabs.split ? "Return this tab to one pane" : "Open a second independent pane", keywords: "dual two pane split", shortcut: "F3", category: "VIEW", enabled: browsing },
             { id: "view.otherPane", label: "Activate Other Pane", detail: "Move keyboard focus to the other split pane", keywords: "switch pane focus", shortcut: "F6", category: "VIEW", enabled: browsing && tabs.split },
             { id: "view.swapPanes", label: "Swap Split Panes", detail: "Exchange the complete left and right pane sessions", keywords: "reverse exchange pane", shortcut: "", category: "VIEW", enabled: browsing && tabs.split },
 
             { id: "selection.all", label: "Select All", detail: "Select every visible item", keywords: "selection files", shortcut: "Ctrl+A", category: "FILE", enabled: browsing && root.files !== null && root.files.count > 0 },
-            { id: "selection.copy", label: "Copy Selection", detail: "Copy selected files", keywords: "clipboard files", shortcut: "Ctrl+C", category: "FILE", enabled: browsing && hasSelection },
-            { id: "selection.cut", label: "Cut Selection", detail: "Move selected files on paste", keywords: "clipboard move files", shortcut: "Ctrl+X", category: "FILE", enabled: browsing && hasSelection },
-            { id: "selection.paste", label: "Paste", detail: "Paste clipboard into the active pane", keywords: "clipboard files", shortcut: "Ctrl+V", category: "FILE", enabled: browsing && FileClipboard.hasFiles },
-            { id: "folder.new", label: "New Folder", detail: "Create a folder in the active pane", keywords: "mkdir create directory", shortcut: "Ctrl+Shift+N", category: "FILE", enabled: browsing },
-            { id: "selection.rename", label: "Rename", detail: "Rename the selected item", keywords: "name file folder", shortcut: "F2", category: "FILE", enabled: browsing && oneSelected },
-            { id: "selection.duplicate", label: "Duplicate Selection", detail: "Create copies beside selected items", keywords: "clone copy files", shortcut: "Ctrl+Shift+D", category: "FILE", enabled: browsing && hasSelection },
-            { id: "selection.trash", label: "Move Selection to Trash", detail: "Trash selected files", keywords: "delete remove recycle", shortcut: "Delete", category: "FILE", enabled: browsing && hasSelection },
+            { id: "selection.copy", label: "Copy Selection", detail: "Copy selected files", keywords: "clipboard files", shortcut: "Ctrl+C", category: "FILE", enabled: localBrowsing && hasSelection },
+            { id: "selection.cut", label: "Cut Selection", detail: "Move selected files on paste", keywords: "clipboard move files", shortcut: "Ctrl+X", category: "FILE", enabled: localBrowsing && hasSelection },
+            { id: "selection.paste", label: "Paste", detail: "Paste clipboard into the active pane", keywords: "clipboard files", shortcut: "Ctrl+V", category: "FILE", enabled: localBrowsing && FileClipboard.hasFiles },
+            { id: "folder.new", label: "New Folder", detail: "Create a folder in the active pane", keywords: "mkdir create directory", shortcut: "Ctrl+Shift+N", category: "FILE", enabled: localBrowsing },
+            { id: "selection.rename", label: "Rename", detail: "Rename the selected item", keywords: "name file folder", shortcut: "F2", category: "FILE", enabled: localBrowsing && oneSelected },
+            { id: "selection.duplicate", label: "Duplicate Selection", detail: "Create copies beside selected items", keywords: "clone copy files", shortcut: "Ctrl+Shift+D", category: "FILE", enabled: localBrowsing && hasSelection },
+            { id: "selection.trash", label: "Move Selection to Trash", detail: "Trash selected files", keywords: "delete remove recycle", shortcut: "Delete", category: "FILE", enabled: localBrowsing && hasSelection },
 
             { id: "trash.open", label: "Open Trash", detail: "Browse deleted items", keywords: "recycle deleted restore", shortcut: "", category: "NAV", enabled: !root.trashMode },
             { id: "trash.leave", label: "Leave Trash", detail: "Return to the active directory pane", keywords: "back files folder", shortcut: "", category: "NAV", enabled: root.trashMode && hasSession },
 
-            { id: "dev.terminal", label: "Open Terminal Here", detail: "Use Ryoku's configured terminal", keywords: "shell console ryoku-app", shortcut: "", category: "DEV", enabled: browsing },
-            { id: "dev.copyPath", label: "Copy Current Folder Path", detail: hasSession ? root.session.path : "", keywords: "clipboard directory path", shortcut: "", category: "DEV", enabled: browsing },
-            { id: "dev.gitRefresh", label: "Refresh Git Status", detail: "Refresh branch and file badges", keywords: "repository git status rescan", shortcut: "", category: "DEV", enabled: browsing && GitStatus.repository && !GitStatus.loading }
+            { id: "dev.terminal", label: "Open Terminal Here", detail: "Use Ryoku's configured terminal", keywords: "shell console ryoku-app", shortcut: "", category: "DEV", enabled: localBrowsing },
+            { id: "dev.copyPath", label: root.session && root.session.remote ? "Copy Current Location URI" : "Copy Current Folder Path", detail: hasSession ? root.session.path : "", keywords: "clipboard directory path uri", shortcut: "", category: "DEV", enabled: browsing },
+            { id: "dev.gitRefresh", label: "Refresh Git Status", detail: "Refresh branch and file badges", keywords: "repository git status rescan", shortcut: "", category: "DEV", enabled: localBrowsing && GitStatus.repository && !GitStatus.loading }
         ]
     }
 
@@ -220,7 +223,8 @@ Window {
         } else if (commandId === "view.hidden") {
             if (root.files) root.files.showHidden = !root.files.showHidden
         } else if (commandId === "view.preview") {
-            if (root.session) root.session.previewVisible = !root.session.previewVisible
+            if (root.session && !root.session.remote)
+                root.session.previewVisible = !root.session.previewVisible
         } else if (commandId === "view.split") {
             tabs.toggleSplitView()
         } else if (commandId === "view.otherPane") {
@@ -251,19 +255,20 @@ Window {
             root.trashMode = false
             root.syncLocation()
         } else if (commandId === "dev.terminal") {
-            if (!root.session || !GitActions.openTerminal(root.session.path)) {
+            if (!root.session || root.session.remote || !GitActions.openTerminal(root.session.path)) {
                 root.lastError = "Could not open the configured terminal"
                 errorClear.restart()
             }
         } else if (commandId === "dev.copyPath") {
             if (root.session) FileClipboard.copyText(root.session.path)
         } else if (commandId === "dev.gitRefresh") {
-            GitStatus.refresh()
+            if (root.session && !root.session.remote)
+                GitStatus.refresh()
         }
     }
 
     function openContextMenu(sceneX, sceneY, path, isDirectory) {
-        if (root.trashMode || !root.session)
+        if (root.trashMode || !root.session || root.session.remote)
             return
 
         contextMenu.openAt(
@@ -276,7 +281,7 @@ Window {
     }
 
     function openContextTarget() {
-        if (contextMenu.targetPath === "")
+        if (!root.session || root.session.remote || contextMenu.targetPath === "")
             return
 
         if (contextMenu.targetIsDirectory) {
@@ -311,6 +316,17 @@ Window {
 
         function onPathChanged() {
             root.syncLocation()
+        }
+
+        function onLocationKindChanged() {
+            if (root.session && root.session.remote) {
+                contextMenu.visible = false
+                openWithSheet.visible = false
+                propertiesSheet.visible = false
+                renameSheet.visible = false
+                root.pendingRenamePath = ""
+                root.pendingCreateFolder = false
+            }
         }
     }
 
@@ -438,13 +454,13 @@ Window {
     Shortcut { sequence: "Ctrl+2"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.viewMode = 1 }
     Shortcut { sequence: "Ctrl+3"; enabled: root.fileShortcutsEnabled; onActivated: if (root.session) root.session.viewMode = 2 }
 
-    Shortcut { sequence: "Ctrl+C"; enabled: root.fileShortcutsEnabled; onActivated: root.copySelection() }
-    Shortcut { sequence: "Ctrl+X"; enabled: root.fileShortcutsEnabled; onActivated: root.cutSelection() }
-    Shortcut { sequence: "Ctrl+V"; enabled: root.fileShortcutsEnabled; onActivated: root.pasteClipboard() }
-    Shortcut { sequence: "Delete"; enabled: root.fileShortcutsEnabled; onActivated: root.trashSelection() }
-    Shortcut { sequence: "F2"; enabled: root.fileShortcutsEnabled; onActivated: root.beginRename() }
-    Shortcut { sequence: "Ctrl+Shift+N"; enabled: root.fileShortcutsEnabled; onActivated: root.beginNewFolder() }
-    Shortcut { sequence: "Ctrl+Shift+D"; enabled: root.fileShortcutsEnabled; onActivated: root.duplicateSelection() }
+    Shortcut { sequence: "Ctrl+C"; enabled: root.localFileActionsEnabled; onActivated: root.copySelection() }
+    Shortcut { sequence: "Ctrl+X"; enabled: root.localFileActionsEnabled; onActivated: root.cutSelection() }
+    Shortcut { sequence: "Ctrl+V"; enabled: root.localFileActionsEnabled; onActivated: root.pasteClipboard() }
+    Shortcut { sequence: "Delete"; enabled: root.localFileActionsEnabled; onActivated: root.trashSelection() }
+    Shortcut { sequence: "F2"; enabled: root.localFileActionsEnabled; onActivated: root.beginRename() }
+    Shortcut { sequence: "Ctrl+Shift+N"; enabled: root.localFileActionsEnabled; onActivated: root.beginNewFolder() }
+    Shortcut { sequence: "Ctrl+Shift+D"; enabled: root.localFileActionsEnabled; onActivated: root.duplicateSelection() }
 
     Rectangle {
         anchors.fill: parent
@@ -617,7 +633,7 @@ Window {
                     anchors.rightMargin: 8 * root.u
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 4 * root.u
-                    visible: !root.trashMode
+                    visible: !root.trashMode && root.session && !root.session.remote
 
                     Repeater {
                         model: [
@@ -630,8 +646,9 @@ Window {
                             required property var modelData
 
                             readonly property bool available:
-                                modelData.action === "new"
-                                    || (root.session && root.session.selectionCount > 0)
+                                root.session && !root.session.remote &&
+                                (modelData.action === "new"
+                                    || root.session.selectionCount > 0)
 
                             width: actionLabel.implicitWidth + 14 * root.u
                             height: 30 * root.u
@@ -827,7 +844,9 @@ Window {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.trashMode
                         ? "RESTORE ITEMS   CTRL+R REFRESH"
-                        : "CTRL+K COMMANDS   F3 SPLIT   F6 PANE   F2 RENAME"
+                        : (root.session && root.session.remote
+                            ? "CTRL+K COMMANDS   F3 SPLIT   CTRL+L LOCATION"
+                            : "CTRL+K COMMANDS   F3 SPLIT   F6 PANE   F2 RENAME")
                     color: Ryoku.inkFaint
                     font.family: Ryoku.monoFont
                     font.pixelSize: 9 * root.u
@@ -847,7 +866,7 @@ Window {
             }
 
             onOpenWithRequested: {
-                if (targetPath !== "")
+                if (targetPath !== "" && root.session && !root.session.remote)
                     openWithSheet.openFor(targetPath)
             }
 
@@ -864,7 +883,7 @@ Window {
             onTrashRequested: root.trashSelection()
 
             onPropertiesRequested: {
-                if (targetPath !== "")
+                if (targetPath !== "" && root.session && !root.session.remote)
                     propertiesSheet.openFor(targetPath)
             }
         }
@@ -925,8 +944,14 @@ Window {
             onAccepted: function(newName) {
                 visible = false
 
+                if (!root.session || root.session.remote) {
+                    root.pendingRenamePath = ""
+                    root.pendingCreateFolder = false
+                    return
+                }
+
                 var id = ""
-                if (root.pendingCreateFolder && root.session) {
+                if (root.pendingCreateFolder) {
                     id = operations.createFolder(root.session.path, newName)
                 } else if (root.pendingRenamePath !== "") {
                     id = operations.rename(root.pendingRenamePath, newName)
