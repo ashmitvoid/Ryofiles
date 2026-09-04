@@ -1,3 +1,0 @@
-[D-BUS Service]
-Name=org.freedesktop.impl.portal.desktop.ryofiles
-Exec=@CMAKE_INSTALL_FULL_BINDIR@/ryofiles --filechooser-portal
