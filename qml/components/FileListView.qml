@@ -9,6 +9,7 @@ Item {
     required property var files
     property real uiScale: 1
     property bool compact: false
+    property bool paneActive: true
 
     property bool restoring: false
     property bool pointerSelection: false
@@ -18,6 +19,7 @@ Item {
         Math.max(220 * root.uiScale, root.width * 0.34))
 
     signal contextRequested(real sceneX, real sceneY, string path, bool isDirectory)
+    signal paneActivated()
 
     clip: true
 
@@ -60,7 +62,7 @@ Item {
 
     Shortcut {
         sequence: "Ctrl+Shift+P"
-        enabled: root.session !== null
+        enabled: root.paneActive && root.session !== null
         onActivated: root.session.previewVisible = !root.session.previewVisible
     }
 
@@ -73,6 +75,7 @@ Item {
         session: root.session
         files: root.files
         uiScale: root.uiScale
+        paneActive: root.paneActive
     }
 
     ListView {
@@ -187,6 +190,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
 
                 onClicked: function(event) {
+                    root.paneActivated()
                     root.pointerSelection = true
                     view.currentIndex = row.index
 
@@ -213,6 +217,7 @@ Item {
                 }
 
                 onDoubleClicked: function(event) {
+                    root.paneActivated()
                     view.currentIndex = row.index
                     root.session.activate(row.index)
                 }
@@ -268,7 +273,10 @@ Item {
         }
 
         TapHandler {
-            onTapped: if (root.session) root.session.previewVisible = true
+            onTapped: {
+                root.paneActivated()
+                if (root.session) root.session.previewVisible = true
+            }
         }
     }
 
@@ -283,7 +291,8 @@ Item {
     }
 
     Component.onCompleted: {
-        view.forceActiveFocus()
+        if (root.paneActive)
+            view.forceActiveFocus()
         restoreState()
     }
 }
