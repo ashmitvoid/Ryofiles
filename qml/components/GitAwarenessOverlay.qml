@@ -14,14 +14,14 @@ Item {
     function syncPath() {
         if (!root.active)
             return
-        if (root.session)
+        if (root.session && !root.session.remote)
             GitStatus.path = root.session.path
         else
             GitStatus.path = ""
     }
 
     function refreshIfCurrent() {
-        if (!root.active || !root.session || !root.session.model)
+        if (!root.active || !root.session || root.session.remote || !root.session.model)
             return
         if (root.session.model.loading)
             return
@@ -36,12 +36,13 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 8 * root.uiScale
         uiScale: root.uiScale
-        visible: root.active
+        visible: root.active && root.session && !root.session.remote
     }
 
     Connections {
         target: root.session
         function onPathChanged() { root.syncPath() }
+        function onLocationKindChanged() { root.syncPath() }
     }
 
     Connections {
@@ -54,7 +55,7 @@ Item {
 
     Component.onCompleted: root.syncPath()
     Component.onDestruction: {
-        if (root.active && root.session && GitStatus.path === root.session.path)
+        if (root.active && root.session && !root.session.remote && GitStatus.path === root.session.path)
             GitStatus.path = ""
     }
 }
