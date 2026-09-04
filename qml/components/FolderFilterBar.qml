@@ -12,6 +12,7 @@ Item {
     property bool paneActive: true
 
     readonly property bool active: expanded || (files && files.filterQuery !== "")
+    readonly property bool remote: session && session.remote
 
     signal deepSearchRequested(string query)
 
@@ -41,6 +42,8 @@ Item {
     }
 
     onDeepSearchRequested: function(query) {
+        if (root.remote)
+            return
         deepPanel.open(query, query && query.trim() !== "")
     }
 
@@ -52,7 +55,7 @@ Item {
 
     Shortcut {
         sequence: "Ctrl+Shift+F"
-        enabled: root.paneActive
+        enabled: root.paneActive && !root.remote
         onActivated: root.deepSearchRequested(field.text)
     }
 
@@ -146,9 +149,10 @@ Item {
             width: 52 * root.uiScale
             height: 28 * root.uiScale
             radius: 6 * root.uiScale
-            color: deepHover.hovered ? Ryoku.tint10 : "transparent"
+            opacity: root.remote ? 0.4 : 1.0
+            color: deepHover.hovered && !root.remote ? Ryoku.tint10 : "transparent"
             border.width: 1
-            border.color: Ryoku.line
+            border.color: root.remote ? Ryoku.lineSoft : Ryoku.line
 
             Text {
                 anchors.centerIn: parent
@@ -162,9 +166,13 @@ Item {
 
             HoverHandler {
                 id: deepHover
+                enabled: !root.remote
                 cursorShape: Qt.PointingHandCursor
             }
-            TapHandler { onTapped: root.deepSearchRequested(field.text) }
+            TapHandler {
+                enabled: !root.remote
+                onTapped: root.deepSearchRequested(field.text)
+            }
         }
 
         Text {
@@ -207,6 +215,14 @@ Item {
 
             if (root.files.filterQuery === "" && !field.activeFocus)
                 root.expanded = false
+        }
+    }
+
+    Connections {
+        target: root.session
+        function onLocationKindChanged() {
+            if (root.session && root.session.remote)
+                deepPanel.close()
         }
     }
 }

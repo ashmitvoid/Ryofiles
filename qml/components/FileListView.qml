@@ -13,7 +13,8 @@ Item {
 
     property bool restoring: false
     property bool pointerSelection: false
-    readonly property bool previewOpen: root.session && root.session.previewVisible
+    readonly property bool remote: root.session && root.session.remote
+    readonly property bool previewOpen: !root.remote && root.session && root.session.previewVisible
     readonly property real previewWidth: Math.min(
         330 * root.uiScale,
         Math.max(220 * root.uiScale, root.width * 0.34))
@@ -62,7 +63,7 @@ Item {
 
     Shortcut {
         sequence: "Ctrl+Shift+P"
-        enabled: root.paneActive && root.session !== null
+        enabled: root.paneActive && root.session !== null && !root.remote
         onActivated: root.session.previewVisible = !root.session.previewVisible
     }
 
@@ -143,6 +144,7 @@ Item {
                 }
 
                 GitStatusBadge {
+                    visible: !root.remote
                     anchors.verticalCenter: parent.verticalCenter
                     filePath: row.filePath
                     uiScale: root.uiScale
@@ -198,8 +200,10 @@ Item {
                         if (!row.selected)
                             root.session.selectSingle(row.index)
 
-                        var point = row.mapToItem(null, event.x, event.y)
-                        root.contextRequested(point.x, point.y, row.filePath, row.isDir)
+                        if (!root.remote) {
+                            var point = row.mapToItem(null, event.x, event.y)
+                            root.contextRequested(point.x, point.y, row.filePath, row.isDir)
+                        }
                         root.pointerSelection = false
                         view.forceActiveFocus()
                         return
@@ -250,7 +254,7 @@ Item {
         anchors.rightMargin: 8 * root.uiScale
         width: previewLabel.implicitWidth + 18 * root.uiScale
         height: 28 * root.uiScale
-        visible: !root.previewOpen
+        visible: !root.remote && !root.previewOpen
         radius: 6 * root.uiScale
         color: previewHover.hovered ? Ryoku.tint10 : Ryoku.paperLift
         border.width: 1
@@ -275,7 +279,7 @@ Item {
         TapHandler {
             onTapped: {
                 root.paneActivated()
-                if (root.session) root.session.previewVisible = true
+                if (root.session && !root.remote) root.session.previewVisible = true
             }
         }
     }

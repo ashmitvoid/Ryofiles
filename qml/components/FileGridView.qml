@@ -12,7 +12,8 @@ Item {
 
     property bool restoring: false
     property bool pointerSelection: false
-    readonly property bool previewOpen: root.session && root.session.previewVisible
+    readonly property bool remote: root.session && root.session.remote
+    readonly property bool previewOpen: !root.remote && root.session && root.session.previewVisible
     readonly property real previewWidth: Math.min(
         330 * root.uiScale,
         Math.max(220 * root.uiScale, root.width * 0.34))
@@ -61,7 +62,7 @@ Item {
 
     Shortcut {
         sequence: "Ctrl+Shift+P"
-        enabled: root.paneActive && root.session !== null
+        enabled: root.paneActive && root.session !== null && !root.remote
         onActivated: root.session.previewVisible = !root.session.previewVisible
     }
 
@@ -145,7 +146,7 @@ Item {
                         anchors.centerIn: parent
                         width: Math.min(parent.width, 96 * root.uiScale)
                         height: parent.height
-                        visible: tile.thumbnailCandidate
+                        visible: !root.remote && tile.thumbnailCandidate
                         source: visible
                             ? Thumbnails.urlForPath(
                                 tile.filePath,
@@ -162,16 +163,17 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        visible: !tile.thumbnailCandidate || thumbnail.status !== Image.Ready
+                        visible: !thumbnail.visible || thumbnail.status !== Image.Ready
                         text: tile.isDir
                             ? "▰"
-                            : (tile.thumbnailCandidate && thumbnail.status === Image.Loading ? "···" : "□")
+                            : (thumbnail.visible && thumbnail.status === Image.Loading ? "···" : "□")
                         color: tile.selected ? Ryoku.inkOnBoneDim : Ryoku.inkDim
                         font.family: Ryoku.monoFont
-                        font.pixelSize: tile.thumbnailCandidate ? 15 * root.uiScale : 30 * root.uiScale
+                        font.pixelSize: thumbnail.visible ? 15 * root.uiScale : 30 * root.uiScale
                     }
 
                     GitStatusBadge {
+                        visible: !root.remote
                         anchors.top: parent.top
                         anchors.right: parent.right
                         filePath: tile.filePath
@@ -216,8 +218,10 @@ Item {
                         if (!tile.selected)
                             root.session.selectSingle(tile.index)
 
-                        var point = tile.mapToItem(null, event.x, event.y)
-                        root.contextRequested(point.x, point.y, tile.filePath, tile.isDir)
+                        if (!root.remote) {
+                            var point = tile.mapToItem(null, event.x, event.y)
+                            root.contextRequested(point.x, point.y, tile.filePath, tile.isDir)
+                        }
                         root.pointerSelection = false
                         view.forceActiveFocus()
                         return
@@ -268,7 +272,7 @@ Item {
         anchors.rightMargin: 8 * root.uiScale
         width: previewLabel.implicitWidth + 18 * root.uiScale
         height: 28 * root.uiScale
-        visible: !root.previewOpen
+        visible: !root.remote && !root.previewOpen
         radius: 6 * root.uiScale
         color: previewHover.hovered ? Ryoku.tint10 : Ryoku.paperLift
         border.width: 1
@@ -293,7 +297,7 @@ Item {
         TapHandler {
             onTapped: {
                 root.paneActivated()
-                if (root.session) root.session.previewVisible = true
+                if (root.session && !root.remote) root.session.previewVisible = true
             }
         }
     }

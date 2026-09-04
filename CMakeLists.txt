@@ -271,6 +271,12 @@ if(RYOFILES_BUILD_TESTS)
         src/fs/DirectoryModel.cpp
         src/search/DeepSearchModel.hpp
         src/search/DeepSearchModel.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/RemoteDirectoryModel.hpp
+        src/locations/RemoteDirectoryModel.cpp
+        src/locations/SessionFileModel.hpp
+        src/locations/SessionFileModel.cpp
     )
 
     target_include_directories(ryofiles_tab_split_tests PRIVATE src)
@@ -280,9 +286,38 @@ if(RYOFILES_BUILD_TESTS)
         Qt6::Gui
         Qt6::Concurrent
         Qt6::Test
+        PkgConfig::GIO
     )
 
     add_test(NAME tab-split COMMAND ryofiles_tab_split_tests)
+
+    qt_add_executable(ryofiles_directory_session_location_tests
+        tests/DirectorySessionLocationTest.cpp
+        src/navigation/DirectorySession.hpp
+        src/navigation/DirectorySession.cpp
+        src/fs/DirectoryModel.hpp
+        src/fs/DirectoryModel.cpp
+        src/search/DeepSearchModel.hpp
+        src/search/DeepSearchModel.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/RemoteDirectoryModel.hpp
+        src/locations/RemoteDirectoryModel.cpp
+        src/locations/SessionFileModel.hpp
+        src/locations/SessionFileModel.cpp
+    )
+
+    target_include_directories(ryofiles_directory_session_location_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_directory_session_location_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME directory-session-location COMMAND ryofiles_directory_session_location_tests)
 
     qt_add_executable(ryofiles_location_spec_tests
         tests/LocationSpecTest.cpp
