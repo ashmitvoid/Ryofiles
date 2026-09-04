@@ -54,6 +54,8 @@ qt_add_executable(ryofiles
     src/navigation/TabManager.cpp
     src/operations/OperationManager.hpp
     src/operations/OperationManager.cpp
+    src/operations/RemoteOperationManager.hpp
+    src/operations/RemoteOperationManager.cpp
     src/trash/TrashManager.hpp
     src/trash/TrashManager.cpp
     src/integrations/ClipboardController.hpp
@@ -135,6 +137,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME operation-manager COMMAND ryofiles_operation_tests)
+
+    qt_add_executable(ryofiles_remote_operation_tests
+        tests/RemoteOperationManagerTest.cpp
+        src/operations/RemoteOperationManager.hpp
+        src/operations/RemoteOperationManager.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+    )
+
+    target_include_directories(ryofiles_remote_operation_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_remote_operation_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME remote-operation COMMAND ryofiles_remote_operation_tests)
 
     qt_add_executable(ryofiles_trash_tests
         tests/TrashManagerTest.cpp
