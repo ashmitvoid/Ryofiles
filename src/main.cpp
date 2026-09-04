@@ -11,6 +11,7 @@
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
 #include "search/DeepSearchModel.hpp"
+#include "storage/DriveModel.hpp"
 #include "thumbnails/ThumbnailController.hpp"
 #include "thumbnails/ThumbnailProvider.hpp"
 #include "trash/TrashManager.hpp"
@@ -31,6 +32,7 @@ int main(int argc, char* argv[]) {
     ThumbnailController thumbnails;
     GitStatusController gitStatus;
     GitActionController gitActions;
+    DriveModel drives;
 
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
@@ -38,6 +40,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Thumbnails", &thumbnails);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitStatus", &gitStatus);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitActions", &gitActions);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Drives", &drives);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
