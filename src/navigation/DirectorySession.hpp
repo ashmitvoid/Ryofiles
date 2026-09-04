@@ -76,6 +76,14 @@ public:
     Q_INVOKABLE void selectAll();
     Q_INVOKABLE void clearSelection();
 
+    bool recoverFromUnmount(
+        const QString& mountRoot,
+        const QString& preferredFallback = QString());
+    static bool pathInsideRoot(const QString& path, const QString& rootPath);
+    static QString recoveryPathForUnmount(
+        const QString& mountRoot,
+        const QString& preferredFallback = QString());
+
 signals:
     void pathChanged();
     void titleChanged();

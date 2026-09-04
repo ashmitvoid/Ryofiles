@@ -33,7 +33,46 @@ QString DirectorySession::normalizeDirectoryPath(const QString& input) {
     else if (path.startsWith(QStringLiteral("~/")))
         path = QDir::home().filePath(path.mid(2));
 
-    return QDir(path).absolutePath();
+    return QDir::cleanPath(QDir(path).absolutePath());
+}
+
+bool DirectorySession::pathInsideRoot(const QString& pathValue, const QString& rootPath) {
+    const QString path = normalizeDirectoryPath(pathValue);
+    const QString root = normalizeDirectoryPath(rootPath);
+    if (path.isEmpty() || root.isEmpty())
+        return false;
+    if (path == root)
+        return true;
+    if (root == QStringLiteral("/"))
+        return path.startsWith(QLatin1Char('/'));
+    return path.startsWith(root + QLatin1Char('/'));
+}
+
+QString DirectorySession::recoveryPathForUnmount(
+    const QString& mountRoot,
+    const QString& preferredFallback) {
+    const QString root = normalizeDirectoryPath(mountRoot);
+    if (root.isEmpty())
+        return QDir::homePath();
+
+    const QString preferred = normalizeDirectoryPath(preferredFallback);
+    if (!preferred.isEmpty() &&
+        !pathInsideRoot(preferred, root) &&
+        QDir(preferred).exists()) {
+        return preferred;
+    }
+
+    QDir candidate(root);
+    while (candidate.cdUp()) {
+        const QString path = QDir::cleanPath(candidate.absolutePath());
+        if (!pathInsideRoot(path, root) && QDir(path).exists())
+            return path;
+    }
+
+    const QString home = QDir::cleanPath(QDir::homePath());
+    if (!home.isEmpty() && QDir(home).exists())
+        return home;
+    return QStringLiteral("/");
 }
 
 DirectorySession::HistoryEntry* DirectorySession::currentEntry() {
@@ -282,6 +321,75 @@ bool DirectorySession::navigate(const QString& requestedPath) {
     m_history.push_back({target, {}, QString(), QString(), 0.0});
     m_historyIndex = m_history.size() - 1;
     applyHistoryEntry();
+    return true;
+}
+
+bool DirectorySession::recoverFromUnmount(
+    const QString& mountRoot,
+    const QString& preferredFallback) {
+    const QString root = normalizeDirectoryPath(mountRoot);
+    if (root.isEmpty() || m_history.isEmpty())
+        return false;
+
+    bool historyAffected = false;
+    for (const HistoryEntry& entry : std::as_const(m_history)) {
+        if (pathInsideRoot(entry.path, root)) {
+            historyAffected = true;
+            break;
+        }
+    }
+
+    const bool searchAffected =
+        !m_deepSearch.rootPath().isEmpty() && pathInsideRoot(m_deepSearch.rootPath(), root);
+    if (!historyAffected && !searchAffected)
+        return false;
+
+    const bool currentAffected =
+        m_historyIndex >= 0 &&
+        m_historyIndex < m_history.size() &&
+        pathInsideRoot(m_history.at(m_historyIndex).path, root);
+
+    if (historyAffected) {
+        const QString fallback = recoveryPathForUnmount(root, preferredFallback);
+        QVector<HistoryEntry> nextHistory;
+        nextHistory.reserve(m_history.size());
+        int nextIndex = -1;
+
+        for (int i = 0; i < m_history.size(); ++i) {
+            const HistoryEntry& entry = m_history.at(i);
+            if (pathInsideRoot(entry.path, root)) {
+                if (i == m_historyIndex && currentAffected) {
+                    if (nextHistory.isEmpty() || nextHistory.constLast().path != fallback)
+                        nextHistory.push_back({fallback, {}, QString(), QString(), 0.0});
+                    nextIndex = nextHistory.size() - 1;
+                }
+                continue;
+            }
+
+            nextHistory.push_back(entry);
+            if (i == m_historyIndex)
+                nextIndex = nextHistory.size() - 1;
+        }
+
+        if (nextHistory.isEmpty()) {
+            nextHistory.push_back({fallback, {}, QString(), QString(), 0.0});
+            nextIndex = 0;
+        } else if (nextIndex < 0) {
+            nextIndex = qBound(0, m_historyIndex, nextHistory.size() - 1);
+        }
+
+        m_history = std::move(nextHistory);
+        m_historyIndex = nextIndex;
+    }
+
+    if (searchAffected)
+        m_deepSearch.clear();
+
+    if (currentAffected)
+        applyHistoryEntry();
+    else if (historyAffected)
+        emit historyChanged();
+
     return true;
 }
 
