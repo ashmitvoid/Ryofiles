@@ -35,20 +35,33 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure --parallel 2
+      - name: Configure portal routing helper
+        run: >-
+          cmake -S tools/portalctl -B build-portalctl -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DRYOFILES_PORTALCTL_BUILD_TESTS=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build portal routing helper
+        run: cmake --build build-portalctl --parallel 2
+      - name: Test portal routing helper
+        run: ctest --test-dir build-portalctl --output-on-failure
       - name: Smoke-test staged install
         shell: bash
         run: |
           set -euo pipefail
           rm -rf stage
           DESTDIR="$PWD/stage" cmake --install build --prefix /usr
+          DESTDIR="$PWD/stage" cmake --install build-portalctl --prefix /usr
 
           test -x stage/usr/bin/ryofiles
+          test -x stage/usr/bin/ryofiles-portalctl
           test -f stage/usr/share/applications/ryofiles.desktop
           test ! -e stage/etc
 
           mapfile -t installed < <(find stage -type f -printf '%P\n' | sort)
           expected=(
             'usr/bin/ryofiles'
+            'usr/bin/ryofiles-portalctl'
             'usr/share/applications/ryofiles.desktop'
           )
 
