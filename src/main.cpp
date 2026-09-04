@@ -7,6 +7,7 @@
 #include "integrations/DesktopIntegration.hpp"
 #include "integrations/MountRecoveryRegistry.hpp"
 #include "integrations/NetworkMountRecoveryRegistry.hpp"
+#include "integrations/RemoteMutationRegistry.hpp"
 #include "locations/NetworkConnectionController.hpp"
 #include "locations/NetworkDisconnectController.hpp"
 #include "locations/NetworkLocationModel.hpp"
@@ -80,6 +81,15 @@ int main(int argc, char* argv[]) {
         &app,
         [](const QString& rootUri) {
             NetworkMountRecoveryRegistry::instance().notifyUnmounted(rootUri);
+        });
+
+    QObject::connect(
+        &remoteOperations,
+        &RemoteOperationManager::jobFinished,
+        &app,
+        [](const QString&, bool success) {
+            if (success)
+                RemoteMutationRegistry::instance().notifyChanged();
         });
 
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
