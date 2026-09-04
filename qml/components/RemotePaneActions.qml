@@ -259,12 +259,13 @@ Item {
     ConflictSheet {
         id: conflictSheet
         uiScale: root.uiScale
-        allowApplyToAll: true
+        allowApplyToAll: false
+        allowReplace: false
 
         onChoose: function(decision, applyToAll) {
             visible = false
             if (root.conflictJobId !== "")
-                RemoteOperations.resolveConflict(root.conflictJobId, decision, applyToAll)
+                RemoteOperations.resolveConflict(root.conflictJobId, decision, false)
         }
     }
 
