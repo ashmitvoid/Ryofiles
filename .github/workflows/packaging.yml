@@ -9,6 +9,9 @@ on:
       - 'assets/*.desktop'
       - 'assets/*.metainfo.xml'
       - 'assets/portal/**'
+      - 'src/portal/PortalRoutingManager.*'
+      - 'tests/PortalRoutingManagerTest.cpp'
+      - 'tools/portalctl/**'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
   pull_request:
@@ -19,6 +22,9 @@ on:
       - 'assets/*.desktop'
       - 'assets/*.metainfo.xml'
       - 'assets/portal/**'
+      - 'src/portal/PortalRoutingManager.*'
+      - 'tests/PortalRoutingManagerTest.cpp'
+      - 'tools/portalctl/**'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
   workflow_dispatch:
@@ -150,6 +156,7 @@ jobs:
 
           for required in \
             usr/bin/ryofiles \
+            usr/bin/ryofiles-portalctl \
             usr/share/applications/ryofiles.desktop \
             usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml \
             usr/share/xdg-desktop-portal/portals/ryofiles.portal \
@@ -184,6 +191,7 @@ jobs:
           pacman -U --noconfirm "$package_path"
 
           test -x /usr/bin/ryofiles
+          test -x /usr/bin/ryofiles-portalctl
           test -f /usr/share/applications/ryofiles.desktop
           test -f /usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml
           test -f /usr/share/xdg-desktop-portal/portals/ryofiles.portal
@@ -193,8 +201,12 @@ jobs:
           grep -Fxq 'Exec=/usr/bin/ryofiles --filechooser-portal' \
             /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service
 
+          /usr/bin/ryofiles-portalctl --version
+
           ldd /usr/bin/ryofiles | tee /tmp/ryofiles-ldd.txt
-          if grep -Fq 'not found' /tmp/ryofiles-ldd.txt; then
+          ldd /usr/bin/ryofiles-portalctl | tee /tmp/ryofiles-portalctl-ldd.txt
+          if grep -Fq 'not found' /tmp/ryofiles-ldd.txt \
+            || grep -Fq 'not found' /tmp/ryofiles-portalctl-ldd.txt; then
             echo 'Installed package has unresolved runtime libraries.' >&2
             exit 1
           fi
