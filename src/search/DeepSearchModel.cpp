@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "DeepSearchModel.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QDir>
 #include <QDirIterator>
@@ -188,13 +189,24 @@ void DeepSearchModel::start(
     const QString& requestedQuery,
     bool includeHidden) {
     const QString cleanQuery = requestedQuery.trimmed();
-    const QDir rootDirectory(QDir::cleanPath(requestedRoot));
-    const QString cleanRoot = rootDirectory.absolutePath();
 
     if (cleanQuery.isEmpty()) {
         clear();
         return;
     }
+
+    if (LocalPathGuard::isUriLike(requestedRoot)) {
+        clear();
+        m_rootPath = requestedRoot.trimmed();
+        m_query = cleanQuery;
+        m_error = tr("Remote URI is not supported by local deep search: %1").arg(m_rootPath);
+        emit searchChanged();
+        emit stateChanged();
+        return;
+    }
+
+    const QDir rootDirectory(QDir::cleanPath(requestedRoot));
+    const QString cleanRoot = rootDirectory.absolutePath();
 
     if (!rootDirectory.exists()) {
         clear();
