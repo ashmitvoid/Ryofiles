@@ -22,6 +22,7 @@ Window {
         || contextMenu.visible
         || openWithSheet.visible
         || propertiesSheet.visible
+        || commandPalette.visible
     readonly property bool fileShortcutsEnabled:
         !root.modalOpen && !root.trashMode && !location.activeFocus
 
@@ -135,6 +136,123 @@ Window {
         }
     }
 
+    function paletteCommands() {
+        var hasSession = root.session !== null
+        var browsing = hasSession && !root.trashMode
+        var selectionCount = hasSession ? root.session.selectionCount : 0
+        var hasSelection = selectionCount > 0
+        var oneSelected = selectionCount === 1
+        var hiddenVisible = root.files ? root.files.showHidden : false
+        var previewVisible = hasSession ? root.session.previewVisible : false
+
+        return [
+            { id: "nav.location", label: "Go to Location", detail: "Focus the path field", keywords: "path address folder location", shortcut: "Ctrl+L", category: "NAV", enabled: browsing },
+            { id: "nav.back", label: "Go Back", detail: "Previous folder in this tab", keywords: "history previous", shortcut: "Alt+Left", category: "NAV", enabled: browsing && root.session.canGoBack },
+            { id: "nav.forward", label: "Go Forward", detail: "Next folder in this tab", keywords: "history next", shortcut: "Alt+Right", category: "NAV", enabled: browsing && root.session.canGoForward },
+            { id: "nav.up", label: "Go Up", detail: "Parent directory", keywords: "parent directory", shortcut: "Alt+Up", category: "NAV", enabled: browsing },
+            { id: "folder.refresh", label: "Refresh", detail: root.trashMode ? "Refresh Trash" : "Refresh current folder", keywords: "reload rescan", shortcut: "Ctrl+R", category: "NAV", enabled: hasSession || root.trashMode },
+
+            { id: "tab.new", label: "New Tab", detail: "Open another directory tab", keywords: "create tab", shortcut: "Ctrl+T", category: "TAB", enabled: true },
+            { id: "tab.duplicate", label: "Duplicate Tab", detail: "Open this folder in another tab", keywords: "clone tab", shortcut: "", category: "TAB", enabled: hasSession },
+            { id: "tab.close", label: "Close Tab", detail: "Close the active tab", keywords: "remove tab", shortcut: "Ctrl+W", category: "TAB", enabled: tabs.count > 0 },
+            { id: "tab.reopen", label: "Reopen Closed Tab", detail: "Restore the most recently closed tab", keywords: "restore undo tab", shortcut: "Ctrl+Shift+T", category: "TAB", enabled: true },
+            { id: "tab.next", label: "Next Tab", detail: "Activate the next tab", keywords: "cycle tab", shortcut: "Ctrl+Tab", category: "TAB", enabled: tabs.count > 1 },
+            { id: "tab.previous", label: "Previous Tab", detail: "Activate the previous tab", keywords: "cycle tab", shortcut: "Ctrl+Shift+Tab", category: "TAB", enabled: tabs.count > 1 },
+
+            { id: "view.list", label: "List View", detail: "Compact file rows", keywords: "compact view mode", shortcut: "Ctrl+1", category: "VIEW", enabled: browsing && root.session.viewMode !== 0 },
+            { id: "view.grid", label: "Grid View", detail: "Thumbnail grid", keywords: "tiles view mode", shortcut: "Ctrl+2", category: "VIEW", enabled: browsing && root.session.viewMode !== 1 },
+            { id: "view.details", label: "Details View", detail: "Detailed file rows", keywords: "columns view mode", shortcut: "Ctrl+3", category: "VIEW", enabled: browsing && root.session.viewMode !== 2 },
+            { id: "view.hidden", label: hiddenVisible ? "Hide Hidden Files" : "Show Hidden Files", detail: "Toggle dotfiles in this folder", keywords: "dotfiles hidden visibility", shortcut: "Ctrl+H", category: "VIEW", enabled: browsing && root.files !== null },
+            { id: "view.preview", label: previewVisible ? "Close Preview" : "Open Preview", detail: "Toggle the lazy preview pane", keywords: "preview inspect pane", shortcut: "", category: "VIEW", enabled: browsing },
+
+            { id: "selection.all", label: "Select All", detail: "Select every visible item", keywords: "selection files", shortcut: "Ctrl+A", category: "FILE", enabled: browsing && root.files !== null && root.files.count > 0 },
+            { id: "selection.copy", label: "Copy Selection", detail: "Copy selected files", keywords: "clipboard files", shortcut: "Ctrl+C", category: "FILE", enabled: browsing && hasSelection },
+            { id: "selection.cut", label: "Cut Selection", detail: "Move selected files on paste", keywords: "clipboard move files", shortcut: "Ctrl+X", category: "FILE", enabled: browsing && hasSelection },
+            { id: "selection.paste", label: "Paste", detail: "Paste clipboard into this folder", keywords: "clipboard files", shortcut: "Ctrl+V", category: "FILE", enabled: browsing && FileClipboard.hasFiles },
+            { id: "folder.new", label: "New Folder", detail: "Create a folder here", keywords: "mkdir create directory", shortcut: "Ctrl+Shift+N", category: "FILE", enabled: browsing },
+            { id: "selection.rename", label: "Rename", detail: "Rename the selected item", keywords: "name file folder", shortcut: "F2", category: "FILE", enabled: browsing && oneSelected },
+            { id: "selection.duplicate", label: "Duplicate Selection", detail: "Create copies beside selected items", keywords: "clone copy files", shortcut: "Ctrl+Shift+D", category: "FILE", enabled: browsing && hasSelection },
+            { id: "selection.trash", label: "Move Selection to Trash", detail: "Trash selected files", keywords: "delete remove recycle", shortcut: "Delete", category: "FILE", enabled: browsing && hasSelection },
+
+            { id: "trash.open", label: "Open Trash", detail: "Browse deleted items", keywords: "recycle deleted restore", shortcut: "", category: "NAV", enabled: !root.trashMode },
+            { id: "trash.leave", label: "Leave Trash", detail: "Return to the active directory tab", keywords: "back files folder", shortcut: "", category: "NAV", enabled: root.trashMode && hasSession },
+
+            { id: "dev.terminal", label: "Open Terminal Here", detail: "Use Ryoku's configured terminal", keywords: "shell console ryoku-app", shortcut: "", category: "DEV", enabled: browsing },
+            { id: "dev.copyPath", label: "Copy Current Folder Path", detail: hasSession ? root.session.path : "", keywords: "clipboard directory path", shortcut: "", category: "DEV", enabled: browsing },
+            { id: "dev.gitRefresh", label: "Refresh Git Status", detail: "Refresh branch and file badges", keywords: "repository git status rescan", shortcut: "", category: "DEV", enabled: browsing && GitStatus.repository && !GitStatus.loading }
+        ]
+    }
+
+    function runPaletteCommand(commandId) {
+        if (commandId === "nav.location") {
+            Qt.callLater(function() { location.forceActiveFocus() })
+        } else if (commandId === "nav.back") {
+            if (root.session) root.session.goBack()
+        } else if (commandId === "nav.forward") {
+            if (root.session) root.session.goForward()
+        } else if (commandId === "nav.up") {
+            if (root.session) root.session.goUp()
+        } else if (commandId === "folder.refresh") {
+            if (root.trashMode) trash.refresh()
+            else if (root.session) root.session.refresh()
+        } else if (commandId === "tab.new") {
+            root.trashMode = false
+            tabs.newTab("")
+        } else if (commandId === "tab.duplicate") {
+            tabs.duplicateCurrentTab()
+        } else if (commandId === "tab.close") {
+            tabs.closeCurrentTab()
+        } else if (commandId === "tab.reopen") {
+            tabs.reopenClosedTab()
+        } else if (commandId === "tab.next") {
+            tabs.nextTab()
+        } else if (commandId === "tab.previous") {
+            tabs.previousTab()
+        } else if (commandId === "view.list") {
+            if (root.session) root.session.viewMode = 0
+        } else if (commandId === "view.grid") {
+            if (root.session) root.session.viewMode = 1
+        } else if (commandId === "view.details") {
+            if (root.session) root.session.viewMode = 2
+        } else if (commandId === "view.hidden") {
+            if (root.files) root.files.showHidden = !root.files.showHidden
+        } else if (commandId === "view.preview") {
+            if (root.session) root.session.previewVisible = !root.session.previewVisible
+        } else if (commandId === "selection.all") {
+            if (root.session) root.session.selectAll()
+        } else if (commandId === "selection.copy") {
+            root.copySelection()
+        } else if (commandId === "selection.cut") {
+            root.cutSelection()
+        } else if (commandId === "selection.paste") {
+            root.pasteClipboard()
+        } else if (commandId === "folder.new") {
+            root.beginNewFolder()
+        } else if (commandId === "selection.rename") {
+            root.beginRename()
+        } else if (commandId === "selection.duplicate") {
+            root.duplicateSelection()
+        } else if (commandId === "selection.trash") {
+            root.trashSelection()
+        } else if (commandId === "trash.open") {
+            root.trashMode = true
+            trash.refresh()
+            root.syncLocation()
+        } else if (commandId === "trash.leave") {
+            root.trashMode = false
+            root.syncLocation()
+        } else if (commandId === "dev.terminal") {
+            if (!root.session || !GitActions.openTerminal(root.session.path)) {
+                root.lastError = "Could not open the configured terminal"
+                errorClear.restart()
+            }
+        } else if (commandId === "dev.copyPath") {
+            if (root.session) FileClipboard.copyText(root.session.path)
+        } else if (commandId === "dev.gitRefresh") {
+            GitStatus.refresh()
+        }
+    }
+
     function openContextMenu(sceneX, sceneY, path, isDirectory) {
         if (root.trashMode || !root.session)
             return
@@ -165,6 +283,7 @@ Window {
         openWithSheet.visible = false
         propertiesSheet.visible = false
         renameSheet.visible = false
+        commandPalette.close()
     }
 
     Timer {
@@ -263,6 +382,12 @@ Window {
             conflictSheet.destinationPath = originalPath
             conflictSheet.visible = true
         }
+    }
+
+    Shortcut {
+        sequence: "Ctrl+K"
+        enabled: !root.modalOpen
+        onActivated: commandPalette.open()
     }
 
     Shortcut {
@@ -765,7 +890,7 @@ Window {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.trashMode
                         ? "RESTORE ITEMS   CTRL+R REFRESH"
-                        : "CTRL+SHIFT+N NEW   CTRL+SHIFT+D DUP   F2 RENAME"
+                        : "CTRL+K COMMANDS   CTRL+SHIFT+N NEW   F2 RENAME"
                     color: Ryoku.inkFaint
                     font.family: Ryoku.monoFont
                     font.pixelSize: 9 * root.u
@@ -805,6 +930,14 @@ Window {
                 if (targetPath !== "")
                     propertiesSheet.openFor(targetPath)
             }
+        }
+
+        CommandPalette {
+            id: commandPalette
+            anchors.fill: parent
+            uiScale: root.u
+            commands: root.paletteCommands()
+            onCommandTriggered: commandId => root.runPaletteCommand(commandId)
         }
 
         OpenWithSheet {
