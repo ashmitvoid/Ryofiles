@@ -244,6 +244,65 @@ private slots:
         QVERIFY(!QFileInfo::exists(QDir(childDestination).filePath("tree")));
     }
 
+    void permanentDeleteRemovesFilesDirectoriesAndOnlyTheSymlink() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString file = temp.filePath("delete-me.txt");
+        const QString directory = temp.filePath("delete-tree");
+        const QString nested = QDir(directory).filePath("nested.txt");
+        const QString targetDirectory = temp.filePath("keep-target");
+        const QString targetFile = QDir(targetDirectory).filePath("keep.txt");
+        const QString link = temp.filePath("delete-link");
+
+        writeFile(file, "file");
+        QVERIFY(QDir().mkpath(directory));
+        writeFile(nested, "nested");
+        QVERIFY(QDir().mkpath(targetDirectory));
+        writeFile(targetFile, "keep");
+
+        const QByteArray targetBytes = QFile::encodeName(targetDirectory);
+        const QByteArray linkBytes = QFile::encodeName(link);
+        QVERIFY(::symlink(targetBytes.constData(), linkBytes.constData()) == 0);
+        QVERIFY(QFileInfo(link).isSymLink());
+
+        OperationManager manager;
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.removePermanently({file, directory, link});
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QCOMPARE(finishedSpy.at(0).at(0).toString(), id);
+        QVERIFY(finishedSpy.at(0).at(1).toBool());
+
+        QVERIFY(!QFileInfo::exists(file));
+        QVERIFY(!QFileInfo::exists(directory));
+        QVERIFY(!QFileInfo(link).isSymLink());
+        QVERIFY(QFileInfo(targetDirectory).isDir());
+        QCOMPARE(readFile(targetFile), QByteArray("keep"));
+    }
+
+    void permanentDeleteRejectsUnsafeOrPartialRequests() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString local = temp.filePath("keep-local.txt");
+        const QString missing = temp.filePath("already-gone.txt");
+        const QString remote = QStringLiteral("sftp://example.invalid/delete-me.txt");
+        writeFile(local, "keep");
+
+        OperationManager manager;
+
+        QVERIFY(manager.removePermanently({}).isEmpty());
+        QVERIFY(manager.removePermanently({remote}).isEmpty());
+        QVERIFY(manager.removePermanently({local, remote}).isEmpty());
+        QVERIFY(manager.removePermanently({local, missing}).isEmpty());
+        QVERIFY(manager.removePermanently({QStringLiteral("/")}).isEmpty());
+
+        QCOMPARE(manager.rowCount(), 0);
+        QCOMPARE(readFile(local), QByteArray("keep"));
+    }
+
     void rejectsUriLikeInputsWithoutCreatingJobs() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
@@ -301,6 +360,12 @@ private slots:
             readFile(QDir(destinationDir).filePath("report:2026.txt")),
             QByteArray("payload"));
         QCOMPARE(readFile(source), QByteArray("payload"));
+
+        const QString deleteId = manager.removePermanently({source});
+        QVERIFY(!deleteId.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(finishedSpy.takeFirst().at(1).toBool());
+        QVERIFY(!QFileInfo::exists(source));
     }
 };
 

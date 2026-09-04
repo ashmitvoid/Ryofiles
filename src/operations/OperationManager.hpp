@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "locations/LocalPathGuard.hpp"
+
 #include <QAbstractListModel>
+#include <QDir>
+#include <QFileInfo>
 #include <QFuture>
 #include <QMutex>
 #include <QStringList>
+#include <QUuid>
 #include <QVector>
 #include <QWaitCondition>
+#include <QtConcurrent>
 
 #include <atomic>
 #include <functional>
@@ -24,6 +30,7 @@ public:
         RenameOperation,
         DuplicateOperation,
         CreateFolderOperation,
+        DeleteOperation,
     };
     Q_ENUM(OperationKind)
 
@@ -72,6 +79,7 @@ public:
     Q_INVOKABLE QString rename(const QString& source, const QString& newName);
     Q_INVOKABLE QString duplicate(const QStringList& sources);
     Q_INVOKABLE QString createFolder(const QString& parentDirectory, const QString& name);
+    Q_INVOKABLE QString removePermanently(const QStringList& sources);
 
     Q_INVOKABLE void cancel(const QString& jobId);
     Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
@@ -154,3 +162,76 @@ private:
 
     QVector<std::shared_ptr<Job>> m_jobs;
 };
+
+inline QString OperationManager::removePermanently(const QStringList& requestedSources) {
+    if (requestedSources.isEmpty() || !LocalPathGuard::allLocalPaths(requestedSources))
+        return {};
+
+    QStringList sources;
+    sources.reserve(requestedSources.size());
+
+    for (const QString& requested : requestedSources) {
+        if (requested.trimmed().isEmpty())
+            return {};
+
+        const QFileInfo info(requested);
+        if (!info.exists() && !info.isSymLink())
+            return {};
+
+        const QString absolute = QDir::cleanPath(info.absoluteFilePath());
+        if (absolute.isEmpty() || absolute == QStringLiteral("/"))
+            return {};
+
+        if (!sources.contains(absolute))
+            sources.push_back(absolute);
+    }
+
+    if (sources.isEmpty())
+        return {};
+
+    pruneFinishedJobs();
+
+    auto job = std::make_shared<Job>();
+    job->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    job->kind = DeleteOperation;
+    job->sources = sources;
+    job->totalItems = sources.size();
+
+    const int row = m_jobs.size();
+    beginInsertRows({}, row, row);
+    m_jobs.push_back(job);
+    endInsertRows();
+    emit countChanged();
+    emit activeCountChanged();
+
+    job->future = QtConcurrent::run([this, job] {
+        updateJob(job, [](Job& mutableJob) {
+            mutableJob.state = Running;
+        });
+
+        for (const QString& source : job->sources) {
+            if (job->cancelRequested.load(std::memory_order_relaxed)) {
+                finishJob(job, Cancelled);
+                return;
+            }
+
+            updateJob(job, [source](Job& mutableJob) {
+                mutableJob.currentSource = source;
+            });
+
+            QString error;
+            if (!removePath(source, &error)) {
+                finishJob(job, Failed, error);
+                return;
+            }
+
+            updateJob(job, [](Job& mutableJob) {
+                ++mutableJob.completedItems;
+            });
+        }
+
+        finishJob(job, Completed);
+    });
+
+    return job->id;
+}
