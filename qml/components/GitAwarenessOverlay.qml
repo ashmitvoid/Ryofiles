@@ -9,7 +9,6 @@ Item {
     property real uiScale: 1
 
     z: 45
-    enabled: false
 
     function syncPath() {
         if (root.session)
