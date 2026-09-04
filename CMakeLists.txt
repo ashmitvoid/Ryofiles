@@ -62,6 +62,8 @@ qt_add_qml_module(ryofiles
         qml/Main.qml
         qml/components/RyokuRail.qml
         qml/components/TabStrip.qml
+        qml/components/FilePane.qml
+        qml/components/SplitPaneContainer.qml
         qml/components/FileListView.qml
         qml/components/FileGridView.qml
         qml/components/FolderFilterBar.qml
