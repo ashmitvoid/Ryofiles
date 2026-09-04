@@ -4,6 +4,8 @@
 
 #include <QDir>
 
+#include <utility>
+
 TabManager::TabManager(QObject* parent)
     : QAbstractListModel(parent) {
     newTab(QDir::homePath());
@@ -13,20 +15,25 @@ int TabManager::rowCount(const QModelIndex& parent) const {
     return parent.isValid() ? 0 : m_tabs.size();
 }
 
-QVariant TabManager::data(const QModelIndex& index, int role) const {
-    if (!index.isValid() || index.row() < 0 || index.row() >= m_tabs.size())
+QVariant TabManager::data(const QModelIndex& indexValue, int role) const {
+    if (!indexValue.isValid() || indexValue.row() < 0 || indexValue.row() >= m_tabs.size())
         return {};
 
-    DirectorySession* session = m_tabs.at(index.row());
+    const int row = indexValue.row();
+    DirectorySession* session = m_tabs.at(row);
+    DirectorySession* secondary = m_splitStates.at(row).secondary;
+
     switch (role) {
     case TitleRole:
+        if (secondary)
+            return session->title() + QStringLiteral("  |  ") + secondary->title();
         return session->title();
     case PathRole:
         return session->path();
     case SessionRole:
         return QVariant::fromValue(session);
     case ActiveRole:
-        return index.row() == m_currentIndex;
+        return row == m_currentIndex;
     default:
         return {};
     }
@@ -41,10 +48,50 @@ QHash<int, QByteArray> TabManager::roleNames() const {
     };
 }
 
-DirectorySession* TabManager::currentSession() const {
+DirectorySession* TabManager::primarySession() const {
     if (m_currentIndex < 0 || m_currentIndex >= m_tabs.size())
         return nullptr;
     return m_tabs.at(m_currentIndex);
+}
+
+DirectorySession* TabManager::secondarySession() const {
+    if (m_currentIndex < 0 || m_currentIndex >= m_splitStates.size())
+        return nullptr;
+    return m_splitStates.at(m_currentIndex).secondary;
+}
+
+DirectorySession* TabManager::currentSession() const {
+    if (activePane() == 1) {
+        if (auto* secondary = secondarySession())
+            return secondary;
+    }
+    return primarySession();
+}
+
+bool TabManager::split() const {
+    return secondarySession() != nullptr;
+}
+
+int TabManager::activePane() const {
+    if (m_currentIndex < 0 || m_currentIndex >= m_splitStates.size())
+        return 0;
+    if (!m_splitStates.at(m_currentIndex).secondary)
+        return 0;
+    return m_splitStates.at(m_currentIndex).activePane;
+}
+
+void TabManager::setActivePane(int pane) {
+    if (m_currentIndex < 0 || m_currentIndex >= m_splitStates.size())
+        return;
+
+    const int bounded = (pane == 1 && m_splitStates.at(m_currentIndex).secondary) ? 1 : 0;
+    auto& state = m_splitStates[m_currentIndex];
+    if (state.activePane == bounded)
+        return;
+
+    state.activePane = bounded;
+    emit activePaneChanged();
+    emit currentSessionChanged();
 }
 
 void TabManager::setCurrentIndex(int indexValue) {
@@ -59,7 +106,7 @@ void TabManager::setCurrentIndex(int indexValue) {
     emit dataChanged(index(m_currentIndex), index(m_currentIndex), {ActiveRole});
 
     emit currentIndexChanged();
-    emit currentSessionChanged();
+    emitCurrentSplitStateChanged();
 }
 
 void TabManager::attachSession(DirectorySession* session) {
@@ -71,11 +118,29 @@ void TabManager::attachSession(DirectorySession* session) {
     });
 }
 
+int TabManager::tabIndexForSession(DirectorySession* session) const {
+    const qsizetype primaryIndex = m_tabs.indexOf(session);
+    if (primaryIndex >= 0)
+        return static_cast<int>(primaryIndex);
+
+    for (int i = 0; i < m_splitStates.size(); ++i) {
+        if (m_splitStates.at(i).secondary == session)
+            return i;
+    }
+    return -1;
+}
+
 void TabManager::emitTabChanged(DirectorySession* session, const QList<int>& roles) {
-    const qsizetype idx = m_tabs.indexOf(session);
+    const int idx = tabIndexForSession(session);
     if (idx < 0)
         return;
-    emit dataChanged(index(static_cast<int>(idx)), index(static_cast<int>(idx)), roles);
+    emit dataChanged(index(idx), index(idx), roles);
+}
+
+void TabManager::emitCurrentSplitStateChanged() {
+    emit splitChanged();
+    emit activePaneChanged();
+    emit currentSessionChanged();
 }
 
 void TabManager::newTab(const QString& requestedPath) {
@@ -92,6 +157,7 @@ void TabManager::newTab(const QString& requestedPath) {
     auto* session = new DirectorySession(path, this);
     attachSession(session);
     m_tabs.push_back(session);
+    m_splitStates.push_back({});
     endInsertRows();
 
     emit countChanged();
@@ -108,22 +174,34 @@ void TabManager::closeTab(int indexValue) {
         return;
 
     if (m_tabs.size() == 1) {
+        if (m_splitStates.front().secondary)
+            closeSplit();
         DirectorySession* only = m_tabs.front();
         if (only->path() != QDir::homePath())
             only->navigate(QDir::homePath());
         return;
     }
 
-    DirectorySession* session = m_tabs.at(indexValue);
-    m_closedTabs.push_back({session->path()});
+    DirectorySession* primary = m_tabs.at(indexValue);
+    DirectorySession* secondary = m_splitStates.at(indexValue).secondary;
+    m_closedTabs.push_back({
+        primary->path(),
+        secondary ? secondary->path() : QString(),
+        secondary != nullptr,
+        m_splitStates.at(indexValue).activePane,
+    });
     while (m_closedTabs.size() > 10)
         m_closedTabs.removeFirst();
 
     const int previousCurrent = m_currentIndex;
     beginRemoveRows({}, indexValue, indexValue);
     m_tabs.removeAt(indexValue);
+    m_splitStates.removeAt(indexValue);
     endRemoveRows();
-    session->deleteLater();
+
+    primary->deleteLater();
+    if (secondary)
+        secondary->deleteLater();
 
     if (indexValue < previousCurrent)
         m_currentIndex = previousCurrent - 1;
@@ -132,7 +210,7 @@ void TabManager::closeTab(int indexValue) {
 
     emit countChanged();
     emit currentIndexChanged();
-    emit currentSessionChanged();
+    emitCurrentSplitStateChanged();
 
     if (m_currentIndex >= 0)
         emit dataChanged(index(m_currentIndex), index(m_currentIndex), {ActiveRole});
@@ -145,8 +223,13 @@ void TabManager::closeCurrentTab() {
 void TabManager::reopenClosedTab() {
     if (m_closedTabs.isEmpty())
         return;
+
     const ClosedTab tab = m_closedTabs.takeLast();
-    newTab(tab.path);
+    newTab(tab.primaryPath);
+    if (tab.split) {
+        openSplit(tab.secondaryPath);
+        setActivePane(tab.activePane);
+    }
 }
 
 void TabManager::nextTab() {
@@ -159,4 +242,71 @@ void TabManager::previousTab() {
     if (m_tabs.size() < 2)
         return;
     setCurrentIndex((m_currentIndex - 1 + m_tabs.size()) % m_tabs.size());
+}
+
+void TabManager::toggleSplitView() {
+    if (split())
+        closeSplit();
+    else
+        openSplit();
+}
+
+void TabManager::openSplit(const QString& requestedPath) {
+    if (m_currentIndex < 0 || m_currentIndex >= m_tabs.size())
+        return;
+
+    auto& state = m_splitStates[m_currentIndex];
+    QString path = requestedPath;
+    if (path.isEmpty())
+        path = primarySession() ? primarySession()->path() : QDir::homePath();
+
+    if (state.secondary) {
+        state.secondary->navigate(path);
+        return;
+    }
+
+    state.secondary = new DirectorySession(path, this);
+    attachSession(state.secondary);
+    state.activePane = 0;
+
+    emit dataChanged(index(m_currentIndex), index(m_currentIndex), {TitleRole});
+    emit splitChanged();
+}
+
+void TabManager::closeSplit() {
+    if (m_currentIndex < 0 || m_currentIndex >= m_splitStates.size())
+        return;
+
+    auto& state = m_splitStates[m_currentIndex];
+    DirectorySession* secondary = state.secondary;
+    if (!secondary)
+        return;
+
+    const bool currentChanged = state.activePane == 1;
+    state.secondary = nullptr;
+    state.activePane = 0;
+    secondary->deleteLater();
+
+    emit dataChanged(index(m_currentIndex), index(m_currentIndex), {TitleRole});
+    emit splitChanged();
+    emit activePaneChanged();
+    if (currentChanged)
+        emit currentSessionChanged();
+}
+
+void TabManager::swapPanes() {
+    if (m_currentIndex < 0 || m_currentIndex >= m_splitStates.size())
+        return;
+
+    auto& state = m_splitStates[m_currentIndex];
+    if (!state.secondary)
+        return;
+
+    std::swap(m_tabs[m_currentIndex], state.secondary);
+    emit dataChanged(
+        index(m_currentIndex),
+        index(m_currentIndex),
+        {TitleRole, PathRole, SessionRole});
+    emit splitChanged();
+    emit currentSessionChanged();
 }
