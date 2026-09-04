@@ -52,7 +52,8 @@ int runPicker(
     const QString& mode,
     bool multiple,
     const QString& initialDirectory,
-    const QStringList& mimeTypes) {
+    const QStringList& mimeTypes,
+    const QString& suggestedName) {
     PickerController picker;
     QString configurationError;
     if (!picker.configure(
@@ -60,6 +61,7 @@ int runPicker(
             multiple,
             initialDirectory,
             mimeTypes,
+            suggestedName,
             &configurationError)) {
         QTextStream(stderr)
             << "ryofiles: " << configurationError << Qt::endl;
@@ -122,7 +124,7 @@ int main(int argc, char* argv[]) {
 
     const QCommandLineOption pickerOption(
         QStringList{QStringLiteral("picker")},
-        QStringLiteral("Launch picker mode: open or folder."),
+        QStringLiteral("Launch picker mode: open, save, or folder."),
         QStringLiteral("mode"));
     const QCommandLineOption multipleOption(
         QStringList{QStringLiteral("multiple")},
@@ -135,11 +137,16 @@ int main(int argc, char* argv[]) {
         QStringList{QStringLiteral("mime")},
         QStringLiteral("Accepted MIME type; repeat or comma-separate values."),
         QStringLiteral("type"));
+    const QCommandLineOption suggestedNameOption(
+        QStringList{QStringLiteral("suggest-name")},
+        QStringLiteral("Suggested file name for --picker save mode."),
+        QStringLiteral("name"));
 
     parser.addOption(pickerOption);
     parser.addOption(multipleOption);
     parser.addOption(initialDirectoryOption);
     parser.addOption(mimeOption);
+    parser.addOption(suggestedNameOption);
     parser.process(app);
 
     if (parser.isSet(pickerOption)) {
@@ -148,14 +155,16 @@ int main(int argc, char* argv[]) {
             parser.value(pickerOption),
             parser.isSet(multipleOption),
             parser.value(initialDirectoryOption),
-            parser.values(mimeOption));
+            parser.values(mimeOption),
+            parser.value(suggestedNameOption));
     }
 
     if (parser.isSet(multipleOption)
         || parser.isSet(initialDirectoryOption)
-        || parser.isSet(mimeOption)) {
+        || parser.isSet(mimeOption)
+        || parser.isSet(suggestedNameOption)) {
         QTextStream(stderr)
-            << "ryofiles: --multiple, --initial-dir, and --mime require --picker"
+            << "ryofiles: --multiple, --initial-dir, --mime, and --suggest-name require --picker"
             << Qt::endl;
         return 2;
     }
