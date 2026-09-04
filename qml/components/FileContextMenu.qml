@@ -9,6 +9,7 @@ Item {
     property string targetPath: ""
     property bool targetIsDirectory: false
     property int selectionCount: 0
+    property var selectedPaths: []
     property bool clipboardHasFiles: false
     property string gitCode: ""
     property bool gitStageAvailable: false
@@ -46,6 +47,21 @@ Item {
         return path === repo || path.indexOf(repo + "/") === 0
     }
 
+    function selectionSnapshot() {
+        var window = root.Window.window
+        if (!window || !window.session || window.session.remote)
+            return []
+
+        var paths = window.session.selectedPaths
+        var snapshot = []
+        if (!paths)
+            return snapshot
+
+        for (var i = 0; i < paths.length; ++i)
+            snapshot.push(paths[i])
+        return snapshot
+    }
+
     function refreshGitCapabilities() {
         root.gitCode = ""
         root.gitStageAvailable = false
@@ -77,14 +93,13 @@ Item {
     }
 
     function refreshRyokuCapabilities() {
-        var oneRegularFile = root.selectionCount === 1
-            && root.targetPath !== ""
-            && !root.targetIsDirectory
+        var paths = root.selectedPaths
+        var hasSelection = paths && paths.length > 0
 
-        root.ryokuInstallAvailable = oneRegularFile
-            && Desktop.canRyokuInstall([root.targetPath])
-        root.ryokuCompressAvailable = oneRegularFile
-            && Desktop.canRyokuCompress([root.targetPath])
+        root.ryokuInstallAvailable = hasSelection
+            && Desktop.canRyokuInstall(paths)
+        root.ryokuCompressAvailable = hasSelection
+            && Desktop.canRyokuCompress(paths)
     }
 
     function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
@@ -98,6 +113,7 @@ Item {
         root.targetPath = path
         root.targetIsDirectory = isDirectory
         root.selectionCount = selectedCount
+        root.selectedPaths = root.selectionSnapshot()
         root.clipboardHasFiles = hasClipboard
         root.refreshGitCapabilities()
         root.refreshRyokuCapabilities()
@@ -133,13 +149,13 @@ Item {
     }
 
     function startRyokuAction(install) {
-        if (Desktop.ryokuActionBusy || root.selectionCount !== 1
-                || root.targetPath === "" || root.targetIsDirectory)
+        var paths = root.selectedPaths
+        if (Desktop.ryokuActionBusy || !paths || paths.length === 0)
             return
 
         var started = install
-            ? Desktop.installWithRyoku([root.targetPath])
-            : Desktop.compressWithRyoku([root.targetPath])
+            ? Desktop.installWithRyoku(paths)
+            : Desktop.compressWithRyoku(paths)
 
         if (!started) {
             root.ryokuMessage = Desktop.ryokuActionError !== ""
@@ -173,6 +189,8 @@ Item {
             root.diffMode = false
             diffPanel.close()
         }
+        if (!visible && !Desktop.ryokuActionBusy)
+            root.selectedPaths = []
     }
 
     MouseArea {
