@@ -49,6 +49,14 @@ struct PortalPickerRequest {
         const QVariantMap& options);
 
     QStringList pickerArguments() const;
+    QStringList pickerProcessArguments() const {
+        QStringList arguments = pickerArguments();
+        if (!title.isEmpty())
+            arguments << QStringLiteral("--picker-title") << title;
+        if (!acceptLabel.isEmpty())
+            arguments << QStringLiteral("--accept-label") << acceptLabel;
+        return arguments;
+    }
     bool pathMatchesFilters(const QString& path) const;
 };
 
