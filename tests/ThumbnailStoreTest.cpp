@@ -27,6 +27,8 @@ private slots:
     void candidateClassificationIsConservative() {
         QVERIFY(ThumbnailStore::isCandidatePath("photo.JPG"));
         QVERIFY(ThumbnailStore::isCandidatePath("picture.webp"));
+        QVERIFY(ThumbnailStore::isCandidatePath("photo:local.png"));
+        QVERIFY(!ThumbnailStore::isCandidatePath("sftp://example.invalid/photo.png"));
         QVERIFY(!ThumbnailStore::isCandidatePath("movie.mkv"));
         QVERIFY(!ThumbnailStore::isCandidatePath("notes.txt"));
     }
@@ -71,6 +73,27 @@ private slots:
         std::atomic_bool cancelled = false;
         QVERIFY(ThumbnailStore::load(directory, 128, cancelled).isNull());
         QVERIFY(ThumbnailStore::load(textPath, 128, cancelled).isNull());
+    }
+
+    void uriLikePathIsRejectedButLocalColonPathLoads() {
+        std::atomic_bool cancelled = false;
+        QString error;
+        const QImage remote = ThumbnailStore::load(
+            QStringLiteral("sftp://example.invalid/photo.png"),
+            128,
+            cancelled,
+            &error);
+        QVERIFY(remote.isNull());
+        QVERIFY(error.isEmpty());
+
+        const QString local = m_root->filePath("photo:local.png");
+        QImage source(320, 160, QImage::Format_ARGB32_Premultiplied);
+        source.fill(Qt::white);
+        QVERIFY(source.save(local, "PNG"));
+
+        const QImage thumbnail = ThumbnailStore::load(local, 80, cancelled, &error);
+        QVERIFY2(!thumbnail.isNull(), qPrintable(error));
+        QCOMPARE(thumbnail.size(), QSize(80, 40));
     }
 
 private:

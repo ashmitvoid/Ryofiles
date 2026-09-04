@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "ThumbnailStore.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QCache>
 #include <QCryptographicHash>
@@ -124,6 +125,9 @@ QString suffixOf(const QString& path) {
 } // namespace
 
 bool ThumbnailStore::isCandidatePath(const QString& path) {
+    if (LocalPathGuard::isUriLike(path))
+        return false;
+
     const QString suffix = suffixOf(path);
     static const QSet<QString> candidates = {
         QStringLiteral("jpg"),
@@ -146,8 +150,10 @@ QImage ThumbnailStore::load(
     int targetPixels,
     const std::atomic_bool& cancelled,
     QString* error) {
-    if (cancelled.load(std::memory_order_relaxed))
+    if (cancelled.load(std::memory_order_relaxed)
+        || LocalPathGuard::isUriLike(path)) {
         return {};
+    }
 
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile() || info.isSymLink())

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "GitStatusController.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -35,8 +36,10 @@ GitStatusController::~GitStatusController() {
 
 void GitStatusController::setPath(const QString& requestedPath) {
     QString clean;
-    if (!requestedPath.trimmed().isEmpty())
+    if (!requestedPath.trimmed().isEmpty()
+        && !LocalPathGuard::isUriLike(requestedPath)) {
         clean = QDir(requestedPath).absolutePath();
+    }
 
     if (m_path == clean)
         return;

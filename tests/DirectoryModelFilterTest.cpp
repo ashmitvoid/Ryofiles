@@ -166,6 +166,27 @@ private slots:
         waitUntilReady(model);
         QCOMPARE(model.rowCount(), 2);
     }
+
+    void uriLikePathIsRejectedButLocalColonDirectoryRemainsValid() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString colonDirectory = QDir(temp.path()).filePath("folder:local");
+        QVERIFY(QDir().mkpath(colonDirectory));
+
+        DirectoryModel model(false, nullptr);
+        model.setPath(colonDirectory);
+        QCOMPARE(model.path(), colonDirectory);
+
+        QSignalSpy errorSpy(&model, &DirectoryModel::errorOccurred);
+        QSignalSpy pathSpy(&model, &DirectoryModel::pathChanged);
+        model.setPath(QStringLiteral("sftp://example.invalid/share"));
+
+        QCOMPARE(errorSpy.count(), 1);
+        QCOMPARE(pathSpy.count(), 0);
+        QCOMPARE(model.path(), colonDirectory);
+        QVERIFY(!model.loading());
+    }
 };
 
 QTEST_GUILESS_MAIN(DirectoryModelFilterTest)

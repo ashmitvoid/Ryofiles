@@ -26,6 +26,8 @@ private slots:
         QVERIFY(TextPreviewStore::isCandidatePath("config.yaml"));
         QVERIFY(TextPreviewStore::isCandidatePath("Dockerfile"));
         QVERIFY(TextPreviewStore::isCandidatePath("PKGBUILD"));
+        QVERIFY(TextPreviewStore::isCandidatePath("notes:2026.txt"));
+        QVERIFY(!TextPreviewStore::isCandidatePath("sftp://example.invalid/notes.txt"));
         QVERIFY(!TextPreviewStore::isCandidatePath("movie.mkv"));
         QVERIFY(!TextPreviewStore::isCandidatePath("archive.zip"));
         QVERIFY(!TextPreviewStore::isCandidatePath("photo.png"));
@@ -118,6 +120,24 @@ private slots:
 
         cancelled.store(false);
         QVERIFY(!TextPreviewStore::load(imagePath, cancelled).supported);
+    }
+
+    void uriLikePathIsRejectedButLocalColonPathLoads() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        std::atomic_bool cancelled = false;
+        const TextPreviewResult remote = TextPreviewStore::load(
+            QStringLiteral("sftp://example.invalid/readme.md"), cancelled);
+        QVERIFY(!remote.supported);
+        QVERIFY(remote.text.isEmpty());
+        QVERIFY(remote.error.isEmpty());
+
+        const QString local = QDir(temp.path()).filePath("readme:local.md");
+        writeFile(local, "local colon path\n");
+        const TextPreviewResult result = TextPreviewStore::load(local, cancelled);
+        QVERIFY(result.supported);
+        QCOMPARE(result.text, QStringLiteral("local colon path\n"));
     }
 };
 
