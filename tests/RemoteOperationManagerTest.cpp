@@ -125,6 +125,19 @@ private slots:
         QVERIFY(RemoteOperationManager::keepBothName(QString(), 1).isEmpty());
     }
 
+    void remoteConflictPolicyIsNonDestructive() {
+        QVERIFY(RemoteOperationManager::nonDestructiveConflictDecision(
+            RemoteOperationManager::Skip));
+        QVERIFY(RemoteOperationManager::nonDestructiveConflictDecision(
+            RemoteOperationManager::KeepBoth));
+        QVERIFY(RemoteOperationManager::nonDestructiveConflictDecision(
+            RemoteOperationManager::CancelOperation));
+        QVERIFY(!RemoteOperationManager::nonDestructiveConflictDecision(
+            RemoteOperationManager::Replace));
+        QVERIFY(!RemoteOperationManager::nonDestructiveConflictDecision(-1));
+        QVERIFY(!RemoteOperationManager::nonDestructiveConflictDecision(99));
+    }
+
     void modelRolesMatchExistingOperationDrawerAndConflictContract() {
         RemoteOperationManager manager;
         const auto roles = manager.roleNames();
