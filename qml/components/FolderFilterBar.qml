@@ -192,6 +192,13 @@ Item {
         uiScale: root.uiScale
     }
 
+    GitAwarenessOverlay {
+        parent: root.parent
+        anchors.fill: parent
+        session: root.session
+        uiScale: root.uiScale
+    }
+
     Connections {
         target: root.files
 
