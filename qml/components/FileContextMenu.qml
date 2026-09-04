@@ -38,6 +38,8 @@ Item {
         var repo = GitStatus.rootPath
         if (!repo || repo === "" || !path || path === "")
             return false
+        if (repo === "/")
+            return path.indexOf("/") === 0
         return path === repo || path.indexOf(repo + "/") === 0
     }
 
@@ -75,8 +77,8 @@ Item {
         if (diffPanel.visible)
             diffPanel.close()
         root.diffMode = false
-        root.pendingGitOperation = ""
-        root.gitMessage = ""
+        if (root.pendingGitOperation === "")
+            root.gitMessage = ""
         root.targetPath = path
         root.targetIsDirectory = isDirectory
         root.selectionCount = selectedCount
@@ -135,7 +137,10 @@ Item {
         anchors.fill: parent
         visible: !root.diffMode
         acceptedButtons: Qt.AllButtons
-        onPressed: root.visible = false
+        onPressed: {
+            if (root.pendingGitOperation === "")
+                root.visible = false
+        }
     }
 
     Rectangle {
