@@ -8,6 +8,7 @@
 #include "integrations/MountRecoveryRegistry.hpp"
 #include "integrations/NetworkMountRecoveryRegistry.hpp"
 #include "locations/NetworkConnectionController.hpp"
+#include "locations/NetworkDisconnectController.hpp"
 #include "locations/NetworkLocationModel.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
@@ -39,6 +40,7 @@ int main(int argc, char* argv[]) {
     DriveModel drives;
     NetworkLocationModel networkLocations;
     NetworkConnectionController networkConnection;
+    NetworkDisconnectController networkDisconnect;
 
     QObject::connect(
         &drives,
@@ -65,6 +67,12 @@ int main(int argc, char* argv[]) {
         [&networkLocations](const QString&) { networkLocations.refresh(); });
 
     QObject::connect(
+        &networkDisconnect,
+        &NetworkDisconnectController::disconnected,
+        &networkLocations,
+        [&networkLocations](const QString&) { networkLocations.refresh(); });
+
+    QObject::connect(
         &networkLocations,
         &NetworkLocationModel::unmounted,
         &app,
@@ -81,6 +89,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Drives", &drives);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkLocations", &networkLocations);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkConnection", &networkConnection);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkDisconnect", &networkDisconnect);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
