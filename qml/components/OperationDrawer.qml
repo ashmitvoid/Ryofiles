@@ -85,8 +85,10 @@ Rectangle {
             width: list.width
             height: 62 * root.uiScale
 
+            readonly property bool conflictState:
+                state === "conflict" || state === "waiting"
             readonly property bool active:
-                state === "queued" || state === "running" || state === "conflict"
+                state === "queued" || state === "running" || conflictState
 
             Text {
                 id: title
@@ -151,7 +153,7 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 height: 2 * root.uiScale
                 width: parent.width * Math.max(0, Math.min(1, job.progress))
-                visible: job.active && job.state !== "conflict"
+                visible: job.active && !job.conflictState
                 color: Ryoku.inkDim
             }
         }
