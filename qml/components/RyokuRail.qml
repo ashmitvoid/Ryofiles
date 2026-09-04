@@ -182,6 +182,7 @@ Item {
                             required property string sizeText
                             required property bool mounted
                             required property bool removable
+                            required property bool canPowerOffNow
                             required property bool busy
 
                             readonly property bool active:
@@ -199,7 +200,7 @@ Item {
                             }
 
                             width: parent.width
-                            height: (drive.mounted ? 56 : 48) * rail.uiScale
+                            height: ((drive.mounted || drive.canPowerOffNow) ? 56 : 48) * rail.uiScale
                             radius: 6 * rail.uiScale
                             color: drive.active
                                 ? Ryoku.bone
@@ -293,27 +294,32 @@ Item {
                                 Rectangle {
                                     width: parent.width
                                     height: visible ? 20 * rail.uiScale : 0
-                                    visible: drive.mounted
+                                    visible: drive.mounted || drive.canPowerOffNow
                                     radius: 4 * rail.uiScale
-                                    color: unmountHover.hovered && !drive.busy ? Ryoku.tint10 : "transparent"
+                                    color: secondaryHover.hovered && !drive.busy ? Ryoku.tint10 : "transparent"
 
                                     Text {
                                         anchors.centerIn: parent
-                                        text: "UNMOUNT"
+                                        text: drive.mounted ? "UNMOUNT" : "POWER OFF"
                                         color: drive.active ? Ryoku.inkOnBoneDim : Ryoku.sun
                                         font.family: Ryoku.monoFont
-                                        font.pixelSize: 7 * rail.uiScale
-                                        font.letterSpacing: 0.45
+                                        font.pixelSize: drive.mounted ? 7 * rail.uiScale : 6.5 * rail.uiScale
+                                        font.letterSpacing: drive.mounted ? 0.45 : 0.25
                                     }
 
                                     HoverHandler {
-                                        id: unmountHover
+                                        id: secondaryHover
                                         enabled: !drive.busy
                                         cursorShape: Qt.PointingHandCursor
                                     }
                                     TapHandler {
                                         enabled: !drive.busy
-                                        onTapped: Drives.unmount(drive.objectPath)
+                                        onTapped: {
+                                            if (drive.mounted)
+                                                Drives.unmount(drive.objectPath)
+                                            else
+                                                Drives.powerOff(drive.objectPath)
+                                        }
                                     }
                                 }
                             }
