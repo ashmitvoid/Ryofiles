@@ -11,6 +11,7 @@ class DirectoryModel : public QAbstractListModel {
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
     Q_PROPERTY(QString filterQuery READ filterQuery WRITE setFilterQuery NOTIFY filterQueryChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
@@ -36,6 +37,7 @@ public:
     Q_ENUM(Role)
 
     explicit DirectoryModel(QObject* parent = nullptr);
+    DirectoryModel(bool startActive, QObject* parent);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -45,6 +47,9 @@ public:
     void setPath(const QString& path);
 
     bool loading() const { return m_loading; }
+    bool active() const { return m_active; }
+    void setActive(bool active);
+
     bool showHidden() const { return m_showHidden; }
     void setShowHidden(bool show);
 
@@ -70,6 +75,7 @@ public:
 signals:
     void pathChanged();
     void loadingChanged();
+    void activeChanged();
     void showHiddenChanged();
     void filterQueryChanged();
     void countChanged();
@@ -88,6 +94,7 @@ private:
 
     void scan();
     void watchCurrentDirectory();
+    void clearWatchers();
     void setLoading(bool loading);
     void rebuildFilteredEntries();
     static QList<Entry> scanDirectory(const QString& path, bool showHidden, QString* error);
@@ -101,6 +108,7 @@ private:
     QString m_path;
     QString m_filterQuery;
     bool m_loading = false;
+    bool m_active = true;
     bool m_showHidden = false;
     quint64 m_generation = 0;
     QFileSystemWatcher m_watcher;

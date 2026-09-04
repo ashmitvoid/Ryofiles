@@ -14,17 +14,25 @@
 #include <utility>
 
 DirectoryModel::DirectoryModel(QObject* parent)
-    : QAbstractListModel(parent) {
+    : DirectoryModel(true, parent) {
+}
+
+DirectoryModel::DirectoryModel(bool startActive, QObject* parent)
+    : QAbstractListModel(parent)
+    , m_active(startActive) {
     m_refreshDebounce.setSingleShot(true);
     m_refreshDebounce.setInterval(120);
     connect(&m_refreshDebounce, &QTimer::timeout, this, &DirectoryModel::scan);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] {
-        m_refreshDebounce.start();
+        if (m_active)
+            m_refreshDebounce.start();
     });
 
     m_path = home();
-    watchCurrentDirectory();
-    scan();
+    if (m_active) {
+        watchCurrentDirectory();
+        scan();
+    }
 }
 
 int DirectoryModel::rowCount(const QModelIndex& parent) const {
@@ -81,6 +89,28 @@ void DirectoryModel::setPath(const QString& requestedPath) {
 
     m_path = absolute;
     emit pathChanged();
+
+    if (m_active) {
+        watchCurrentDirectory();
+        scan();
+    }
+}
+
+void DirectoryModel::setActive(bool active) {
+    if (m_active == active)
+        return;
+
+    m_active = active;
+    emit activeChanged();
+
+    if (!m_active) {
+        m_refreshDebounce.stop();
+        ++m_generation;
+        clearWatchers();
+        setLoading(false);
+        return;
+    }
+
     watchCurrentDirectory();
     scan();
 }
@@ -90,7 +120,8 @@ void DirectoryModel::setShowHidden(bool show) {
         return;
     m_showHidden = show;
     emit showHiddenChanged();
-    scan();
+    if (m_active)
+        scan();
 }
 
 void DirectoryModel::setFilterQuery(const QString& query) {
@@ -118,7 +149,8 @@ QString DirectoryModel::music() const { return standardPath(QStandardPaths::Musi
 QString DirectoryModel::videos() const { return standardPath(QStandardPaths::MoviesLocation); }
 
 void DirectoryModel::refresh() {
-    scan();
+    if (m_active)
+        scan();
 }
 
 void DirectoryModel::goUp() {
@@ -170,10 +202,16 @@ void DirectoryModel::setLoading(bool loading) {
     emit loadingChanged();
 }
 
-void DirectoryModel::watchCurrentDirectory() {
+void DirectoryModel::clearWatchers() {
     const QStringList watched = m_watcher.directories();
     if (!watched.isEmpty())
         m_watcher.removePaths(watched);
+}
+
+void DirectoryModel::watchCurrentDirectory() {
+    clearWatchers();
+    if (!m_active)
+        return;
 
     if (QDir(m_path).exists())
         m_watcher.addPath(m_path);
@@ -204,6 +242,11 @@ void DirectoryModel::rebuildFilteredEntries() {
 }
 
 void DirectoryModel::scan() {
+    if (!m_active) {
+        setLoading(false);
+        return;
+    }
+
     const quint64 generation = ++m_generation;
     const QString scanPath = m_path;
     const bool scanHidden = m_showHidden;
@@ -214,7 +257,7 @@ void DirectoryModel::scan() {
         auto [entries, error] = watcher->result();
         watcher->deleteLater();
 
-        if (generation != m_generation || scanPath != m_path)
+        if (!m_active || generation != m_generation || scanPath != m_path)
             return;
 
         QList<Entry> filtered = filterEntries(entries, m_filterQuery);
