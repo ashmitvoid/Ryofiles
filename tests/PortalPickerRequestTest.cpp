@@ -221,7 +221,7 @@ private slots:
             PortalPickerRequest::saveFiles(QStringLiteral("Save files"), options);
         QVERIFY(request.valid);
         QCOMPARE(request.mode, QStringLiteral("folder"));
-        QCOMPARE(request.saveFiles, QStringList({QStringLiteral("report.txt"), QStringLiteral("image.png")}));
+        QCOMPARE(request.saveFileNames, QStringList({QStringLiteral("report.txt"), QStringLiteral("image.png")}));
 
         const QByteArray pickerOutput =
             QUrl::fromLocalFile(temp.path()).toString(QUrl::FullyEncoded).toUtf8() + '\n';
