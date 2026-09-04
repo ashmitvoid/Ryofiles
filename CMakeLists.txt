@@ -30,6 +30,8 @@ qt_add_executable(ryofiles
     src/search/DeepSearchModel.cpp
     src/storage/DriveModel.hpp
     src/storage/DriveModel.cpp
+    src/locations/LocationSpec.hpp
+    src/locations/LocationSpec.cpp
     src/git/GitStatusController.hpp
     src/git/GitStatusController.cpp
     src/git/GitActionController.hpp
@@ -270,6 +272,21 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME tab-split COMMAND ryofiles_tab_split_tests)
+
+    qt_add_executable(ryofiles_location_spec_tests
+        tests/LocationSpecTest.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+    )
+
+    target_include_directories(ryofiles_location_spec_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_location_spec_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    add_test(NAME location-spec COMMAND ryofiles_location_spec_tests)
 
     qt_add_executable(ryofiles_drive_tests
         tests/DriveModelTest.cpp
