@@ -27,6 +27,8 @@ qt_add_executable(ryofiles
     src/fs/DirectoryModel.cpp
     src/search/DeepSearchModel.hpp
     src/search/DeepSearchModel.cpp
+    src/git/GitStatusController.hpp
+    src/git/GitStatusController.cpp
     src/navigation/DirectorySession.hpp
     src/navigation/DirectorySession.cpp
     src/navigation/TabManager.hpp
@@ -200,6 +202,22 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME deep-search COMMAND ryofiles_deep_search_tests)
+
+    qt_add_executable(ryofiles_git_status_tests
+        tests/GitStatusControllerTest.cpp
+        src/git/GitStatusController.hpp
+        src/git/GitStatusController.cpp
+    )
+
+    target_include_directories(ryofiles_git_status_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_git_status_tests PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME git-status COMMAND ryofiles_git_status_tests)
 endif()
 
 install(TARGETS ryofiles
