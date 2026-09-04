@@ -1,0 +1,4 @@
+# Backend registration only; portal routing is configured separately.
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.ryofiles
+Interfaces=org.freedesktop.impl.portal.FileChooser;

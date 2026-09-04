@@ -2,7 +2,7 @@
 
 Ryofiles is a native C++20 / Qt 6 / QML file manager built specifically for the Ryoku desktop and Hyprland.
 
-> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, and lightweight open/save/folder picker modes are implemented; archive workflows and FileChooser portal integration remain in progress.
+> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, and the FileChooser portal backend core are implemented; portal routing/compatibility hardening and archive workflows remain in progress.
 
 ## Project direction
 
@@ -18,12 +18,13 @@ Ryofiles is Ryoku-first:
 - XDG places, trash, removable storage, GVfs remotes, search, previews, tabs, and split view
 - Ryoku-specific actions such as **Install with Ryoku** and **Compress with Ryoku**
 - lightweight `--picker` bootstrap that avoids initializing unrelated main-window services
+- local-only XDG FileChooser backend core using the same picker validation contract
 
 ## Compatibility baselines
 
 The implementation is developed against exact upstream snapshots so behavior does not drift silently:
 
-- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `cf568032944f41ab35a05d77d484f39924cfd046` (`0.58.0-beta.19`)
+- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `f340d31d584501e7a58d80f5b953b31ad1e36add` (`0.58.0-beta.21`)
 
 ## Picker
 
@@ -39,7 +40,16 @@ ryofiles --picker folder [--initial-dir PATH]
 
 Save mode never treats a second generic Save action as overwrite authorization. Existing files require an explicit **REPLACE** confirmation tied to the exact canonical target path; changing the name or folder invalidates that confirmation. Existing directories are never valid save targets.
 
-This lightweight picker is intentionally separate from the XDG FileChooser portal backend. The picker contract is designed to be reused by that backend without duplicating validation or overwrite semantics.
+## FileChooser portal backend
+
+Ryofiles contains a QtDBus backend for `org.freedesktop.impl.portal.FileChooser`. The backend uses the lightweight picker process for OpenFile, SaveFile, and SaveFiles requests, validates local filesystem inputs and returned `file://` URIs, and supports per-request cancellation.
+
+The Arch/CachyOS package installs only neutral backend discovery and D-Bus activation files:
+
+- `/usr/share/xdg-desktop-portal/portals/ryofiles.portal`
+- `/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service`
+
+Installation does **not** write `portals.conf`, use legacy `UseIn=` selection, change `xdg-settings`, or replace Ryoku's current portal choices. Ryoku currently routes FileChooser to GTK while ScreenCast/Screenshot remain explicitly routed to the Hyprland backend. Selecting Ryofiles for FileChooser is therefore a separate opt-in/reversible integration step.
 
 ## Non-negotiable performance rules
 
@@ -53,7 +63,7 @@ This lightweight picker is intentionally separate from the XDG FileChooser porta
 
 ## Build
 
-Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, runs the full test suite, and smoke-tests a staged install on Linux.
+Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, runs the full test suite, and smoke-tests a staged install on Linux. The Arch package CI separately verifies package payload, portal registration neutrality, exact source SHA, installation, and runtime linkage.
 
 ## License
 
