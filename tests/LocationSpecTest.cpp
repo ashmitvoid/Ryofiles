@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "locations/LocationSpec.hpp"
+#include "picker/PickerController.hpp"
 
 #include <QDir>
+#include <QFile>
+#include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 class LocationSpecTest final : public QObject {
     Q_OBJECT
+
+private:
+    static void writeFile(const QString& path, const QByteArray& content = QByteArrayLiteral("x")) {
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::WriteOnly | QIODevice::Truncate), qPrintable(path));
+        QCOMPARE(file.write(content), content.size());
+    }
 
 private slots:
     void rejectsEmptyLocation() {
@@ -109,6 +120,129 @@ private slots:
             QStringLiteral("/run/user/1000/gvfs/sftp:host=example.com,user=ashmit"));
         QVERIFY(spec.isLocal());
         QVERIFY(!spec.isNetwork());
+    }
+
+    void pickerRejectsInvalidConfiguration() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        QString error;
+        PickerController invalidMode;
+        QVERIFY(!invalidMode.configure("save", false, temp.path(), {}, &error));
+        QVERIFY(error.contains(QStringLiteral("open")));
+
+        PickerController multipleFolder;
+        QVERIFY(!multipleFolder.configure("folder", true, temp.path(), {}, &error));
+        QVERIFY(error.contains(QStringLiteral("multiple"), Qt::CaseInsensitive));
+
+        PickerController filteredFolder;
+        QVERIFY(!filteredFolder.configure(
+            "folder", false, temp.path(), {QStringLiteral("image/*")}, &error));
+        QVERIFY(error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
+
+        PickerController remoteInitial;
+        QVERIFY(!remoteInitial.configure(
+            "open", false, QStringLiteral("sftp://example.invalid/home"), {}, &error));
+        QVERIFY(error.contains(QStringLiteral("local"), Qt::CaseInsensitive));
+
+        PickerController missingInitial;
+        QVERIFY(!missingInitial.configure(
+            "open", false, temp.filePath("missing"), {}, &error));
+    }
+
+    void pickerOpenModeValidatesSelectionAndMultiplicity() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString first = temp.filePath("first.txt");
+        const QString second = temp.filePath("second.txt");
+        const QString folder = temp.filePath("folder");
+        writeFile(first);
+        writeFile(second);
+        QVERIFY(QDir().mkpath(folder));
+
+        PickerController single;
+        QVERIFY(single.configure("open", false, temp.path(), {}));
+        QCOMPARE(single.modeName(), QStringLiteral("open"));
+        QVERIFY(!single.folderMode());
+        QVERIFY(!single.multiple());
+        QCOMPARE(single.initialDirectory(), QDir::cleanPath(temp.path()));
+        QVERIFY(single.canAccept({first}, temp.path()));
+        QVERIFY(!single.canAccept({first, second}, temp.path()));
+        QVERIFY(!single.canAccept({folder}, temp.path()));
+        QVERIFY(!single.canAccept({QStringLiteral("smb://server.invalid/file.txt")}, temp.path()));
+
+        QSignalSpy accepted(&single, &PickerController::acceptedPaths);
+        QVERIFY(single.accept({first}, temp.path()));
+        QCOMPARE(accepted.count(), 1);
+        QCOMPARE(accepted.takeFirst().at(0).toStringList(), QStringList({first}));
+
+        PickerController multiple;
+        QVERIFY(multiple.configure("open", true, temp.path(), {}));
+        QVERIFY(multiple.multiple());
+        QVERIFY(multiple.canAccept({first, second}, temp.path()));
+
+        QSignalSpy multipleAccepted(&multiple, &PickerController::acceptedPaths);
+        QVERIFY(multiple.accept({first, second, first}, temp.path()));
+        QCOMPARE(
+            multipleAccepted.takeFirst().at(0).toStringList(),
+            QStringList({first, second}));
+    }
+
+    void pickerOpenModeHonorsMimeFilters() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString image = temp.filePath("photo.png");
+        const QString text = temp.filePath("notes.txt");
+        writeFile(image, QByteArrayLiteral("not-decoded-by-picker"));
+        writeFile(text, QByteArrayLiteral("plain text"));
+
+        PickerController images;
+        QVERIFY(images.configure(
+            "open",
+            false,
+            temp.path(),
+            {QStringLiteral("image/*"), QStringLiteral(" image/png ")}));
+        QVERIFY(images.canAccept({image}, temp.path()));
+        QVERIFY(!images.canAccept({text}, temp.path()));
+
+        PickerController textFiles;
+        QVERIFY(textFiles.configure(
+            "open", false, temp.path(), {QStringLiteral("text/plain")}));
+        QVERIFY(textFiles.canAccept({text}, temp.path()));
+        QVERIFY(!textFiles.canAccept({image}, temp.path()));
+
+        PickerController invalidFilter;
+        QString error;
+        QVERIFY(!invalidFilter.configure(
+            "open", false, temp.path(), {QStringLiteral("image")}, &error));
+        QVERIFY(error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
+    }
+
+    void pickerFolderModeReturnsCurrentDirectoryOnly() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString child = temp.filePath("child");
+        const QString file = temp.filePath("ignored.txt");
+        QVERIFY(QDir().mkpath(child));
+        writeFile(file);
+
+        PickerController picker;
+        QVERIFY(picker.configure("folder", false, temp.path(), {}));
+        QVERIFY(picker.folderMode());
+        QVERIFY(picker.canAccept({}, child));
+        QVERIFY(picker.canAccept({file}, child));
+        QVERIFY(!picker.canAccept({}, temp.filePath("missing")));
+        QVERIFY(!picker.canAccept({}, QStringLiteral("sftp://example.invalid/home")));
+
+        QSignalSpy accepted(&picker, &PickerController::acceptedPaths);
+        QVERIFY(picker.accept({file}, child));
+        QCOMPARE(accepted.count(), 1);
+        QCOMPARE(
+            accepted.takeFirst().at(0).toStringList(),
+            QStringList({QDir::cleanPath(child)}));
     }
 };
 
