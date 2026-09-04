@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <gio/gio.h>
+
 #include "locations/NetworkLocationModel.hpp"
 
 #include "locations/LocationSpec.hpp"
@@ -9,7 +11,6 @@
 
 #include <algorithm>
 #include <utility>
-#include <gio/gio.h>
 
 namespace {
 QString takeUtf8(gchar* value) {
