@@ -34,6 +34,8 @@ qt_add_executable(ryofiles
     src/storage/DriveModel.cpp
     src/locations/LocationSpec.hpp
     src/locations/LocationSpec.cpp
+    src/locations/NetworkConnectionController.hpp
+    src/locations/NetworkConnectionController.cpp
     src/locations/NetworkLocationModel.hpp
     src/locations/NetworkLocationModel.cpp
     src/git/GitStatusController.hpp
@@ -292,6 +294,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME location-spec COMMAND ryofiles_location_spec_tests)
+
+    qt_add_executable(ryofiles_network_connection_tests
+        tests/NetworkConnectionControllerTest.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/NetworkConnectionController.hpp
+        src/locations/NetworkConnectionController.cpp
+    )
+
+    target_include_directories(ryofiles_network_connection_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_network_connection_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME network-connection COMMAND ryofiles_network_connection_tests)
 
     qt_add_executable(ryofiles_network_location_tests
         tests/NetworkLocationModelTest.cpp

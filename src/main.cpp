@@ -6,6 +6,7 @@
 #include "integrations/ClipboardController.hpp"
 #include "integrations/DesktopIntegration.hpp"
 #include "integrations/MountRecoveryRegistry.hpp"
+#include "locations/NetworkConnectionController.hpp"
 #include "locations/NetworkLocationModel.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
@@ -36,6 +37,7 @@ int main(int argc, char* argv[]) {
     GitActionController gitActions;
     DriveModel drives;
     NetworkLocationModel networkLocations;
+    NetworkConnectionController networkConnection;
 
     QObject::connect(
         &drives,
@@ -55,6 +57,12 @@ int main(int argc, char* argv[]) {
             }
         });
 
+    QObject::connect(
+        &networkConnection,
+        &NetworkConnectionController::connected,
+        &networkLocations,
+        [&networkLocations](const QString&) { networkLocations.refresh(); });
+
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Desktop", &desktop);
@@ -63,6 +71,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitActions", &gitActions);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Drives", &drives);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkLocations", &networkLocations);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkConnection", &networkConnection);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
