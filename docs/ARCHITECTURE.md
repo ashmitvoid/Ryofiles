@@ -6,7 +6,7 @@ Ryoku is the product and integration authority. Atlas is a technical upstream/re
 
 Pinned development baselines:
 
-- Ryoku `unstable-dev`: `cf568032944f41ab35a05d77d484f39924cfd046` (`0.58.0-beta.19`)
+- Ryoku `unstable-dev`: `f340d31d584501e7a58d80f5b953b31ad1e36add` (`0.58.0-beta.21`)
 - Atlas `main`: `f3c8e58336d72d9581be1b598c8af4be751c74e5`
 
 ## Layers
@@ -45,7 +45,9 @@ The repository now has the core native vertical slices required for daily file-m
 16. removable-storage and GVfs remote navigation/mutation support;
 17. Git status/actions and Ryoku-native contextual actions;
 18. explicit on-demand folder-size calculation outside the browsing path;
-19. lightweight open/save/folder picker bootstrap with separate `Ryofiles Picker` identity.
+19. lightweight open/save/folder picker bootstrap with separate `Ryofiles Picker` identity;
+20. local-only QtDBus FileChooser backend core with per-request lifecycle/cancellation;
+21. package-level neutral backend discovery and D-Bus activation registration.
 
 ## Hard invariants
 
@@ -76,11 +78,20 @@ The picker contract supports:
 
 Save mode uses a pure `PickerSaveState` shared-capable state machine rather than encoding overwrite semantics in QML. Existing files require an explicit confirmation tied to the exact canonical target path. A repeated generic Save action remains a confirmation request rather than becoming implicit authorization, and changing the filename or current directory invalidates the pending confirmation. Existing directories are rejected as save targets and symlink entries are treated as occupied targets rather than silently followed as new names.
 
-The pure picker contract and save state are intentionally reusable by the future FileChooser portal backend so portal behavior does not fork validation or overwrite semantics.
+## FileChooser portal architecture
+
+`--filechooser-portal` is a dedicated service bootstrap for `org.freedesktop.impl.portal.desktop.ryofiles`. It exposes `org.freedesktop.impl.portal.FileChooser` and uses a per-handle `org.freedesktop.impl.portal.Request` lifecycle. OpenFile, SaveFile, and SaveFiles requests are translated into the same lightweight picker contract; returned values are normalized and revalidated as local percent-encoded `file://` URIs before a portal response is emitted.
+
+The Arch/CachyOS package registers the backend using only:
+
+- `usr/share/xdg-desktop-portal/portals/ryofiles.portal`;
+- `usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service`.
+
+Registration is deliberately not routing. The `.portal` descriptor has no legacy `UseIn=` selector, packaging does not install `portals.conf` or another `.conf`, and installation does not invoke `xdg-settings`/`xdg-mime` defaults. Ryoku `0.58.0-beta.21` currently keeps ScreenCast/Screenshot on the Hyprland backend and explicitly routes FileChooser to GTK, so a future Ryofiles route must modify only the FileChooser preference and remain reversible.
 
 ## Next engine milestones
 
+- opt-in/reversible Ryoku FileChooser routing that preserves Hyprland ScreenCast/Screenshot ownership;
+- FileChooser compatibility/UX hardening: title/accept-label forwarding, parent-window/modal behavior, portal choices, and broader application testing;
 - archive browsing/extract/compress workflows with bounded background work;
-- narrow XDG FileChooser portal backend using the picker contract;
-- opt-in/reversible Ryoku portal routing and application compatibility testing;
 - broaden lazy preview types only where decoding/resource loading can stay bounded and safe.
