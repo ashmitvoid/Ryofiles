@@ -1,0 +1,67 @@
+# Maintainer: Ryofiles contributors
+pkgname=ryofiles-git
+pkgver=0.3.0.r0
+pkgrel=1
+pkgdesc='Ryoku-native Qt 6 file manager for local and network locations'
+arch=('x86_64')
+url='https://github.com/ashmitvoid/Ryofiles'
+license=('GPL-3.0-only')
+depends=(
+  'glib2'
+  'gvfs'
+  'qt6-base'
+  'qt6-declarative'
+)
+makedepends=(
+  'cmake'
+  'git'
+  'ninja'
+)
+optdepends=(
+  'gvfs-smb: SMB/CIFS remote locations'
+  'gvfs-dnssd: WebDAV and DNS-SD support'
+  'gvfs-nfs: NFS remote locations'
+)
+provides=('ryofiles')
+conflicts=('ryofiles')
+source=('git+https://github.com/ashmitvoid/Ryofiles.git')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd Ryofiles
+  local base
+  base="$(sed -n 's/^project(ryofiles VERSION \([^ ]*\) LANGUAGES.*/\1/p' CMakeLists.txt)"
+  printf '%s.r%s.g%s' \
+    "${base:-0.3.0}" \
+    "$(git rev-list --count HEAD)" \
+    "$(git rev-parse --short=7 HEAD)"
+}
+
+build() {
+  cmake \
+    -S Ryofiles \
+    -B build \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DRYOFILES_BUILD_TESTS=ON
+  cmake --build build
+}
+
+check() {
+  ctest --test-dir build --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 \
+    Ryofiles/assets/io.github.ashmitvoid.Ryofiles.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml"
+  install -Dm644 \
+    Ryofiles/LICENSE \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 \
+    Ryofiles/THIRD_PARTY_NOTICES.md \
+    "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES.md"
+}
