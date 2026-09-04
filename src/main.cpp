@@ -7,12 +7,14 @@
 #include "integrations/DesktopIntegration.hpp"
 #include "integrations/MountRecoveryRegistry.hpp"
 #include "integrations/NetworkMountRecoveryRegistry.hpp"
+#include "integrations/RemoteMutationRegistry.hpp"
 #include "locations/NetworkConnectionController.hpp"
 #include "locations/NetworkDisconnectController.hpp"
 #include "locations/NetworkLocationModel.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
+#include "operations/RemoteOperationManager.hpp"
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
 #include "search/DeepSearchModel.hpp"
@@ -41,6 +43,7 @@ int main(int argc, char* argv[]) {
     NetworkLocationModel networkLocations;
     NetworkConnectionController networkConnection;
     NetworkDisconnectController networkDisconnect;
+    RemoteOperationManager remoteOperations;
 
     QObject::connect(
         &drives,
@@ -80,6 +83,15 @@ int main(int argc, char* argv[]) {
             NetworkMountRecoveryRegistry::instance().notifyUnmounted(rootUri);
         });
 
+    QObject::connect(
+        &remoteOperations,
+        &RemoteOperationManager::jobFinished,
+        &app,
+        [](const QString&, bool success) {
+            if (success)
+                RemoteMutationRegistry::instance().notifyChanged();
+        });
+
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Desktop", &desktop);
@@ -90,6 +102,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkLocations", &networkLocations);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkConnection", &networkConnection);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkDisconnect", &networkDisconnect);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "RemoteOperations", &remoteOperations);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",

@@ -4,6 +4,7 @@
 
 #include "../integrations/MountRecoveryRegistry.hpp"
 #include "../integrations/NetworkMountRecoveryRegistry.hpp"
+#include "../integrations/RemoteMutationRegistry.hpp"
 
 #include <QDir>
 
@@ -19,12 +20,17 @@ TabManager::TabManager(QObject* parent)
         [this](const QString& rootUri) {
             recoverUnmountedNetwork(rootUri);
         });
+    m_remoteMutationSubscription = RemoteMutationRegistry::instance().subscribe(
+        [this] {
+            refreshRemoteSessions();
+        });
     newTab(QDir::homePath());
 }
 
 TabManager::~TabManager() {
     MountRecoveryRegistry::instance().unsubscribe(m_mountRecoverySubscription);
     NetworkMountRecoveryRegistry::instance().unsubscribe(m_networkMountRecoverySubscription);
+    RemoteMutationRegistry::instance().unsubscribe(m_remoteMutationSubscription);
 }
 
 int TabManager::rowCount(const QModelIndex& parent) const {
@@ -325,6 +331,24 @@ void TabManager::swapPanes() {
         {TitleRole, PathRole, SessionRole});
     emit splitChanged();
     emit currentSessionChanged();
+}
+
+int TabManager::refreshRemoteSessions() {
+    int refreshed = 0;
+    for (int i = 0; i < m_tabs.size(); ++i) {
+        DirectorySession* primary = m_tabs.at(i);
+        if (primary && primary->remote()) {
+            primary->refresh();
+            ++refreshed;
+        }
+
+        DirectorySession* secondary = m_splitStates.at(i).secondary;
+        if (secondary && secondary->remote()) {
+            secondary->refresh();
+            ++refreshed;
+        }
+    }
+    return refreshed;
 }
 
 int TabManager::recoverUnmountedMount(

@@ -6,18 +6,21 @@
 
 #include "locations/LocationSpec.hpp"
 
-#include <QDir>
 #include <QFile>
-#include <QFileInfo>
+#include <QMetaObject>
+#include <QMutexLocker>
 #include <QUuid>
 
 #include <algorithm>
+#include <chrono>
+#include <future>
 
 namespace {
 QString stateText(RemoteOperationManager::OperationState state) {
     switch (state) {
     case RemoteOperationManager::Queued: return QStringLiteral("queued");
     case RemoteOperationManager::Running: return QStringLiteral("running");
+    case RemoteOperationManager::WaitingForConflict: return QStringLiteral("waiting");
     case RemoteOperationManager::Completed: return QStringLiteral("completed");
     case RemoteOperationManager::Failed: return QStringLiteral("failed");
     case RemoteOperationManager::Cancelled: return QStringLiteral("cancelled");
@@ -39,6 +42,10 @@ QString kindText(RemoteOperationManager::OperationKind kind) {
 bool cancelledError(const GError* error) {
     return error && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
 }
+
+bool existsError(const GError* error) {
+    return error && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_EXISTS);
+}
 } // namespace
 
 RemoteOperationManager::ActiveContext::~ActiveContext() {
@@ -55,14 +62,31 @@ RemoteOperationManager::RemoteOperationManager(QObject* parent)
 }
 
 RemoteOperationManager::~RemoteOperationManager() {
+    m_stopping.store(true, std::memory_order_relaxed);
+
     if (!m_active)
         return;
 
     ActiveContext* context = m_active;
-    m_active = nullptr;
-    context->owner.clear();
     if (context->cancellable)
         g_cancellable_cancel(context->cancellable);
+
+    if (context->treeMode) {
+        {
+            QMutexLocker locker(&context->job->conflictMutex);
+            context->job->conflictDecision = CancelOperation;
+            context->job->conflictResolved = true;
+            context->job->conflictCondition.wakeAll();
+        }
+        if (m_treeFuture.valid())
+            m_treeFuture.wait();
+        m_active = nullptr;
+        delete context;
+        return;
+    }
+
+    m_active = nullptr;
+    context->owner.clear();
 }
 
 int RemoteOperationManager::rowCount(const QModelIndex& parent) const {
@@ -98,6 +122,10 @@ QVariant RemoteOperationManager::data(const QModelIndex& indexValue, int role) c
         return job->progress;
     case ErrorRole:
         return job->error;
+    case ConflictSourceRole:
+        return job->conflictSource;
+    case ConflictDestinationRole:
+        return job->conflictDestination;
     default:
         return {};
     }
@@ -112,11 +140,24 @@ QHash<int, QByteArray> RemoteOperationManager::roleNames() const {
         {DestinationRole, "destination"},
         {ProgressRole, "progress"},
         {ErrorRole, "errorText"},
+        {ConflictSourceRole, "conflictSource"},
+        {ConflictDestinationRole, "conflictDestination"},
     };
 }
 
 bool RemoteOperationManager::terminal(OperationState state) {
     return state == Completed || state == Failed || state == Cancelled;
+}
+
+bool RemoteOperationManager::validConflictDecision(int decision) {
+    return decision >= static_cast<int>(Skip)
+        && decision <= static_cast<int>(CancelOperation);
+}
+
+bool RemoteOperationManager::nonDestructiveConflictDecision(int decision) {
+    return decision == static_cast<int>(Skip)
+        || decision == static_cast<int>(KeepBoth)
+        || decision == static_cast<int>(CancelOperation);
 }
 
 bool RemoteOperationManager::validLeafName(const QString& name) {
@@ -125,6 +166,22 @@ bool RemoteOperationManager::validLeafName(const QString& name) {
         && !clean.contains(QLatin1Char('/'))
         && clean != QStringLiteral(".")
         && clean != QStringLiteral("..");
+}
+
+QString RemoteOperationManager::keepBothName(const QString& originalName, int attempt) {
+    const QString name = originalName.trimmed();
+    if (name.isEmpty())
+        return {};
+
+    const int boundedAttempt = qMax(1, attempt);
+    const qsizetype dot = name.lastIndexOf(QLatin1Char('.'));
+    const bool hasExtension = dot > 0 && dot + 1 < name.size();
+    const QString base = hasExtension ? name.left(dot) : name;
+    const QString extension = hasExtension ? name.mid(dot) : QString();
+    const QString suffix = boundedAttempt == 1
+        ? QStringLiteral(" (copy)")
+        : QStringLiteral(" (copy %1)").arg(boundedAttempt);
+    return base + suffix + extension;
 }
 
 QString RemoteOperationManager::normalizedLocation(
@@ -236,13 +293,29 @@ GFile* RemoteOperationManager::fileForLocation(const QString& location) {
     return g_file_new_for_path(encoded.constData());
 }
 
+QString RemoteOperationManager::locationForFile(GFile* file) {
+    if (!file)
+        return {};
+
+    gchar* uri = g_file_get_uri(file);
+    if (!uri)
+        return {};
+
+    const QString raw = QString::fromUtf8(uri);
+    g_free(uri);
+    const LocationSpec spec = LocationSpec::parse(raw);
+    if (!spec.isValid())
+        return raw;
+    return spec.isNetwork() ? spec.canonical : spec.localPath;
+}
+
 QString RemoteOperationManager::gioErrorText(
     const GError* error,
     const QString& fallback) {
     if (!error)
         return fallback;
     if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_EXISTS))
-        return QStringLiteral("Destination already exists; Ryofiles will not overwrite it automatically");
+        return QStringLiteral("Destination already exists");
     const QString message = QString::fromUtf8(error->message ? error->message : "").trimmed();
     return message.isEmpty() ? fallback : message;
 }
@@ -341,7 +414,7 @@ void RemoteOperationManager::pruneFinished(int keep) {
 }
 
 void RemoteOperationManager::startNext() {
-    if (m_active)
+    if (m_active || m_stopping.load(std::memory_order_relaxed))
         return;
 
     std::shared_ptr<Job> next;
@@ -363,6 +436,7 @@ void RemoteOperationManager::startNext() {
     next->state = Running;
     next->error.clear();
     next->progress = 0.0;
+    clearConflict(next);
     const int row = indexOfJob(next);
     if (row >= 0)
         emit dataChanged(index(row), index(row));
@@ -378,29 +452,8 @@ void RemoteOperationManager::startActive(ActiveContext* context) {
     const auto& job = context->job;
     if (job->kind == CopyOperation || job->kind == MoveOperation) {
         context->sourceFile = fileForLocation(job->source);
-        GFile* parent = fileForLocation(job->destinationDirectory);
-        if (!context->sourceFile || !parent) {
-            if (parent)
-                g_object_unref(parent);
-            finishActive(context, Failed, tr("Could not resolve transfer locations"));
-            return;
-        }
-
-        gchar* basename = g_file_get_basename(context->sourceFile);
-        if (!basename || basename[0] == '\0') {
-            g_free(basename);
-            g_object_unref(parent);
-            finishActive(context, Failed, tr("Could not determine the source file name"));
-            return;
-        }
-
-        context->destinationFile = g_file_get_child(parent, basename);
-        g_free(basename);
-        g_object_unref(parent);
-
-        if (!context->destinationFile ||
-            g_file_equal(context->sourceFile, context->destinationFile)) {
-            finishActive(context, Failed, tr("Source and destination are the same file"));
+        if (!context->sourceFile) {
+            finishActive(context, Failed, tr("Could not resolve transfer source"));
             return;
         }
 
@@ -471,12 +524,49 @@ void RemoteOperationManager::startActive(ActiveContext* context) {
 void RemoteOperationManager::startTransferTypeQuery(ActiveContext* context) {
     g_file_query_info_async(
         context->sourceFile,
-        G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_ATTRIBUTE_STANDARD_TYPE "," G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
         G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
         G_PRIORITY_DEFAULT,
         context->cancellable,
         &RemoteOperationManager::transferTypeReady,
         context);
+}
+
+bool RemoteOperationManager::prepareTransferDestination(
+    ActiveContext* context,
+    const QString& displayName) {
+    if (!context)
+        return false;
+
+    if (context->destinationFile) {
+        g_object_unref(context->destinationFile);
+        context->destinationFile = nullptr;
+    }
+
+    GFile* parent = fileForLocation(context->job->destinationDirectory);
+    if (!parent)
+        return false;
+
+    GError* error = nullptr;
+    const QByteArray encoded = displayName.toUtf8();
+    context->destinationFile = g_file_get_child_for_display_name(
+        parent,
+        encoded.constData(),
+        &error);
+    g_object_unref(parent);
+
+    if (!context->destinationFile) {
+        const QString message = gioErrorText(error, tr("Could not resolve the destination file name"));
+        g_clear_error(&error);
+        finishActive(context, Failed, message);
+        return false;
+    }
+
+    if (g_file_equal(context->sourceFile, context->destinationFile)) {
+        finishActive(context, Failed, tr("Source and destination are the same file"));
+        return false;
+    }
+    return true;
 }
 
 void RemoteOperationManager::transferTypeReady(
@@ -505,12 +595,27 @@ void RemoteOperationManager::transferTypeReady(
     }
 
     const GFileType type = g_file_info_get_file_type(info);
+    const char* displayName = g_file_info_get_display_name(info);
+    context->sourceDisplayName = QString::fromUtf8(displayName ? displayName : "");
     g_object_unref(info);
-    if (type != G_FILE_TYPE_REGULAR) {
+
+    if (context->sourceDisplayName.isEmpty()) {
+        owner->finishActive(context, Failed, owner->tr("Could not determine the source file name"));
+        return;
+    }
+    if (!owner->prepareTransferDestination(context, context->sourceDisplayName))
+        return;
+
+    if (type == G_FILE_TYPE_DIRECTORY) {
+        owner->startDirectoryTransfer(context);
+        return;
+    }
+
+    if (type != G_FILE_TYPE_REGULAR && type != G_FILE_TYPE_SYMBOLIC_LINK) {
         owner->finishActive(
             context,
             Failed,
-            owner->tr("Remote directory and special-file transfers are not available yet"));
+            owner->tr("Remote special-file transfers are not supported"));
         return;
     }
 
@@ -518,11 +623,13 @@ void RemoteOperationManager::transferTypeReady(
 }
 
 void RemoteOperationManager::startTransfer(ActiveContext* context) {
+    const GFileCopyFlags flags = static_cast<GFileCopyFlags>(G_FILE_COPY_NOFOLLOW_SYMLINKS);
+
     if (context->job->kind == CopyOperation) {
         g_file_copy_async(
             context->sourceFile,
             context->destinationFile,
-            G_FILE_COPY_NONE,
+            flags,
             G_PRIORITY_DEFAULT,
             context->cancellable,
             &RemoteOperationManager::transferProgress,
@@ -535,13 +642,619 @@ void RemoteOperationManager::startTransfer(ActiveContext* context) {
     g_file_move_async(
         context->sourceFile,
         context->destinationFile,
-        G_FILE_COPY_NONE,
+        flags,
         G_PRIORITY_DEFAULT,
         context->cancellable,
         &RemoteOperationManager::transferProgress,
         context,
         &RemoteOperationManager::moveReady,
         context);
+}
+
+void RemoteOperationManager::startDirectoryTransfer(ActiveContext* context) {
+    const bool workerRunning = m_treeFuture.valid()
+        && m_treeFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
+    if (!context || context != m_active || workerRunning) {
+        if (context && context == m_active)
+            finishActive(context, Failed, tr("Another recursive transfer is still finishing"));
+        return;
+    }
+
+    context->treeMode = true;
+    m_treeFuture = std::async(std::launch::async, [this, context] {
+        bool skipped = false;
+        QString error;
+        const bool copied = copyDirectoryTree(
+            context,
+            context->sourceFile,
+            context->destinationFile,
+            context->sourceDisplayName,
+            0,
+            &skipped,
+            &error);
+
+        OperationState state = Completed;
+        if (!copied) {
+            state = g_cancellable_is_cancelled(context->cancellable)
+                ? Cancelled
+                : Failed;
+        } else if (context->job->kind == MoveOperation && skipped) {
+            state = Failed;
+            error = tr("Move left the source in place because one or more conflicts were skipped");
+        } else if (context->job->kind == MoveOperation) {
+            QString deleteError;
+            if (!deleteTree(context, context->sourceFile, 0, &deleteError)) {
+                state = g_cancellable_is_cancelled(context->cancellable)
+                    ? Cancelled
+                    : Failed;
+                error = deleteError.isEmpty()
+                    ? tr("Directory copied, but the source could not be removed")
+                    : tr("Directory copied, but source cleanup failed: %1").arg(deleteError);
+            }
+        }
+
+        if (m_stopping.load(std::memory_order_relaxed))
+            return;
+
+        QMetaObject::invokeMethod(
+            this,
+            [this, context, state, error] {
+                if (m_stopping.load(std::memory_order_relaxed) || context != m_active)
+                    return;
+                finishActive(context, state, state == Cancelled ? QString() : error);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+RemoteOperationManager::ConflictDecision RemoteOperationManager::waitForTreeConflict(
+    ActiveContext* context,
+    GFile* source,
+    GFile* destination) {
+    if (!context || !source || !destination)
+        return CancelOperation;
+
+    const auto job = context->job;
+    {
+        QMutexLocker locker(&job->conflictMutex);
+        if (job->persistentConflictDecision)
+            return job->persistentDecision;
+        job->conflictResolved = false;
+        job->conflictDecision = Skip;
+    }
+
+    const QString sourceLocation = locationForFile(source);
+    const QString destinationLocation = locationForFile(destination);
+    QMetaObject::invokeMethod(
+        this,
+        [this, job, sourceLocation, destinationLocation] {
+            if (m_stopping.load(std::memory_order_relaxed))
+                return;
+            job->state = WaitingForConflict;
+            job->conflictSource = sourceLocation;
+            job->conflictDestination = destinationLocation;
+            const int row = indexOfJob(job);
+            if (row >= 0) {
+                emit dataChanged(
+                    index(row),
+                    index(row),
+                    {StateRole, ConflictSourceRole, ConflictDestinationRole});
+            }
+            emit conflictRaised(job->id, sourceLocation, destinationLocation);
+        },
+        Qt::QueuedConnection);
+
+    QMutexLocker locker(&job->conflictMutex);
+    while (!job->conflictResolved
+           && !m_stopping.load(std::memory_order_relaxed)
+           && !g_cancellable_is_cancelled(context->cancellable)) {
+        job->conflictCondition.wait(&job->conflictMutex);
+    }
+
+    const ConflictDecision decision =
+        (m_stopping.load(std::memory_order_relaxed)
+         || g_cancellable_is_cancelled(context->cancellable))
+        ? CancelOperation
+        : job->conflictDecision;
+    job->conflictResolved = false;
+    locker.unlock();
+
+    if (decision != CancelOperation)
+        resumeTreeJobAfterConflict(job);
+    return decision;
+}
+
+void RemoteOperationManager::resumeTreeJobAfterConflict(const std::shared_ptr<Job>& job) {
+    QMetaObject::invokeMethod(
+        this,
+        [this, job] {
+            if (m_stopping.load(std::memory_order_relaxed) || !job)
+                return;
+            job->state = Running;
+            clearConflict(job);
+            const int row = indexOfJob(job);
+            if (row >= 0) {
+                emit dataChanged(
+                    index(row),
+                    index(row),
+                    {StateRole, ConflictSourceRole, ConflictDestinationRole});
+            }
+        },
+        Qt::QueuedConnection);
+}
+
+void RemoteOperationManager::updateTreeCurrentSource(
+    const std::shared_ptr<Job>& job,
+    GFile* source) {
+    if (!job || !source || m_stopping.load(std::memory_order_relaxed))
+        return;
+    const QString location = locationForFile(source);
+    QMetaObject::invokeMethod(
+        this,
+        [this, job, location] {
+            if (m_stopping.load(std::memory_order_relaxed))
+                return;
+            job->currentSource = location;
+            const int row = indexOfJob(job);
+            if (row >= 0)
+                emit dataChanged(index(row), index(row), {CurrentSourceRole});
+        },
+        Qt::QueuedConnection);
+}
+
+GFile* RemoteOperationManager::keepBothSibling(
+    GFile* desiredDestination,
+    const QString& displayName,
+    int attempt,
+    QString* error) const {
+    if (!desiredDestination || attempt < 1 || attempt > MaxKeepBothAttempts)
+        return nullptr;
+
+    GFile* parent = g_file_get_parent(desiredDestination);
+    if (!parent) {
+        if (error)
+            *error = tr("Could not resolve the destination parent folder");
+        return nullptr;
+    }
+
+    const QString candidateName = keepBothName(displayName, attempt);
+    const QByteArray encoded = candidateName.toUtf8();
+    GError* gioError = nullptr;
+    GFile* candidate = g_file_get_child_for_display_name(
+        parent,
+        encoded.constData(),
+        &gioError);
+    g_object_unref(parent);
+
+    if (!candidate && error) {
+        *error = gioErrorText(
+            gioError,
+            tr("Could not create a Keep Both destination name"));
+    }
+    g_clear_error(&gioError);
+    return candidate;
+}
+
+GFile* RemoteOperationManager::createDirectoryWithConflicts(
+    ActiveContext* context,
+    GFile* source,
+    GFile* desiredDestination,
+    const QString& displayName,
+    bool* skipped,
+    QString* error) {
+    if (skipped)
+        *skipped = false;
+    if (!context || !source || !desiredDestination)
+        return nullptr;
+
+    GFile* candidate = G_FILE(g_object_ref(desiredDestination));
+    bool keepBothMode = false;
+    int attempt = 0;
+
+    while (!m_stopping.load(std::memory_order_relaxed)
+           && !g_cancellable_is_cancelled(context->cancellable)) {
+        GError* gioError = nullptr;
+        if (g_file_make_directory(candidate, context->cancellable, &gioError))
+            return candidate;
+
+        if (existsError(gioError)) {
+            g_clear_error(&gioError);
+            if (!keepBothMode) {
+                const ConflictDecision decision = waitForTreeConflict(context, source, candidate);
+                if (decision == Skip) {
+                    if (skipped)
+                        *skipped = true;
+                    g_object_unref(candidate);
+                    return nullptr;
+                }
+                if (decision != KeepBoth) {
+                    g_cancellable_cancel(context->cancellable);
+                    g_object_unref(candidate);
+                    return nullptr;
+                }
+                keepBothMode = true;
+            }
+
+            ++attempt;
+            if (attempt > MaxKeepBothAttempts) {
+                if (error)
+                    *error = tr("Could not find an available Keep Both folder name");
+                g_object_unref(candidate);
+                return nullptr;
+            }
+
+            GFile* next = keepBothSibling(desiredDestination, displayName, attempt, error);
+            g_object_unref(candidate);
+            candidate = next;
+            if (!candidate)
+                return nullptr;
+            continue;
+        }
+
+        if (error)
+            *error = gioErrorText(gioError, tr("Could not create destination directory"));
+        g_clear_error(&gioError);
+        g_object_unref(candidate);
+        return nullptr;
+    }
+
+    g_object_unref(candidate);
+    return nullptr;
+}
+
+bool RemoteOperationManager::copyLeafWithConflicts(
+    ActiveContext* context,
+    GFile* source,
+    GFile* desiredDestination,
+    const QString& displayName,
+    bool* skipped,
+    QString* error) {
+    if (skipped)
+        *skipped = false;
+    if (!context || !source || !desiredDestination)
+        return false;
+
+    GFile* candidate = G_FILE(g_object_ref(desiredDestination));
+    bool keepBothMode = false;
+    int attempt = 0;
+    const GFileCopyFlags flags = static_cast<GFileCopyFlags>(G_FILE_COPY_NOFOLLOW_SYMLINKS);
+
+    while (!m_stopping.load(std::memory_order_relaxed)
+           && !g_cancellable_is_cancelled(context->cancellable)) {
+        updateTreeCurrentSource(context->job, source);
+        GError* gioError = nullptr;
+        const gboolean ok = g_file_copy(
+            source,
+            candidate,
+            flags,
+            context->cancellable,
+            nullptr,
+            nullptr,
+            &gioError);
+        if (ok) {
+            g_object_unref(candidate);
+            return true;
+        }
+
+        if (existsError(gioError)) {
+            g_clear_error(&gioError);
+            if (!keepBothMode) {
+                const ConflictDecision decision = waitForTreeConflict(context, source, candidate);
+                if (decision == Skip) {
+                    if (skipped)
+                        *skipped = true;
+                    g_object_unref(candidate);
+                    return true;
+                }
+                if (decision != KeepBoth) {
+                    g_cancellable_cancel(context->cancellable);
+                    g_object_unref(candidate);
+                    return false;
+                }
+                keepBothMode = true;
+            }
+
+            ++attempt;
+            if (attempt > MaxKeepBothAttempts) {
+                if (error)
+                    *error = tr("Could not find an available Keep Both file name");
+                g_object_unref(candidate);
+                return false;
+            }
+
+            GFile* next = keepBothSibling(desiredDestination, displayName, attempt, error);
+            g_object_unref(candidate);
+            candidate = next;
+            if (!candidate)
+                return false;
+            continue;
+        }
+
+        if (error)
+            *error = gioErrorText(gioError, tr("Recursive file copy failed"));
+        g_clear_error(&gioError);
+        g_object_unref(candidate);
+        return false;
+    }
+
+    g_object_unref(candidate);
+    return false;
+}
+
+bool RemoteOperationManager::copyDirectoryTree(
+    ActiveContext* context,
+    GFile* source,
+    GFile* desiredDestination,
+    const QString& displayName,
+    int depth,
+    bool* skipped,
+    QString* error) {
+    if (skipped)
+        *skipped = false;
+    if (depth > MaxTreeDepth) {
+        if (error)
+            *error = tr("Directory nesting exceeds Ryofiles' safe transfer depth");
+        return false;
+    }
+    if (g_cancellable_is_cancelled(context->cancellable))
+        return false;
+
+    updateTreeCurrentSource(context->job, source);
+
+    bool directorySkipped = false;
+    GFile* actualDestination = createDirectoryWithConflicts(
+        context,
+        source,
+        desiredDestination,
+        displayName,
+        &directorySkipped,
+        error);
+    if (directorySkipped) {
+        if (skipped)
+            *skipped = true;
+        return true;
+    }
+    if (!actualDestination)
+        return false;
+
+    GError* gioError = nullptr;
+    GFileEnumerator* enumerator = g_file_enumerate_children(
+        source,
+        G_FILE_ATTRIBUTE_STANDARD_NAME ","
+        G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME ","
+        G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+        context->cancellable,
+        &gioError);
+    if (!enumerator) {
+        if (error)
+            *error = gioErrorText(gioError, tr("Could not enumerate source directory"));
+        g_clear_error(&gioError);
+        if (!g_cancellable_is_cancelled(context->cancellable)) {
+            QString cleanupError;
+            deleteTree(context, actualDestination, depth, &cleanupError);
+        }
+        g_object_unref(actualDestination);
+        return false;
+    }
+
+    bool success = true;
+    bool anySkipped = false;
+    while (!g_cancellable_is_cancelled(context->cancellable)) {
+        GFileInfo* info = g_file_enumerator_next_file(
+            enumerator,
+            context->cancellable,
+            &gioError);
+        if (!info)
+            break;
+
+        const char* rawName = g_file_info_get_name(info);
+        const char* rawDisplayName = g_file_info_get_display_name(info);
+        const QString childDisplayName = QString::fromUtf8(
+            rawDisplayName ? rawDisplayName : (rawName ? rawName : ""));
+        if (!rawName || rawName[0] == '\0' || childDisplayName.isEmpty()) {
+            if (error)
+                *error = tr("Could not determine a child name during recursive transfer");
+            g_object_unref(info);
+            success = false;
+            break;
+        }
+
+        GFile* childSource = g_file_enumerator_get_child(enumerator, info);
+        GFile* childDestination = g_file_get_child(actualDestination, rawName);
+        const GFileType childType = g_file_info_get_file_type(info);
+        bool childSkipped = false;
+
+        if (!childSource || !childDestination) {
+            if (error)
+                *error = tr("Could not resolve a child during recursive transfer");
+            success = false;
+        } else if (childType == G_FILE_TYPE_DIRECTORY) {
+            success = copyDirectoryTree(
+                context,
+                childSource,
+                childDestination,
+                childDisplayName,
+                depth + 1,
+                &childSkipped,
+                error);
+        } else if (childType == G_FILE_TYPE_REGULAR || childType == G_FILE_TYPE_SYMBOLIC_LINK) {
+            success = copyLeafWithConflicts(
+                context,
+                childSource,
+                childDestination,
+                childDisplayName,
+                &childSkipped,
+                error);
+        } else {
+            if (error)
+                *error = tr("Special files inside remote directory transfers are not supported");
+            success = false;
+        }
+
+        if (childSkipped)
+            anySkipped = true;
+        if (childDestination)
+            g_object_unref(childDestination);
+        if (childSource)
+            g_object_unref(childSource);
+        g_object_unref(info);
+
+        if (!success)
+            break;
+    }
+
+    if (success && gioError) {
+        if (error)
+            *error = gioErrorText(gioError, tr("Recursive directory enumeration failed"));
+        success = false;
+    }
+    g_clear_error(&gioError);
+    g_object_unref(enumerator);
+
+    if (!success && !g_cancellable_is_cancelled(context->cancellable)) {
+        QString cleanupError;
+        if (!deleteTree(context, actualDestination, depth, &cleanupError)
+            && error && error->isEmpty()) {
+            *error = tr("Transfer failed and partial destination cleanup also failed: %1")
+                .arg(cleanupError);
+        }
+    }
+
+    if (success && skipped)
+        *skipped = anySkipped;
+    g_object_unref(actualDestination);
+    return success;
+}
+
+bool RemoteOperationManager::deleteTree(
+    ActiveContext* context,
+    GFile* root,
+    int depth,
+    QString* error) {
+    if (!context || !root)
+        return false;
+    if (depth > MaxTreeDepth) {
+        if (error)
+            *error = tr("Directory nesting exceeds Ryofiles' safe cleanup depth");
+        return false;
+    }
+    if (g_cancellable_is_cancelled(context->cancellable))
+        return false;
+
+    GError* gioError = nullptr;
+    GFileInfo* info = g_file_query_info(
+        root,
+        G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+        context->cancellable,
+        &gioError);
+    if (!info) {
+        if (error)
+            *error = gioErrorText(gioError, tr("Could not inspect source during cleanup"));
+        g_clear_error(&gioError);
+        return false;
+    }
+
+    const GFileType type = g_file_info_get_file_type(info);
+    g_object_unref(info);
+
+    if (type == G_FILE_TYPE_DIRECTORY) {
+        GFileEnumerator* enumerator = g_file_enumerate_children(
+            root,
+            G_FILE_ATTRIBUTE_STANDARD_NAME,
+            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+            context->cancellable,
+            &gioError);
+        if (!enumerator) {
+            if (error)
+                *error = gioErrorText(gioError, tr("Could not enumerate directory during cleanup"));
+            g_clear_error(&gioError);
+            return false;
+        }
+
+        bool success = true;
+        while (!g_cancellable_is_cancelled(context->cancellable)) {
+            GFileInfo* childInfo = g_file_enumerator_next_file(
+                enumerator,
+                context->cancellable,
+                &gioError);
+            if (!childInfo)
+                break;
+            GFile* child = g_file_enumerator_get_child(enumerator, childInfo);
+            g_object_unref(childInfo);
+            if (!child || !deleteTree(context, child, depth + 1, error)) {
+                if (child)
+                    g_object_unref(child);
+                success = false;
+                break;
+            }
+            g_object_unref(child);
+        }
+
+        if (success && gioError) {
+            if (error)
+                *error = gioErrorText(gioError, tr("Directory cleanup enumeration failed"));
+            success = false;
+        }
+        g_clear_error(&gioError);
+        g_object_unref(enumerator);
+        if (!success)
+            return false;
+    }
+
+    if (!g_file_delete(root, context->cancellable, &gioError)) {
+        if (error)
+            *error = gioErrorText(gioError, tr("Could not remove source after transfer"));
+        g_clear_error(&gioError);
+        return false;
+    }
+    return true;
+}
+
+void RemoteOperationManager::handleTransferExists(ActiveContext* context) {
+    if (!context || context != m_active)
+        return;
+
+    if (context->keepBothMode) {
+        if (context->keepBothAttempt >= MaxKeepBothAttempts) {
+            finishActive(context, Failed, tr("Could not find an available Keep Both name"));
+            return;
+        }
+        ++context->keepBothAttempt;
+        const QString candidate = keepBothName(context->sourceDisplayName, context->keepBothAttempt);
+        if (!prepareTransferDestination(context, candidate))
+            return;
+        startTransfer(context);
+        return;
+    }
+
+    raiseConflict(context);
+}
+
+void RemoteOperationManager::raiseConflict(ActiveContext* context) {
+    if (!context || context != m_active)
+        return;
+
+    const auto job = context->job;
+    job->state = WaitingForConflict;
+    job->conflictSource = locationForFile(context->sourceFile);
+    job->conflictDestination = locationForFile(context->destinationFile);
+    const int row = indexOfJob(job);
+    if (row >= 0) {
+        emit dataChanged(
+            index(row),
+            index(row),
+            {StateRole, ConflictSourceRole, ConflictDestinationRole});
+    }
+    emit conflictRaised(job->id, job->conflictSource, job->conflictDestination);
+}
+
+void RemoteOperationManager::clearConflict(const std::shared_ptr<Job>& job) {
+    if (!job)
+        return;
+    job->conflictSource.clear();
+    job->conflictDestination.clear();
 }
 
 void RemoteOperationManager::transferProgress(
@@ -571,6 +1284,12 @@ void RemoteOperationManager::copyReady(
     }
 
     RemoteOperationManager* owner = context->owner;
+    if (!ok && existsError(error)) {
+        g_clear_error(&error);
+        owner->handleTransferExists(context);
+        return;
+    }
+
     const bool cancelled = cancelledError(error);
     const QString message = gioErrorText(error, owner->tr("Remote copy failed"));
     g_clear_error(&error);
@@ -594,6 +1313,12 @@ void RemoteOperationManager::moveReady(
     }
 
     RemoteOperationManager* owner = context->owner;
+    if (!ok && existsError(error)) {
+        g_clear_error(&error);
+        owner->handleTransferExists(context);
+        return;
+    }
+
     const bool cancelled = cancelledError(error);
     const QString message = gioErrorText(error, owner->tr("Remote move failed"));
     g_clear_error(&error);
@@ -705,6 +1430,7 @@ void RemoteOperationManager::finishActive(
     m_active = nullptr;
     job->state = state;
     job->error = error;
+    clearConflict(job);
     if (state == Completed)
         job->progress = 1.0;
 
@@ -724,6 +1450,19 @@ void RemoteOperationManager::cancel(const QString& jobId) {
         return;
 
     if (m_active && m_active->job == job) {
+        if (m_active->treeMode) {
+            if (m_active->cancellable)
+                g_cancellable_cancel(m_active->cancellable);
+            QMutexLocker locker(&job->conflictMutex);
+            job->conflictDecision = CancelOperation;
+            job->conflictResolved = true;
+            job->conflictCondition.wakeAll();
+            return;
+        }
+        if (job->state == WaitingForConflict) {
+            finishActive(m_active, Cancelled);
+            return;
+        }
         if (m_active->cancellable)
             g_cancellable_cancel(m_active->cancellable);
         return;
@@ -737,6 +1476,72 @@ void RemoteOperationManager::cancel(const QString& jobId) {
         emit activeCountChanged();
         emit jobFinished(job->id, false);
     }
+}
+
+void RemoteOperationManager::resolveConflict(
+    const QString& jobId,
+    int decision,
+    bool applyToAll) {
+    if (!validConflictDecision(decision) || !m_active)
+        return;
+
+    const auto job = findJob(jobId);
+    if (!job || m_active->job != job || job->state != WaitingForConflict)
+        return;
+
+    ConflictDecision resolved = static_cast<ConflictDecision>(decision);
+    if (resolved == Replace) {
+        if (m_active->treeMode) {
+            QMutexLocker locker(&job->conflictMutex);
+            job->conflictDecision = CancelOperation;
+            job->conflictResolved = true;
+            job->conflictCondition.wakeAll();
+            return;
+        }
+        finishActive(
+            m_active,
+            Failed,
+            tr("Remote Replace is disabled until transactional replacement is available"));
+        return;
+    }
+
+    if (m_active->treeMode) {
+        QMutexLocker locker(&job->conflictMutex);
+        if (applyToAll && resolved != CancelOperation) {
+            job->persistentConflictDecision = true;
+            job->persistentDecision = resolved;
+        }
+        job->conflictDecision = resolved;
+        job->conflictResolved = true;
+        job->conflictCondition.wakeAll();
+        return;
+    }
+
+    if (resolved == CancelOperation) {
+        finishActive(m_active, Cancelled);
+        return;
+    }
+    if (resolved == Skip) {
+        finishActive(m_active, Completed);
+        return;
+    }
+
+    job->state = Running;
+    clearConflict(job);
+    const int row = indexOfJob(job);
+    if (row >= 0) {
+        emit dataChanged(
+            index(row),
+            index(row),
+            {StateRole, ConflictSourceRole, ConflictDestinationRole});
+    }
+
+    m_active->keepBothMode = true;
+    m_active->keepBothAttempt = 1;
+    const QString candidate = keepBothName(m_active->sourceDisplayName, 1);
+    if (!prepareTransferDestination(m_active, candidate))
+        return;
+    startTransfer(m_active);
 }
 
 QString RemoteOperationManager::errorFor(const QString& jobId) const {

@@ -63,6 +63,11 @@ public:
         const QString& rootUri,
         const QString& preferredFallback = QString());
 
+    // Event-driven invalidation for successful remote mutations. This deliberately
+    // refreshes all live remote sessions, including inactive tabs and split panes,
+    // avoiding stale directory models without introducing a polling loop.
+    int refreshRemoteSessions();
+
 signals:
     void currentIndexChanged();
     void currentSessionChanged();
@@ -94,4 +99,5 @@ private:
     int m_currentIndex = -1;
     quint64 m_mountRecoverySubscription = 0;
     quint64 m_networkMountRecoverySubscription = 0;
+    quint64 m_remoteMutationSubscription = 0;
 };
