@@ -217,6 +217,31 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(controller.revision() > revision, 7000);
         QTRY_COMPARE_WITH_TIMEOUT(controller.statusForPath(tracked), QStringLiteral("staged"), 7000);
     }
+
+    void uriLikePathClearsLocalGitStateButColonPathRemainsValid() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString repository = temp.filePath("repo:local");
+        initRepository(repository, QStringLiteral("colon-branch"));
+
+        GitStatusController controller;
+        controller.setPath(repository);
+        waitForRevision(controller);
+
+        QCOMPARE(controller.path(), QDir(repository).absolutePath());
+        QVERIFY(controller.repository());
+        QCOMPARE(controller.branchName(), QStringLiteral("colon-branch"));
+
+        controller.setPath(QStringLiteral("sftp://example.invalid/repository"));
+
+        QCOMPARE(controller.path(), QString());
+        QVERIFY(!controller.repository());
+        QVERIFY(controller.rootPath().isEmpty());
+        QVERIFY(controller.branchName().isEmpty());
+        QVERIFY(!controller.loading());
+        QCOMPARE(controller.changedCount(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(GitStatusControllerTest)
