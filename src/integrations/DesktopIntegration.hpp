@@ -16,6 +16,7 @@
 #include <QVariantMap>
 #include <QtConcurrent>
 
+#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <memory>
