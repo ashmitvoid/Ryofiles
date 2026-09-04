@@ -18,6 +18,13 @@ using UDisksManagedObjectMap = QMap<QDBusObjectPath, UDisksInterfaceMap>;
 Q_DECLARE_METATYPE(UDisksInterfaceMap)
 Q_DECLARE_METATYPE(UDisksManagedObjectMap)
 
+struct DrivePowerOffPlan {
+    bool allowed = false;
+    QString driveObjectPath;
+    QSet<QString> affectedDrivePaths;
+    QString reason;
+};
+
 struct DriveItem {
     QString objectPath;
     QString driveObjectPath;
@@ -31,6 +38,7 @@ struct DriveItem {
     bool removable = false;
     bool readOnly = false;
     bool canPowerOff = false;
+    bool canPowerOffNow = false;
 };
 
 class DriveModel final : public QAbstractListModel {
@@ -56,6 +64,7 @@ public:
         RemovableRole,
         ReadOnlyRole,
         CanPowerOffRole,
+        CanPowerOffNowRole,
         BusyRole,
     };
     Q_ENUM(Role)
@@ -73,8 +82,12 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void mount(const QString& objectPath);
     Q_INVOKABLE void unmount(const QString& objectPath);
+    Q_INVOKABLE void powerOff(const QString& objectPath);
 
     static QVector<DriveItem> volumesFromManagedObjects(const UDisksManagedObjectMap& objects);
+    static DrivePowerOffPlan powerOffPlan(
+        const UDisksManagedObjectMap& objects,
+        const QString& volumeObjectPath);
     static QString formatSize(quint64 bytes);
 
 signals:
@@ -84,6 +97,7 @@ signals:
     void lastErrorChanged();
     void mounted(const QString& objectPath, const QString& mountPath);
     void unmounted(const QString& objectPath);
+    void poweredOff(const QString& driveObjectPath);
     void operationFailed(const QString& objectPath, const QString& message);
 
 private slots:
@@ -107,6 +121,7 @@ private:
     void setLoading(bool loading);
     void setLastError(const QString& error);
     void setBusy(const QString& objectPath, bool busy);
+    void setDriveBusy(const QSet<QString>& drivePaths, bool busy);
     void requestRefreshAfterCurrent();
 
     static constexpr auto kService = "org.freedesktop.UDisks2";
@@ -120,8 +135,10 @@ private:
 
     QDBusConnection m_bus;
     QDBusServiceWatcher m_serviceWatcher;
+    UDisksManagedObjectMap m_managedObjects;
     QVector<DriveItem> m_items;
     QSet<QString> m_busyObjects;
+    QSet<QString> m_busyDriveObjects;
     bool m_available = false;
     bool m_loading = false;
     bool m_refreshPending = false;

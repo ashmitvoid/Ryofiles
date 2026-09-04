@@ -24,7 +24,8 @@ UDisksPropertyMap driveProperties(
     bool removable = false,
     bool mediaRemovable = false,
     bool canPowerOff = false,
-    quint64 size = 0) {
+    quint64 size = 0,
+    const QString& siblingId = {}) {
     return {
         {QStringLiteral("Vendor"), vendor},
         {QStringLiteral("Model"), model},
@@ -33,6 +34,7 @@ UDisksPropertyMap driveProperties(
         {QStringLiteral("MediaRemovable"), mediaRemovable},
         {QStringLiteral("CanPowerOff"), canPowerOff},
         {QStringLiteral("Size"), QVariant::fromValue(size)},
+        {QStringLiteral("SiblingId"), siblingId},
     };
 }
 
@@ -45,8 +47,9 @@ UDisksPropertyMap blockProperties(
     bool hintSystem = false,
     bool readOnly = false,
     quint64 size = 0,
-    const QString& fsType = QStringLiteral("ext4")) {
-    return {
+    const QString& fsType = QStringLiteral("ext4"),
+    const QString& cryptoBackingDevice = {}) {
+    UDisksPropertyMap properties {
         {QStringLiteral("Drive"), QVariant::fromValue(QDBusObjectPath(drivePath))},
         {QStringLiteral("PreferredDevice"), byteArrayPath(device)},
         {QStringLiteral("Device"), byteArrayPath(device)},
@@ -58,6 +61,12 @@ UDisksPropertyMap blockProperties(
         {QStringLiteral("Size"), QVariant::fromValue(size)},
         {QStringLiteral("IdType"), fsType},
     };
+    if (!cryptoBackingDevice.isEmpty()) {
+        properties.insert(
+            QStringLiteral("CryptoBackingDevice"),
+            QVariant::fromValue(QDBusObjectPath(cryptoBackingDevice)));
+    }
+    return properties;
 }
 
 UDisksPropertyMap filesystemProperties(const QList<QByteArray>& mountPoints = {}) {
@@ -142,6 +151,7 @@ private slots:
         QVERIFY(item.removable);
         QVERIFY(item.readOnly);
         QVERIFY(item.canPowerOff);
+        QVERIFY(!item.canPowerOffNow);
     }
 
     void filtersIgnoredSystemAndLoopVolumes() {
@@ -251,6 +261,164 @@ private slots:
         QVERIFY(volumes.at(0).removable);
         QCOMPARE(volumes.at(1).devicePath, QStringLiteral("/dev/sda1"));
         QVERIFY(!volumes.at(1).removable);
+    }
+
+    void allowsPowerOffForUnmountedCapableDrive() {
+        UDisksManagedObjectMap objects;
+        const QString drivePath = QStringLiteral("/org/freedesktop/UDisks2/drives/usb_power");
+        const QString blockPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdc1");
+        addDrive(objects, drivePath,
+            driveProperties({}, QStringLiteral("USB"), QStringLiteral("usb"), false, true, true));
+        addVolume(objects, blockPath,
+            blockProperties(drivePath, QByteArrayLiteral("/dev/sdc1")),
+            filesystemProperties());
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, blockPath);
+        QVERIFY2(plan.allowed, qPrintable(plan.reason));
+        QCOMPARE(plan.driveObjectPath, drivePath);
+        QCOMPARE(plan.affectedDrivePaths, QSet<QString>{drivePath});
+
+        const QVector<DriveItem> volumes = DriveModel::volumesFromManagedObjects(objects);
+        QCOMPARE(volumes.size(), 1);
+        QVERIFY(volumes.front().canPowerOff);
+        QVERIFY(volumes.front().canPowerOffNow);
+    }
+
+    void blocksPowerOffWhileTargetFilesystemIsMounted() {
+        UDisksManagedObjectMap objects;
+        const QString drivePath = QStringLiteral("/org/freedesktop/UDisks2/drives/usb_power");
+        const QString blockPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdc1");
+        addDrive(objects, drivePath,
+            driveProperties({}, QStringLiteral("USB"), QStringLiteral("usb"), false, true, true));
+        addVolume(objects, blockPath,
+            blockProperties(drivePath, QByteArrayLiteral("/dev/sdc1")),
+            filesystemProperties({QByteArrayLiteral("/run/media/test/USB")}));
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, blockPath);
+        QVERIFY(!plan.allowed);
+        QVERIFY(!plan.reason.isEmpty());
+    }
+
+    void blocksPowerOffWhenAnotherPartitionOnSameDriveIsMounted() {
+        UDisksManagedObjectMap objects;
+        const QString drivePath = QStringLiteral("/org/freedesktop/UDisks2/drives/usb_power");
+        const QString targetPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdc1");
+        addDrive(objects, drivePath,
+            driveProperties({}, QStringLiteral("USB"), QStringLiteral("usb"), false, true, true));
+        addVolume(objects, targetPath,
+            blockProperties(drivePath, QByteArrayLiteral("/dev/sdc1")),
+            filesystemProperties());
+        addVolume(objects,
+            QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdc2"),
+            blockProperties(drivePath, QByteArrayLiteral("/dev/sdc2")),
+            filesystemProperties({QByteArrayLiteral("/run/media/test/DATA")}));
+
+        QVERIFY(!DriveModel::powerOffPlan(objects, targetPath).allowed);
+    }
+
+    void blocksPowerOffWhenSiblingDriveIsMounted() {
+        UDisksManagedObjectMap objects;
+        const QString targetDrive = QStringLiteral("/org/freedesktop/UDisks2/drives/card_reader_a");
+        const QString siblingDrive = QStringLiteral("/org/freedesktop/UDisks2/drives/card_reader_b");
+        const QString targetPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/mmc_a1");
+        const QString siblingId = QStringLiteral("reader-42");
+
+        addDrive(objects, targetDrive,
+            driveProperties({}, QStringLiteral("Reader A"), QStringLiteral("usb"), false, true, true, 0, siblingId));
+        addDrive(objects, siblingDrive,
+            driveProperties({}, QStringLiteral("Reader B"), QStringLiteral("usb"), false, true, true, 0, siblingId));
+        addVolume(objects, targetPath,
+            blockProperties(targetDrive, QByteArrayLiteral("/dev/mmc-a1")),
+            filesystemProperties());
+        addVolume(objects,
+            QStringLiteral("/org/freedesktop/UDisks2/block_devices/mmc_b1"),
+            blockProperties(siblingDrive, QByteArrayLiteral("/dev/mmc-b1")),
+            filesystemProperties({QByteArrayLiteral("/run/media/test/CARD")}));
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, targetPath);
+        QVERIFY(!plan.allowed);
+        QVERIFY(plan.affectedDrivePaths.contains(targetDrive));
+        QVERIFY(plan.affectedDrivePaths.contains(siblingDrive));
+    }
+
+    void ignoresMountedUnrelatedDriveDuringPowerOffPreflight() {
+        UDisksManagedObjectMap objects;
+        const QString targetDrive = QStringLiteral("/org/freedesktop/UDisks2/drives/target");
+        const QString otherDrive = QStringLiteral("/org/freedesktop/UDisks2/drives/other");
+        const QString targetPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdd1");
+
+        addDrive(objects, targetDrive,
+            driveProperties({}, QStringLiteral("Target"), QStringLiteral("usb"), false, true, true));
+        addDrive(objects, otherDrive,
+            driveProperties({}, QStringLiteral("Other"), QStringLiteral("usb"), false, true, true));
+        addVolume(objects, targetPath,
+            blockProperties(targetDrive, QByteArrayLiteral("/dev/sdd1")),
+            filesystemProperties());
+        addVolume(objects,
+            QStringLiteral("/org/freedesktop/UDisks2/block_devices/sde1"),
+            blockProperties(otherDrive, QByteArrayLiteral("/dev/sde1")),
+            filesystemProperties({QByteArrayLiteral("/run/media/test/OTHER")}));
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, targetPath);
+        QVERIFY2(plan.allowed, qPrintable(plan.reason));
+        QCOMPARE(plan.affectedDrivePaths, QSet<QString>{targetDrive});
+    }
+
+    void blocksPowerOffWhenDriveDoesNotSupportIt() {
+        UDisksManagedObjectMap objects;
+        const QString drivePath = QStringLiteral("/org/freedesktop/UDisks2/drives/no_poweroff");
+        const QString blockPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdf1");
+        addDrive(objects, drivePath,
+            driveProperties({}, QStringLiteral("Disk"), QStringLiteral("usb"), false, true, false));
+        addVolume(objects, blockPath,
+            blockProperties(drivePath, QByteArrayLiteral("/dev/sdf1")),
+            filesystemProperties());
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, blockPath);
+        QVERIFY(!plan.allowed);
+        QVERIFY(plan.driveObjectPath.isEmpty());
+    }
+
+    void blocksPowerOffWithoutPhysicalDrive() {
+        UDisksManagedObjectMap objects;
+        const QString blockPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/virtual1");
+        addVolume(objects, blockPath,
+            blockProperties(QStringLiteral("/"), QByteArrayLiteral("/dev/virtual1")),
+            filesystemProperties());
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, blockPath);
+        QVERIFY(!plan.allowed);
+        QVERIFY(plan.affectedDrivePaths.isEmpty());
+    }
+
+    void blocksPowerOffForMountedEncryptedCleartextDescendant() {
+        UDisksManagedObjectMap objects;
+        const QString drivePath = QStringLiteral("/org/freedesktop/UDisks2/drives/encrypted_usb");
+        const QString backingPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/sdg1");
+        const QString cleartextPath = QStringLiteral("/org/freedesktop/UDisks2/block_devices/dm_0");
+
+        addDrive(objects, drivePath,
+            driveProperties({}, QStringLiteral("Encrypted USB"), QStringLiteral("usb"), false, true, true));
+        addVolume(objects, backingPath,
+            blockProperties(drivePath, QByteArrayLiteral("/dev/sdg1"), {}, {}, false, false, false, 0, QStringLiteral("crypto_LUKS")),
+            filesystemProperties());
+        addVolume(objects, cleartextPath,
+            blockProperties(
+                QStringLiteral("/"),
+                QByteArrayLiteral("/dev/dm-0"),
+                {},
+                {},
+                false,
+                false,
+                false,
+                0,
+                QStringLiteral("ext4"),
+                backingPath),
+            filesystemProperties({QByteArrayLiteral("/run/media/test/SECRET")}));
+
+        const DrivePowerOffPlan plan = DriveModel::powerOffPlan(objects, backingPath);
+        QVERIFY(!plan.allowed);
+        QVERIFY(plan.affectedDrivePaths.contains(drivePath));
     }
 
     void formatsBinarySizes() {
