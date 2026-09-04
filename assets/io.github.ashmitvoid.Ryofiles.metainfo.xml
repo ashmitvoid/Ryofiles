@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ashmitvoid.Ryofiles</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>Ryofiles</name>
+  <summary>Ryoku-native file manager</summary>
+  <description>
+    <p>
+      Ryofiles is a native Qt 6 file manager designed for Ryoku Desktop and
+      Hyprland. It provides fast local browsing, tabs and split panes, safe file
+      operations, removable-storage integration, Git-aware developer tools, and
+      GIO/GVfs-backed network locations.
+    </p>
+    <p>
+      Remote operations use a separate GIO backend, and destructive integration
+      such as becoming the default file manager or FileChooser portal is never
+      enabled automatically by installation.
+    </p>
+  </description>
+  <categories>
+    <category>System</category>
+    <category>FileTools</category>
+    <category>FileManager</category>
+  </categories>
+  <launchable type="desktop-id">ryofiles.desktop</launchable>
+  <icon type="stock">system-file-manager</icon>
+  <provides>
+    <binary>ryofiles</binary>
+  </provides>
+  <url type="homepage">https://github.com/ashmitvoid/Ryofiles</url>
+  <url type="bugtracker">https://github.com/ashmitvoid/Ryofiles/issues</url>
+  <developer id="io.github.ashmitvoid">
+    <name>Ryofiles contributors</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>

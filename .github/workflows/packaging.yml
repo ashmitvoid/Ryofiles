@@ -1,0 +1,51 @@
+name: packaging
+
+on:
+  push:
+    paths:
+      - 'assets/*.desktop'
+      - 'assets/*.metainfo.xml'
+      - 'packaging/**'
+      - '.github/workflows/packaging.yml'
+  pull_request:
+    paths:
+      - 'assets/*.desktop'
+      - 'assets/*.metainfo.xml'
+      - 'packaging/**'
+      - '.github/workflows/packaging.yml'
+
+concurrency:
+  group: packaging-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Install validation tools
+        run: pacman -Syu --noconfirm --needed git appstream desktop-file-utils
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate desktop entry
+        run: desktop-file-validate assets/ryofiles.desktop
+
+      - name: Validate AppStream metadata
+        run: appstreamcli validate --no-net assets/io.github.ashmitvoid.Ryofiles.metainfo.xml
+
+      - name: Validate PKGBUILD shell syntax
+        run: bash -n packaging/arch/PKGBUILD
+
+      - name: Guard reversible integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En '(xdg-mime[[:space:]]+default|xdg-settings|portals\.conf|xdg-desktop-portal.*\.conf)' packaging/arch/PKGBUILD; then
+            echo 'Packaging must not change file-manager or portal defaults during installation.' >&2
+            exit 1
+          fi
