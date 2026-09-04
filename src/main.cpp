@@ -6,6 +6,7 @@
 #include "integrations/ClipboardController.hpp"
 #include "integrations/DesktopIntegration.hpp"
 #include "integrations/MountRecoveryRegistry.hpp"
+#include "locations/NetworkLocationModel.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
@@ -34,6 +35,7 @@ int main(int argc, char* argv[]) {
     GitStatusController gitStatus;
     GitActionController gitActions;
     DriveModel drives;
+    NetworkLocationModel networkLocations;
 
     QObject::connect(
         &drives,
@@ -60,6 +62,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitStatus", &gitStatus);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitActions", &gitActions);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Drives", &drives);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkLocations", &networkLocations);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
