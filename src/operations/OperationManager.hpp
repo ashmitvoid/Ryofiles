@@ -24,6 +24,7 @@ public:
         RenameOperation,
         DuplicateOperation,
         CreateFolderOperation,
+        DeleteOperation,
     };
     Q_ENUM(OperationKind)
 
@@ -72,6 +73,7 @@ public:
     Q_INVOKABLE QString rename(const QString& source, const QString& newName);
     Q_INVOKABLE QString duplicate(const QStringList& sources);
     Q_INVOKABLE QString createFolder(const QString& parentDirectory, const QString& name);
+    Q_INVOKABLE QString removePermanently(const QStringList& sources);
 
     Q_INVOKABLE void cancel(const QString& jobId);
     Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
