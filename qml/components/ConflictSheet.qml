@@ -9,6 +9,7 @@ Item {
     property string sourcePath: ""
     property string destinationPath: ""
     property bool allowApplyToAll: true
+    property bool allowReplace: true
     property bool applyToAll: false
     property bool restoreMode: false
 
@@ -107,26 +108,34 @@ Item {
                 spacing: 8 * root.uiScale
 
                 Repeater {
+                    id: actionRepeater
                     model: root.restoreMode
                         ? [
                             { label: "KEEP BOTH", decision: 1, strong: false },
                             { label: "REPLACE", decision: 2, strong: true },
                             { label: "CANCEL", decision: 3, strong: false }
                         ]
-                        : [
-                            { label: "SKIP", decision: 0, strong: false },
-                            { label: "KEEP BOTH", decision: 1, strong: false },
-                            { label: "REPLACE", decision: 2, strong: true },
-                            { label: "CANCEL", decision: 3, strong: false }
-                        ]
+                        : (root.allowReplace
+                            ? [
+                                { label: "SKIP", decision: 0, strong: false },
+                                { label: "KEEP BOTH", decision: 1, strong: false },
+                                { label: "REPLACE", decision: 2, strong: true },
+                                { label: "CANCEL", decision: 3, strong: false }
+                            ]
+                            : [
+                                { label: "SKIP", decision: 0, strong: false },
+                                { label: "KEEP BOTH", decision: 1, strong: true },
+                                { label: "CANCEL", decision: 3, strong: false }
+                            ])
 
                     delegate: Rectangle {
                         id: button
                         required property var modelData
 
-                        width: root.restoreMode
-                            ? (body.width - 16 * root.uiScale) / 3
-                            : (body.width - 24 * root.uiScale) / 4
+                        width: actionRepeater.count > 0
+                            ? (body.width - Math.max(0, actionRepeater.count - 1) * 8 * root.uiScale)
+                                / actionRepeater.count
+                            : body.width
                         height: 34 * root.uiScale
                         radius: 6 * root.uiScale
                         color: modelData.strong
