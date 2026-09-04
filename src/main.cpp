@@ -15,6 +15,7 @@
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
 #include "operations/RemoteOperationManager.hpp"
+#include "picker/PickerController.hpp"
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
 #include "search/DeepSearchModel.hpp"
@@ -23,15 +24,141 @@
 #include "thumbnails/ThumbnailProvider.hpp"
 #include "trash/TrashManager.hpp"
 
+#include <QCommandLineOption>
+#include <QCommandLineParser>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QTextStream>
+#include <QUrl>
 #include <QtQml>
+
+namespace {
+
+void registerNavigationTypes() {
+    qmlRegisterUncreatableType<DirectorySession>(
+        "Ryofiles.Core", 1, 0, "DirectorySession",
+        QStringLiteral("DirectorySession instances are managed by TabManager"));
+    qmlRegisterUncreatableType<DirectoryModel>(
+        "Ryofiles.Core", 1, 0, "DirectoryModel",
+        QStringLiteral("DirectoryModel instances are owned by DirectorySession"));
+    qmlRegisterUncreatableType<DeepSearchModel>(
+        "Ryofiles.Core", 1, 0, "DeepSearchModel",
+        QStringLiteral("DeepSearchModel instances are owned by DirectorySession"));
+    qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
+}
+
+int runPicker(
+    QGuiApplication& app,
+    const QString& mode,
+    bool multiple,
+    const QString& initialDirectory,
+    const QStringList& mimeTypes) {
+    PickerController picker;
+    QString configurationError;
+    if (!picker.configure(
+            mode,
+            multiple,
+            initialDirectory,
+            mimeTypes,
+            &configurationError)) {
+        QTextStream(stderr)
+            << "ryofiles: " << configurationError << Qt::endl;
+        return 2;
+    }
+
+    QGuiApplication::setApplicationName(QStringLiteral("Ryofiles Picker"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("ryofiles-picker"));
+
+    RyokuIntegration ryoku;
+
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Picker", &picker);
+    registerNavigationTypes();
+
+    QQmlApplicationEngine engine;
+    QObject::connect(
+        &engine,
+        &QQmlApplicationEngine::objectCreationFailed,
+        &app,
+        [] { QCoreApplication::exit(EXIT_FAILURE); },
+        Qt::QueuedConnection);
+
+    QObject::connect(
+        &picker,
+        &PickerController::acceptedPaths,
+        &app,
+        [&app](const QStringList& paths) {
+            QTextStream output(stdout);
+            for (const QString& path : paths) {
+                output << QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded)
+                       << Qt::endl;
+            }
+            output.flush();
+            app.exit(EXIT_SUCCESS);
+        });
+    QObject::connect(
+        &picker,
+        &PickerController::cancelled,
+        &app,
+        [&app] { app.exit(1); });
+
+    engine.loadFromModule("Ryofiles", "Picker");
+    return app.exec();
+}
+
+} // namespace
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("Ryofiles"));
     QGuiApplication::setDesktopFileName(QStringLiteral("ryofiles"));
     QGuiApplication::setOrganizationName(QStringLiteral("Ryoku"));
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(
+        QStringLiteral("Ryoku-native file manager and file picker"));
+    parser.addHelpOption();
+    parser.addVersionOption();
+
+    const QCommandLineOption pickerOption(
+        QStringList{QStringLiteral("picker")},
+        QStringLiteral("Launch picker mode: open or folder."),
+        QStringLiteral("mode"));
+    const QCommandLineOption multipleOption(
+        QStringList{QStringLiteral("multiple")},
+        QStringLiteral("Allow multiple files in --picker open mode."));
+    const QCommandLineOption initialDirectoryOption(
+        QStringList{QStringLiteral("initial-dir")},
+        QStringLiteral("Initial local directory for picker mode."),
+        QStringLiteral("path"));
+    const QCommandLineOption mimeOption(
+        QStringList{QStringLiteral("mime")},
+        QStringLiteral("Accepted MIME type; repeat or comma-separate values."),
+        QStringLiteral("type"));
+
+    parser.addOption(pickerOption);
+    parser.addOption(multipleOption);
+    parser.addOption(initialDirectoryOption);
+    parser.addOption(mimeOption);
+    parser.process(app);
+
+    if (parser.isSet(pickerOption)) {
+        return runPicker(
+            app,
+            parser.value(pickerOption),
+            parser.isSet(multipleOption),
+            parser.value(initialDirectoryOption),
+            parser.values(mimeOption));
+    }
+
+    if (parser.isSet(multipleOption)
+        || parser.isSet(initialDirectoryOption)
+        || parser.isSet(mimeOption)) {
+        QTextStream(stderr)
+            << "ryofiles: --multiple, --initial-dir, and --mime require --picker"
+            << Qt::endl;
+        return 2;
+    }
 
     RyokuIntegration ryoku;
     ClipboardController fileClipboard;
@@ -104,16 +231,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "NetworkDisconnect", &networkDisconnect);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "RemoteOperations", &remoteOperations);
 
-    qmlRegisterUncreatableType<DirectorySession>(
-        "Ryofiles.Core", 1, 0, "DirectorySession",
-        QStringLiteral("DirectorySession instances are managed by TabManager"));
-    qmlRegisterUncreatableType<DirectoryModel>(
-        "Ryofiles.Core", 1, 0, "DirectoryModel",
-        QStringLiteral("DirectoryModel instances are owned by DirectorySession"));
-    qmlRegisterUncreatableType<DeepSearchModel>(
-        "Ryofiles.Core", 1, 0, "DeepSearchModel",
-        QStringLiteral("DeepSearchModel instances are owned by DirectorySession"));
-    qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
+    registerNavigationTypes();
     qmlRegisterType<OperationManager>("Ryofiles.Core", 1, 0, "OperationManager");
     qmlRegisterType<TrashManager>("Ryofiles.Core", 1, 0, "TrashManager");
     qmlRegisterType<TextPreviewLoader>("Ryofiles.Core", 1, 0, "TextPreviewLoader");

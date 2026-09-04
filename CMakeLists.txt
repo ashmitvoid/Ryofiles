@@ -56,6 +56,7 @@ qt_add_executable(ryofiles
     src/operations/OperationManager.cpp
     src/operations/RemoteOperationManager.hpp
     src/operations/RemoteOperationManager.cpp
+    src/picker/PickerController.hpp
     src/trash/TrashManager.hpp
     src/trash/TrashManager.cpp
     src/integrations/ClipboardController.hpp
@@ -80,6 +81,7 @@ qt_add_qml_module(ryofiles
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/Picker.qml
         qml/components/RyokuRail.qml
         qml/components/NetworkConnectSheet.qml
         qml/components/TabStrip.qml
