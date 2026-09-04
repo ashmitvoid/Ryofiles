@@ -2,6 +2,8 @@
 
 #include "DesktopIntegration.hpp"
 
+#include "locations/LocalPathGuard.hpp"
+
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -10,13 +12,17 @@
 #include <QFileInfo>
 #include <QLocale>
 #include <QMimeDatabase>
-#include <QProcess>
+#include <QProcessEnvironment>
+#include <QSet>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
 
 #include <algorithm>
+#include <initializer_list>
+#include <utility>
 
 namespace {
 
@@ -51,6 +57,39 @@ QString typeText(const QFileInfo& info) {
     return QObject::tr("Other");
 }
 
+bool hasSuffix(const QString& path, std::initializer_list<const char*> suffixes) {
+    const QString lower = path.toLower();
+    for (const char* suffix : suffixes) {
+        if (lower.endsWith(QLatin1String(suffix)))
+            return true;
+    }
+    return false;
+}
+
+template <typename Predicate>
+QStringList eligibleLocalFiles(const QStringList& paths, Predicate predicate) {
+    QStringList result;
+    QSet<QString> seen;
+
+    for (const QString& requested : paths) {
+        if (requested.trimmed().isEmpty() || LocalPathGuard::isUriLike(requested))
+            continue;
+
+        const QFileInfo info(requested);
+        if (!info.exists() || !info.isFile())
+            continue;
+
+        const QString absolute = info.absoluteFilePath();
+        if (!predicate(absolute) || seen.contains(absolute))
+            continue;
+
+        seen.insert(absolute);
+        result.push_back(absolute);
+    }
+
+    return result;
+}
+
 } // namespace
 
 DesktopIntegration::DesktopIntegration(QObject* parent)
@@ -63,6 +102,36 @@ DesktopIntegration::DesktopIntegration(QObject* parent)
             m_apps = m_discoveryWatcher.result();
             m_applicationsReady = true;
             emit applicationsReadyChanged();
+        });
+
+    connect(
+        &m_ryokuProcess,
+        qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+        this,
+        [this](int exitCode, QProcess::ExitStatus exitStatus) {
+            if (!m_ryokuProcessPending)
+                return;
+
+            m_ryokuProcessPending = false;
+            if (exitStatus == QProcess::NormalExit && exitCode == 0)
+                ++m_ryokuSucceeded;
+            else
+                ++m_ryokuFailed;
+
+            startNextRyokuFileAction();
+        });
+
+    connect(
+        &m_ryokuProcess,
+        &QProcess::errorOccurred,
+        this,
+        [this](QProcess::ProcessError error) {
+            if (error != QProcess::FailedToStart || !m_ryokuProcessPending)
+                return;
+
+            m_ryokuProcessPending = false;
+            ++m_ryokuFailed;
+            QTimer::singleShot(0, this, &DesktopIntegration::startNextRyokuFileAction);
         });
 
     m_discoveryWatcher.setFuture(QtConcurrent::run([] {
@@ -455,4 +524,219 @@ bool DesktopIntegration::openWith(
         return false;
 
     return QProcess::startDetached(program, command);
+}
+
+bool DesktopIntegration::isRyokuInstallablePath(const QString& path) {
+    return hasSuffix(path, {
+        ".appimage",
+        ".flatpak",
+        ".deb",
+        ".rpm",
+        ".tar.gz",
+        ".tgz",
+        ".tar.xz",
+        ".tar.bz2",
+        ".tar.zst",
+        ".tar",
+    });
+}
+
+bool DesktopIntegration::isRyokuCompressiblePath(const QString& path) {
+    return hasSuffix(path, {
+        ".mp4",
+        ".mkv",
+        ".mov",
+        ".webm",
+        ".avi",
+        ".m4v",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".bmp",
+    });
+}
+
+QStringList DesktopIntegration::ryokuInstallablePaths(const QStringList& paths) {
+    return eligibleLocalFiles(paths, [](const QString& path) {
+        return isRyokuInstallablePath(path);
+    });
+}
+
+QStringList DesktopIntegration::ryokuCompressiblePaths(const QStringList& paths) {
+    return eligibleLocalFiles(paths, [](const QString& path) {
+        return isRyokuCompressiblePath(path);
+    });
+}
+
+QString DesktopIntegration::ryokuActionName(RyokuFileAction action) {
+    switch (action) {
+    case RyokuFileAction::Install:
+        return QStringLiteral("install");
+    case RyokuFileAction::Compress:
+        return QStringLiteral("compress");
+    case RyokuFileAction::None:
+        break;
+    }
+    return {};
+}
+
+QString DesktopIntegration::ryokuHelperPath(RyokuFileAction action) {
+    QString configRoot = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+    if (configRoot.isEmpty())
+        configRoot = QDir::home().filePath(QStringLiteral(".config"));
+
+    QString script;
+    switch (action) {
+    case RyokuFileAction::Install:
+        script = QStringLiteral("stash-install.sh");
+        break;
+    case RyokuFileAction::Compress:
+        script = QStringLiteral("stash-compress.sh");
+        break;
+    case RyokuFileAction::None:
+        return {};
+    }
+
+    return QDir(configRoot).filePath(QStringLiteral("hypr/scripts/") + script);
+}
+
+bool DesktopIntegration::ryokuHelperAvailable(RyokuFileAction action) {
+    const QFileInfo helper(ryokuHelperPath(action));
+    return helper.exists() && helper.isFile() && helper.isReadable();
+}
+
+bool DesktopIntegration::canRyokuInstall(const QStringList& paths) const {
+    return ryokuHelperAvailable(RyokuFileAction::Install)
+        && !ryokuInstallablePaths(paths).isEmpty();
+}
+
+bool DesktopIntegration::canRyokuCompress(const QStringList& paths) const {
+    return ryokuHelperAvailable(RyokuFileAction::Compress)
+        && !ryokuCompressiblePaths(paths).isEmpty();
+}
+
+bool DesktopIntegration::installWithRyoku(const QStringList& paths) {
+    return startRyokuFileAction(RyokuFileAction::Install, paths);
+}
+
+bool DesktopIntegration::compressWithRyoku(const QStringList& paths) {
+    return startRyokuFileAction(RyokuFileAction::Compress, paths);
+}
+
+bool DesktopIntegration::startRyokuFileAction(
+    RyokuFileAction action,
+    const QStringList& paths) {
+    if (m_ryokuActionBusy) {
+        setRyokuActionError(tr("Another Ryoku file action is already running"));
+        return false;
+    }
+
+    QStringList eligible;
+    switch (action) {
+    case RyokuFileAction::Install:
+        eligible = ryokuInstallablePaths(paths);
+        break;
+    case RyokuFileAction::Compress:
+        eligible = ryokuCompressiblePaths(paths);
+        break;
+    case RyokuFileAction::None:
+        break;
+    }
+
+    if (eligible.isEmpty()) {
+        setRyokuActionError(tr("No supported local files selected"));
+        return false;
+    }
+
+    const QString helper = ryokuHelperPath(action);
+    if (!ryokuHelperAvailable(action)) {
+        setRyokuActionError(tr("Ryoku %1 helper is unavailable").arg(ryokuActionName(action)));
+        return false;
+    }
+
+    if (QStandardPaths::findExecutable(QStringLiteral("bash")).isEmpty()) {
+        setRyokuActionError(tr("Bash is unavailable; Ryoku helper cannot be started"));
+        return false;
+    }
+
+    m_ryokuAction = action;
+    m_ryokuPaths = std::move(eligible);
+    m_ryokuHelper = helper;
+    m_ryokuNextIndex = 0;
+    m_ryokuSucceeded = 0;
+    m_ryokuFailed = 0;
+    m_ryokuProcessPending = false;
+    m_ryokuActionBusy = true;
+    m_ryokuQuitLocker = std::make_unique<QEventLoopLocker>();
+    setRyokuActionError(QString());
+    emit ryokuActionBusyChanged();
+    emit ryokuActionStarted(ryokuActionName(action), m_ryokuPaths.size());
+
+    QTimer::singleShot(0, this, &DesktopIntegration::startNextRyokuFileAction);
+    return true;
+}
+
+void DesktopIntegration::startNextRyokuFileAction() {
+    if (!m_ryokuActionBusy || m_ryokuProcessPending)
+        return;
+
+    if (m_ryokuNextIndex >= m_ryokuPaths.size()) {
+        finishRyokuFileAction();
+        return;
+    }
+
+    const QString bash = QStandardPaths::findExecutable(QStringLiteral("bash"));
+    if (bash.isEmpty()) {
+        m_ryokuFailed += m_ryokuPaths.size() - m_ryokuNextIndex;
+        m_ryokuNextIndex = m_ryokuPaths.size();
+        finishRyokuFileAction();
+        return;
+    }
+
+    const QString path = m_ryokuPaths.at(m_ryokuNextIndex++);
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    if (m_ryokuAction == RyokuFileAction::Install)
+        environment.insert(QStringLiteral("RYOKU_STASH_KEEP"), QStringLiteral("1"));
+
+    m_ryokuProcess.setProcessEnvironment(environment);
+    m_ryokuProcess.setProcessChannelMode(QProcess::ForwardedChannels);
+    m_ryokuProcess.setProgram(bash);
+    m_ryokuProcess.setArguments({m_ryokuHelper, path});
+    m_ryokuProcessPending = true;
+    m_ryokuProcess.start();
+}
+
+void DesktopIntegration::finishRyokuFileAction() {
+    const QString action = ryokuActionName(m_ryokuAction);
+    const int succeeded = m_ryokuSucceeded;
+    const int failed = m_ryokuFailed;
+
+    QString error;
+    if (failed > 0) {
+        error = tr("Ryoku %1 failed for %2 of %3 files")
+            .arg(action)
+            .arg(failed)
+            .arg(succeeded + failed);
+    }
+
+    m_ryokuAction = RyokuFileAction::None;
+    m_ryokuPaths.clear();
+    m_ryokuHelper.clear();
+    m_ryokuNextIndex = 0;
+    m_ryokuSucceeded = 0;
+    m_ryokuFailed = 0;
+    m_ryokuProcessPending = false;
+    m_ryokuActionBusy = false;
+    setRyokuActionError(error);
+    emit ryokuActionBusyChanged();
+    emit ryokuActionFinished(action, succeeded, failed, error);
+    m_ryokuQuitLocker.reset();
+}
+
+void DesktopIntegration::setRyokuActionError(const QString& error) {
+    if (m_ryokuActionError == error)
+        return;
+    m_ryokuActionError = error;
+    emit ryokuActionErrorChanged();
 }
