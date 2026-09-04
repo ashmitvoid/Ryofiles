@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "TextPreviewStore.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QFile>
 #include <QFileInfo>
@@ -49,6 +50,9 @@ bool truncateLines(QString* text) {
 } // namespace
 
 bool TextPreviewStore::isCandidatePath(const QString& path) {
+    if (LocalPathGuard::isUriLike(path))
+        return false;
+
     const QString suffix = lowerSuffix(path);
     const QString name = lowerName(path);
 
@@ -100,8 +104,10 @@ TextPreviewResult TextPreviewStore::load(
     const std::atomic_bool& cancelled) {
     TextPreviewResult result;
 
-    if (cancelled.load(std::memory_order_relaxed))
+    if (cancelled.load(std::memory_order_relaxed)
+        || LocalPathGuard::isUriLike(path)) {
         return result;
+    }
 
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile() || info.isSymLink())
