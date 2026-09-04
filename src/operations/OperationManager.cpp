@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "OperationManager.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -136,8 +137,11 @@ bool OperationManager::validLeafName(const QString& name) {
 }
 
 QString OperationManager::rename(const QString& source, const QString& newName) {
-    if (source.trimmed().isEmpty() || newName.trimmed().isEmpty())
+    if (source.trimmed().isEmpty()
+        || newName.trimmed().isEmpty()
+        || LocalPathGuard::isUriLike(source)) {
         return {};
+    }
 
     const QFileInfo info(source);
     if (!info.exists() && !info.isSymLink())
@@ -155,6 +159,9 @@ QString OperationManager::rename(const QString& source, const QString& newName) 
 }
 
 QString OperationManager::duplicate(const QStringList& requestedSources) {
+    if (!LocalPathGuard::allLocalPaths(requestedSources))
+        return {};
+
     QStringList sources;
     QString parent;
 
@@ -180,6 +187,9 @@ QString OperationManager::duplicate(const QStringList& requestedSources) {
 QString OperationManager::createFolder(
     const QString& parentDirectory,
     const QString& name) {
+    if (LocalPathGuard::isUriLike(parentDirectory))
+        return {};
+
     const QString cleanName = name.trimmed();
     if (!validLeafName(cleanName))
         return {};
@@ -190,6 +200,9 @@ QString OperationManager::createFolder(
 QString OperationManager::startCreateFolderJob(
     const QString& parentDirectory,
     const QString& name) {
+    if (LocalPathGuard::isUriLike(parentDirectory))
+        return {};
+
     const QDir parent(parentDirectory);
     if (!parent.exists())
         return {};
@@ -243,6 +256,11 @@ QString OperationManager::startJob(
     const QStringList& requestedSources,
     const QString& requestedDestinationDirectory,
     const QString& renameTarget) {
+    if (!LocalPathGuard::allLocalPaths(requestedSources)
+        || LocalPathGuard::isUriLike(requestedDestinationDirectory)) {
+        return {};
+    }
+
     QStringList sources;
     sources.reserve(requestedSources.size());
 

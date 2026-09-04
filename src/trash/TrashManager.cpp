@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "TrashManager.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QDateTime>
 #include <QDir>
@@ -553,6 +554,9 @@ void TrashManager::startOperation(
 }
 
 QString TrashManager::trash(const QStringList& requestedPaths) {
+    if (!LocalPathGuard::allLocalPaths(requestedPaths))
+        return {};
+
     QStringList paths;
     for (const QString& requested : requestedPaths) {
         const QFileInfo info(requested);
