@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "DirectoryModel.hpp"
+#include "locations/LocalPathGuard.hpp"
 
 #include <QDesktopServices>
 #include <QDir>
@@ -71,6 +72,11 @@ QHash<int, QByteArray> DirectoryModel::roleNames() const {
 void DirectoryModel::setPath(const QString& requestedPath) {
     if (requestedPath.trimmed().isEmpty())
         return;
+
+    if (LocalPathGuard::isUriLike(requestedPath)) {
+        emit errorOccurred(tr("Remote URI is not a local folder: %1").arg(requestedPath));
+        return;
+    }
 
     const QDir directory(QDir::cleanPath(requestedPath));
     if (!directory.exists()) {
