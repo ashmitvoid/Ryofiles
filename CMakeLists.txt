@@ -99,6 +99,8 @@ qt_add_qml_module(ryofiles
         qml/components/RenameSheet.qml
         qml/components/TrashView.qml
         qml/components/FileContextMenu.qml
+        qml/components/RemoteFileContextMenu.qml
+        qml/components/RemotePaneActions.qml
         qml/components/OpenWithSheet.qml
         qml/components/PropertiesSheet.qml
         qml/components/PreviewPanel.qml
@@ -155,6 +157,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME remote-operation COMMAND ryofiles_remote_operation_tests)
+
+    qt_add_executable(ryofiles_clipboard_tests
+        tests/ClipboardControllerTest.cpp
+        src/integrations/ClipboardController.hpp
+        src/integrations/ClipboardController.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+    )
+
+    target_include_directories(ryofiles_clipboard_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_clipboard_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+    )
+
+    add_test(NAME clipboard-controller COMMAND ryofiles_clipboard_tests)
 
     qt_add_executable(ryofiles_trash_tests
         tests/TrashManagerTest.cpp

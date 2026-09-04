@@ -200,10 +200,8 @@ Item {
                         if (!row.selected)
                             root.session.selectSingle(row.index)
 
-                        if (!root.remote) {
-                            var point = row.mapToItem(null, event.x, event.y)
-                            root.contextRequested(point.x, point.y, row.filePath, row.isDir)
-                        }
+                        var point = row.mapToItem(null, event.x, event.y)
+                        root.contextRequested(point.x, point.y, row.filePath, row.isDir)
                         root.pointerSelection = false
                         view.forceActiveFocus()
                         return

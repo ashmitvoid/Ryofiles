@@ -218,10 +218,8 @@ Item {
                         if (!tile.selected)
                             root.session.selectSingle(tile.index)
 
-                        if (!root.remote) {
-                            var point = tile.mapToItem(null, event.x, event.y)
-                            root.contextRequested(point.x, point.y, tile.filePath, tile.isDir)
-                        }
+                        var point = tile.mapToItem(null, event.x, event.y)
+                        root.contextRequested(point.x, point.y, tile.filePath, tile.isDir)
                         root.pointerSelection = false
                         view.forceActiveFocus()
                         return

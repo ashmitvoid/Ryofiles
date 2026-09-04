@@ -2,6 +2,8 @@
 
 #include "ClipboardController.hpp"
 
+#include "locations/LocationSpec.hpp"
+
 #include <QClipboard>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -12,6 +14,7 @@ namespace {
 constexpr auto kGnomeCopiedFiles = "x-special/gnome-copied-files";
 constexpr auto kKdeCutSelection = "application/x-kde-cutselection";
 constexpr auto kRyofilesCut = "application/x-ryofiles-cut";
+constexpr auto kRyofilesLocations = "application/x-ryofiles-locations";
 }
 
 ClipboardController::ClipboardController(QObject* parent)
@@ -23,44 +26,71 @@ ClipboardController::ClipboardController(QObject* parent)
     }
 }
 
-QStringList ClipboardController::normalizedPaths(const QStringList& paths) {
+QStringList ClipboardController::normalizedLocations(const QStringList& requestedLocations) {
     QStringList result;
-    result.reserve(paths.size());
+    result.reserve(requestedLocations.size());
 
-    for (const QString& path : paths) {
-        const QFileInfo info(path);
-        if (!info.exists() && !info.isSymLink())
+    for (const QString& requested : requestedLocations) {
+        const LocationSpec spec = LocationSpec::parse(requested);
+        if (!spec.isValid())
             continue;
-        result.push_back(info.absoluteFilePath());
+
+        if (spec.isLocal()) {
+            const QFileInfo info(spec.localPath);
+            if (!info.exists() && !info.isSymLink())
+                continue;
+            result.push_back(info.absoluteFilePath());
+        } else if (spec.isNetwork()) {
+            result.push_back(spec.canonical);
+        }
     }
 
     result.removeDuplicates();
     return result;
 }
 
-QStringList ClipboardController::pathsFromGnomePayload(const QByteArray& payload) {
+QStringList ClipboardController::normalizedPaths(const QStringList& paths) {
+    QStringList result;
+    const QStringList locations = normalizedLocations(paths);
+    result.reserve(locations.size());
+
+    for (const QString& location : locations) {
+        const LocationSpec spec = LocationSpec::parse(location);
+        if (spec.isLocal())
+            result.push_back(spec.localPath);
+    }
+
+    result.removeDuplicates();
+    return result;
+}
+
+QStringList ClipboardController::locationsFromGnomePayload(const QByteArray& payload) {
     const QList<QByteArray> lines = payload.split('\n');
-    QStringList paths;
+    QStringList locations;
 
     for (int i = 1; i < lines.size(); ++i) {
         const QByteArray line = lines.at(i).trimmed();
         if (line.isEmpty())
             continue;
 
-        const QUrl url = QUrl::fromEncoded(line);
-        if (url.isLocalFile())
-            paths.push_back(url.toLocalFile());
+        const QUrl url = QUrl::fromEncoded(line, QUrl::StrictMode);
+        if (!url.isValid())
+            continue;
+
+        const LocationSpec spec = LocationSpec::parse(url.toString(QUrl::FullyEncoded));
+        if (!spec.isValid())
+            continue;
+        locations.push_back(spec.isNetwork() ? spec.canonical : spec.localPath);
     }
 
-    paths.removeDuplicates();
-    return paths;
+    return normalizedLocations(locations);
 }
 
 bool ClipboardController::gnomePayloadIsCut(const QByteArray& payload) {
     return payload.split('\n').value(0).trimmed() == QByteArrayLiteral("cut");
 }
 
-QStringList ClipboardController::filePaths() const {
+QStringList ClipboardController::locations() const {
     const auto* clipboard = QGuiApplication::clipboard();
     if (!clipboard)
         return {};
@@ -69,24 +99,59 @@ QStringList ClipboardController::filePaths() const {
     if (!mime)
         return {};
 
-    if (mime->hasFormat(QString::fromLatin1(kGnomeCopiedFiles))) {
-        const QStringList paths =
-            pathsFromGnomePayload(mime->data(QString::fromLatin1(kGnomeCopiedFiles)));
-        if (!paths.isEmpty())
-            return paths;
+    if (mime->hasFormat(QString::fromLatin1(kRyofilesLocations))) {
+        QStringList stored;
+        const QList<QByteArray> lines =
+            mime->data(QString::fromLatin1(kRyofilesLocations)).split('\n');
+        for (const QByteArray& line : lines) {
+            const QByteArray trimmed = line.trimmed();
+            if (!trimmed.isEmpty())
+                stored.push_back(QString::fromUtf8(trimmed));
+        }
+        const QStringList normalized = normalizedLocations(stored);
+        if (!normalized.isEmpty())
+            return normalized;
     }
 
-    QStringList paths;
-    for (const QUrl& url : mime->urls()) {
-        if (url.isLocalFile())
-            paths.push_back(url.toLocalFile());
+    if (mime->hasFormat(QString::fromLatin1(kGnomeCopiedFiles))) {
+        const QStringList parsed =
+            locationsFromGnomePayload(mime->data(QString::fromLatin1(kGnomeCopiedFiles)));
+        if (!parsed.isEmpty())
+            return parsed;
     }
-    paths.removeDuplicates();
-    return paths;
+
+    QStringList result;
+    for (const QUrl& url : mime->urls()) {
+        if (!url.isValid())
+            continue;
+        const QString encoded = url.isLocalFile()
+            ? QUrl::fromLocalFile(url.toLocalFile()).toString(QUrl::FullyEncoded)
+            : url.toString(QUrl::FullyEncoded);
+        const LocationSpec spec = LocationSpec::parse(encoded);
+        if (spec.isValid())
+            result.push_back(spec.isNetwork() ? spec.canonical : spec.localPath);
+    }
+    return normalizedLocations(result);
+}
+
+QStringList ClipboardController::filePaths() const {
+    QStringList paths;
+    const QStringList stored = locations();
+    paths.reserve(stored.size());
+    for (const QString& location : stored) {
+        const LocationSpec spec = LocationSpec::parse(location);
+        if (spec.isLocal())
+            paths.push_back(spec.localPath);
+    }
+    return normalizedPaths(paths);
 }
 
 bool ClipboardController::hasFiles() const {
     return !filePaths().isEmpty();
+}
+
+bool ClipboardController::hasLocations() const {
+    return !locations().isEmpty();
 }
 
 bool ClipboardController::isCut() const {
@@ -101,7 +166,7 @@ bool ClipboardController::isCut() const {
     if (mime->hasFormat(QString::fromLatin1(kGnomeCopiedFiles))) {
         const QByteArray payload =
             mime->data(QString::fromLatin1(kGnomeCopiedFiles));
-        if (!pathsFromGnomePayload(payload).isEmpty())
+        if (!locationsFromGnomePayload(payload).isEmpty())
             return gnomePayloadIsCut(payload);
     }
 
@@ -118,30 +183,46 @@ bool ClipboardController::isCut() const {
     return false;
 }
 
-void ClipboardController::setFiles(
-    const QStringList& requestedPaths,
+void ClipboardController::setLocations(
+    const QStringList& requestedLocations,
     bool cutValue) {
-    const QStringList paths = normalizedPaths(requestedPaths);
-    if (paths.isEmpty())
+    const QStringList stored = normalizedLocations(requestedLocations);
+    if (stored.isEmpty())
         return;
 
     QList<QUrl> urls;
-    urls.reserve(paths.size());
+    urls.reserve(stored.size());
 
     QByteArray gnomePayload = cutValue
         ? QByteArrayLiteral("cut\n")
         : QByteArrayLiteral("copy\n");
+    QByteArray ryofilesPayload;
 
-    for (const QString& path : paths) {
-        const QUrl url = QUrl::fromLocalFile(path);
+    for (const QString& location : stored) {
+        const LocationSpec spec = LocationSpec::parse(location);
+        if (!spec.isValid())
+            continue;
+
+        const QUrl url = spec.isNetwork()
+            ? QUrl(spec.canonical, QUrl::StrictMode)
+            : QUrl::fromLocalFile(spec.localPath);
+        if (!url.isValid())
+            continue;
+
         urls.push_back(url);
-        gnomePayload += url.toEncoded();
+        gnomePayload += url.toEncoded(QUrl::FullyEncoded);
         gnomePayload += '\n';
+        ryofilesPayload += location.toUtf8();
+        ryofilesPayload += '\n';
     }
+
+    if (urls.isEmpty())
+        return;
 
     auto* mime = new QMimeData;
     mime->setUrls(urls);
     mime->setData(QString::fromLatin1(kGnomeCopiedFiles), gnomePayload);
+    mime->setData(QString::fromLatin1(kRyofilesLocations), ryofilesPayload);
     mime->setData(
         QString::fromLatin1(kKdeCutSelection),
         cutValue ? QByteArrayLiteral("1") : QByteArrayLiteral("0"));
@@ -156,11 +237,19 @@ void ClipboardController::setFiles(
 }
 
 void ClipboardController::copyFiles(const QStringList& paths) {
-    setFiles(paths, false);
+    setLocations(paths, false);
 }
 
 void ClipboardController::cutFiles(const QStringList& paths) {
-    setFiles(paths, true);
+    setLocations(paths, true);
+}
+
+void ClipboardController::copyLocations(const QStringList& storedLocations) {
+    setLocations(storedLocations, false);
+}
+
+void ClipboardController::cutLocations(const QStringList& storedLocations) {
+    setLocations(storedLocations, true);
 }
 
 void ClipboardController::copyText(const QString& text) {
@@ -184,10 +273,31 @@ bool ClipboardController::matchesFiles(
         && isCut() == cutExpected;
 }
 
+bool ClipboardController::matchesLocations(
+    const QStringList& requestedLocations,
+    bool cutExpected) const {
+    QStringList expected = normalizedLocations(requestedLocations);
+    QStringList actual = normalizedLocations(locations());
+
+    expected.sort();
+    actual.sort();
+
+    return !expected.isEmpty()
+        && expected == actual
+        && isCut() == cutExpected;
+}
+
 void ClipboardController::clearIfMatches(
     const QStringList& paths,
     bool cutExpected) {
     if (matchesFiles(paths, cutExpected))
+        clear();
+}
+
+void ClipboardController::clearIfMatchesLocations(
+    const QStringList& storedLocations,
+    bool cutExpected) {
+    if (matchesLocations(storedLocations, cutExpected))
         clear();
 }
 

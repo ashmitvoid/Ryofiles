@@ -17,6 +17,14 @@ Item {
 
     clip: true
 
+    function routeContext(sceneX, sceneY, path, isDirectory) {
+        if (root.session && root.session.remote) {
+            remoteActions.openContext(sceneX, sceneY, path, isDirectory)
+            return
+        }
+        root.contextRequested(sceneX, sceneY, path, isDirectory, root.paneIndex)
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "transparent"
@@ -72,7 +80,7 @@ Item {
             paneActive: root.paneActive
             onPaneActivated: root.activated(root.paneIndex)
             onContextRequested: function(sceneX, sceneY, path, isDirectory) {
-                root.contextRequested(sceneX, sceneY, path, isDirectory, root.paneIndex)
+                root.routeContext(sceneX, sceneY, path, isDirectory)
             }
         }
     }
@@ -86,7 +94,7 @@ Item {
             paneActive: root.paneActive
             onPaneActivated: root.activated(root.paneIndex)
             onContextRequested: function(sceneX, sceneY, path, isDirectory) {
-                root.contextRequested(sceneX, sceneY, path, isDirectory, root.paneIndex)
+                root.routeContext(sceneX, sceneY, path, isDirectory)
             }
         }
     }
@@ -101,7 +109,7 @@ Item {
             paneActive: root.paneActive
             onPaneActivated: root.activated(root.paneIndex)
             onContextRequested: function(sceneX, sceneY, path, isDirectory) {
-                root.contextRequested(sceneX, sceneY, path, isDirectory, root.paneIndex)
+                root.routeContext(sceneX, sceneY, path, isDirectory)
             }
         }
     }
@@ -154,5 +162,14 @@ Item {
             font.pixelSize: 9 * root.uiScale
             font.letterSpacing: 1.1
         }
+    }
+
+    RemotePaneActions {
+        id: remoteActions
+        anchors.fill: parent
+        session: root.session
+        files: root.files
+        uiScale: root.uiScale
+        paneActive: root.paneActive
     }
 }
