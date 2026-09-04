@@ -47,7 +47,8 @@ The repository now has the core native vertical slices required for daily file-m
 18. explicit on-demand folder-size calculation outside the browsing path;
 19. lightweight open/save/folder picker bootstrap with separate `Ryofiles Picker` identity;
 20. local-only QtDBus FileChooser backend core with per-request lifecycle/cancellation;
-21. package-level neutral backend discovery and D-Bus activation registration.
+21. package-level neutral backend discovery and D-Bus activation registration;
+22. headless opt-in/reversible Ryoku FileChooser routing control with exact previous-line restoration.
 
 ## Hard invariants
 
@@ -87,11 +88,30 @@ The Arch/CachyOS package registers the backend using only:
 - `usr/share/xdg-desktop-portal/portals/ryofiles.portal`;
 - `usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service`.
 
-Registration is deliberately not routing. The `.portal` descriptor has no legacy `UseIn=` selector, packaging does not install `portals.conf` or another `.conf`, and installation does not invoke `xdg-settings`/`xdg-mime` defaults. Ryoku `0.58.0-beta.21` currently keeps ScreenCast/Screenshot on the Hyprland backend and explicitly routes FileChooser to GTK, so a future Ryofiles route must modify only the FileChooser preference and remain reversible.
+Registration is deliberately not routing. The `.portal` descriptor has no legacy `UseIn=` selector, packaging does not install `portals.conf` or another `.conf`, and installation does not invoke `xdg-settings`/`xdg-mime` defaults. Ryoku `0.58.0-beta.21` keeps ScreenCast/Screenshot on the Hyprland backend and explicitly routes FileChooser to GTK.
+
+### Reversible Ryoku routing
+
+`ryofiles-portalctl` is a separate QtCore-only process so portal preference management adds no normal GUI bootstrap or idle work. Its managed route targets only Ryoku's existing user config at `$XDG_CONFIG_HOME/xdg-desktop-portal/hyprland-portals.conf` (falling back to `~/.config`). State is stored under `$XDG_STATE_HOME/ryofiles/portal-routing.json` (falling back to `~/.local/state`).
+
+The manager obeys these rules:
+
+- only `org.freedesktop.impl.portal.FileChooser` inside the single `[preferred]` section may be edited;
+- the prior FileChooser line is stored verbatim and restored verbatim;
+- the prior backend list remains after `ryofiles` as ordered fallback while enabled;
+- `default`, ScreenCast, Screenshot, comments, unrelated sections, and unrelated keys are preserved;
+- config updates use atomic replacement and preserve permissions;
+- symlinked config files are rejected;
+- duplicate FileChooser keys or multiple `[preferred]` sections are rejected rather than guessed through;
+- if another tool edits the managed FileChooser value after enablement, disable refuses to clobber it;
+- if another tool configured Ryofiles before this helper, the helper does not claim ownership and will not remove that route;
+- installation/removal never invokes the helper automatically;
+- portal services are never killed/restarted automatically.
+
+This makes routing opt-in and reversible without turning packaging into configuration management. Users who enabled the managed route should disable it before uninstalling so the exact previous FileChooser line is restored.
 
 ## Next engine milestones
 
-- opt-in/reversible Ryoku FileChooser routing that preserves Hyprland ScreenCast/Screenshot ownership;
 - FileChooser compatibility/UX hardening: title/accept-label forwarding, parent-window/modal behavior, portal choices, and broader application testing;
 - archive browsing/extract/compress workflows with bounded background work;
 - broaden lazy preview types only where decoding/resource loading can stay bounded and safe.
