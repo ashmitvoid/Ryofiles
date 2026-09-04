@@ -10,15 +10,24 @@ Item {
     property bool targetIsDirectory: false
     property int selectionCount: 0
     property bool clipboardHasFiles: false
+    property bool gitStageAvailable: false
+    property bool gitUnstageAvailable: false
+    property bool gitWorktreeDiffAvailable: false
+    property bool gitStagedDiffAvailable: false
 
     signal openRequested()
     signal openNewTabRequested()
     signal openWithRequested()
+    signal openTerminalRequested()
+    signal copyPathRequested()
     signal copyRequested()
     signal cutRequested()
     signal pasteIntoRequested()
     signal duplicateRequested()
     signal renameRequested()
+    signal gitStageRequested()
+    signal gitUnstageRequested()
+    signal gitDiffRequested(bool staged)
     signal trashRequested()
     signal propertiesRequested()
 
@@ -26,11 +35,25 @@ Item {
     anchors.fill: parent
     z: 900
 
-    function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
+    function openAt(
+        sceneX,
+        sceneY,
+        path,
+        isDirectory,
+        selectedCount,
+        hasClipboard,
+        canStage,
+        canUnstage,
+        canWorktreeDiff,
+        canStagedDiff) {
         targetPath = path
         targetIsDirectory = isDirectory
         selectionCount = selectedCount
         clipboardHasFiles = hasClipboard
+        gitStageAvailable = canStage
+        gitUnstageAvailable = canUnstage
+        gitWorktreeDiffAvailable = canWorktreeDiff
+        gitStagedDiffAvailable = canStagedDiff
         visible = true
 
         Qt.callLater(function() {
@@ -51,7 +74,7 @@ Item {
 
     Rectangle {
         id: menu
-        width: 230 * root.uiScale
+        width: 250 * root.uiScale
         height: items.implicitHeight + 16 * root.uiScale
         radius: 6 * root.uiScale
         color: Ryoku.paperLift
@@ -73,14 +96,20 @@ Item {
 
             Repeater {
                 model: [
-                    { label: root.targetIsDirectory ? "OPEN" : "OPEN", action: "open", enabled: root.selectionCount === 1, visible: true },
+                    { label: "OPEN", action: "open", enabled: root.selectionCount === 1, visible: true },
                     { label: "OPEN IN NEW TAB", action: "newtab", enabled: root.selectionCount === 1, visible: root.targetIsDirectory },
                     { label: "OPEN WITH…", action: "openwith", enabled: root.selectionCount === 1, visible: !root.targetIsDirectory },
+                    { label: "OPEN TERMINAL", action: "terminal", enabled: root.targetPath !== "", visible: true },
+                    { label: root.selectionCount > 1 ? "COPY PATHS" : "COPY PATH", action: "copypath", enabled: root.selectionCount > 0, visible: true },
                     { label: "COPY", action: "copy", enabled: root.selectionCount > 0, visible: true },
                     { label: "CUT", action: "cut", enabled: root.selectionCount > 0, visible: true },
                     { label: "PASTE INTO", action: "pasteinto", enabled: root.clipboardHasFiles, visible: root.targetIsDirectory && root.selectionCount === 1 },
                     { label: "DUPLICATE", action: "duplicate", enabled: root.selectionCount > 0, visible: true },
                     { label: "RENAME", action: "rename", enabled: root.selectionCount === 1, visible: true },
+                    { label: "GIT · STAGE", action: "gitstage", enabled: root.gitStageAvailable, visible: root.gitStageAvailable },
+                    { label: "GIT · UNSTAGE", action: "gitunstage", enabled: root.gitUnstageAvailable, visible: root.gitUnstageAvailable },
+                    { label: "GIT · DIFF WORKTREE", action: "gitdiff", enabled: root.gitWorktreeDiffAvailable, visible: root.gitWorktreeDiffAvailable },
+                    { label: "GIT · DIFF STAGED", action: "gitdiffstaged", enabled: root.gitStagedDiffAvailable, visible: root.gitStagedDiffAvailable },
                     { label: "MOVE TO TRASH", action: "trash", enabled: root.selectionCount > 0, visible: true },
                     { label: "PROPERTIES", action: "properties", enabled: root.selectionCount === 1, visible: true }
                 ]
@@ -126,11 +155,17 @@ Item {
                             case "open": root.openRequested(); break
                             case "newtab": root.openNewTabRequested(); break
                             case "openwith": root.openWithRequested(); break
+                            case "terminal": root.openTerminalRequested(); break
+                            case "copypath": root.copyPathRequested(); break
                             case "copy": root.copyRequested(); break
                             case "cut": root.cutRequested(); break
                             case "pasteinto": root.pasteIntoRequested(); break
                             case "duplicate": root.duplicateRequested(); break
                             case "rename": root.renameRequested(); break
+                            case "gitstage": root.gitStageRequested(); break
+                            case "gitunstage": root.gitUnstageRequested(); break
+                            case "gitdiff": root.gitDiffRequested(false); break
+                            case "gitdiffstaged": root.gitDiffRequested(true); break
                             case "trash": root.trashRequested(); break
                             case "properties": root.propertiesRequested(); break
                             }
