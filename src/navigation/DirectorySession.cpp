@@ -62,11 +62,17 @@ QString DirectorySession::recoveryPathForUnmount(
         return preferred;
     }
 
-    QDir candidate(root);
-    while (candidate.cdUp()) {
-        const QString path = QDir::cleanPath(candidate.absolutePath());
-        if (!pathInsideRoot(path, root) && QDir(path).exists())
-            return path;
+    QString candidate = QDir::cleanPath(QFileInfo(root).dir().absolutePath());
+    while (!candidate.isEmpty()) {
+        if (!pathInsideRoot(candidate, root) && QDir(candidate).exists())
+            return candidate;
+        if (candidate == QStringLiteral("/"))
+            break;
+
+        const QString parent = QDir::cleanPath(QFileInfo(candidate).dir().absolutePath());
+        if (parent == candidate)
+            break;
+        candidate = parent;
     }
 
     const QString home = QDir::cleanPath(QDir::homePath());
