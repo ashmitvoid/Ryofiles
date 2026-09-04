@@ -52,9 +52,9 @@ struct PortalPickerRequest {
     QStringList pickerProcessArguments() const {
         QStringList arguments = pickerArguments();
         if (!title.isEmpty())
-            arguments << QStringLiteral("--picker-title") << title;
+            arguments << QStringLiteral("--picker-title=%1").arg(title);
         if (!acceptLabel.isEmpty())
-            arguments << QStringLiteral("--accept-label") << acceptLabel;
+            arguments << QStringLiteral("--accept-label=%1").arg(acceptLabel);
         return arguments;
     }
     bool pathMatchesFilters(const QString& path) const;
