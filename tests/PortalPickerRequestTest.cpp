@@ -98,12 +98,29 @@ private slots:
         QVERIFY(arguments.contains(QDir::cleanPath(temp.path())));
 
         const QStringList processArguments = request.pickerProcessArguments();
-        const int titleIndex = processArguments.indexOf(QStringLiteral("--picker-title"));
-        QVERIFY(titleIndex >= 0);
-        QCOMPARE(processArguments.value(titleIndex + 1), QStringLiteral("Open a file"));
-        const int acceptIndex = processArguments.indexOf(QStringLiteral("--accept-label"));
-        QVERIFY(acceptIndex >= 0);
-        QCOMPARE(processArguments.value(acceptIndex + 1), QStringLiteral("Choose"));
+        QVERIFY(processArguments.contains(QStringLiteral("--picker-title=Open a file")));
+        QVERIFY(processArguments.contains(QStringLiteral("--accept-label=Choose")));
+        QVERIFY(!processArguments.contains(QStringLiteral("--picker-title")));
+        QVERIFY(!processArguments.contains(QStringLiteral("--accept-label")));
+    }
+
+    void presentationMetadataCannotBecomePickerOptions() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        QVariantMap options;
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        options.insert(QStringLiteral("accept_label"), QStringLiteral("--version"));
+
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("--help"), options);
+        QVERIFY(request.valid);
+
+        const QStringList arguments = request.pickerProcessArguments();
+        QVERIFY(arguments.contains(QStringLiteral("--picker-title=--help")));
+        QVERIFY(arguments.contains(QStringLiteral("--accept-label=--version")));
+        QVERIFY(!arguments.contains(QStringLiteral("--help")));
+        QVERIFY(!arguments.contains(QStringLiteral("--version")));
     }
 
     void mapsDirectoryOpenToFolderPickerWithoutMultiplicity() {
