@@ -2,6 +2,8 @@
 
 #include "DirectorySession.hpp"
 
+#include "locations/LocationSpec.hpp"
+
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
@@ -11,29 +13,86 @@
 
 DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     : QObject(parent)
+    , m_localModel(false, nullptr)
+    , m_remoteModel(nullptr)
     , m_model(nullptr) {
-    connect(&m_model, &DirectoryModel::errorOccurred, this, &DirectorySession::errorOccurred);
+    connect(
+        &m_localModel,
+        &DirectoryModel::errorOccurred,
+        this,
+        &DirectorySession::errorOccurred);
+    connect(
+        &m_remoteModel,
+        &RemoteDirectoryModel::errorChanged,
+        this,
+        [this] {
+            if (m_model.remote() && !m_remoteModel.error().isEmpty())
+                emit errorOccurred(m_remoteModel.error());
+        });
+    connect(
+        &m_model,
+        &SessionFileModel::sourceKindChanged,
+        this,
+        &DirectorySession::locationKindChanged);
 
-    QString start = normalizeDirectoryPath(initialPath);
-    if (start.isEmpty() || !QDir(start).exists())
+    QString error;
+    QString start = normalizeSessionLocation(initialPath, &error);
+    if (start.isEmpty())
         start = QDir::homePath();
 
     m_history.push_back({start, {}, QString(), QString(), 0.0});
     m_historyIndex = 0;
-    m_model.setPath(start);
+    applyBackendForLocation(start);
 }
 
 QString DirectorySession::normalizeDirectoryPath(const QString& input) {
-    QString path = input.trimmed();
-    if (path.isEmpty())
+    const LocationSpec location = LocationSpec::parse(input);
+    return location.isLocal() ? location.localPath : QString();
+}
+
+QString DirectorySession::normalizeSessionLocation(const QString& input, QString* error) {
+    const QString candidate = input.trimmed().isEmpty() ? QDir::homePath() : input;
+    const LocationSpec location = LocationSpec::parse(candidate);
+    if (!location.isValid()) {
+        if (error)
+            *error = location.error;
+        return {};
+    }
+
+    if (location.isNetwork())
+        return location.canonical;
+
+    if (!QDir(location.localPath).exists()) {
+        if (error)
+            *error = QObject::tr("Folder does not exist: %1").arg(input);
+        return {};
+    }
+    return location.localPath;
+}
+
+QString DirectorySession::parentRemoteLocation(const QString& location) {
+    const LocationSpec spec = LocationSpec::parse(location);
+    if (!spec.isNetwork())
         return {};
 
-    if (path == QStringLiteral("~"))
-        path = QDir::homePath();
-    else if (path.startsWith(QStringLiteral("~/")))
-        path = QDir::home().filePath(path.mid(2));
+    QUrl url(spec.canonical, QUrl::StrictMode);
+    QString remotePath = url.path(QUrl::FullyDecoded);
+    while (remotePath.size() > 1 && remotePath.endsWith(QLatin1Char('/')))
+        remotePath.chop(1);
 
-    return QDir::cleanPath(QDir(path).absolutePath());
+    if (remotePath.isEmpty() || remotePath == QStringLiteral("/"))
+        return {};
+
+    const qsizetype separator = remotePath.lastIndexOf(QLatin1Char('/'));
+    QString parentPath = separator <= 0
+        ? QStringLiteral("/")
+        : remotePath.left(separator);
+    if (parentPath.isEmpty())
+        parentPath = QStringLiteral("/");
+
+    url.setPath(parentPath);
+    const LocationSpec parent = LocationSpec::parse(url.toString(QUrl::FullyEncoded));
+    return parent.isNetwork() ? parent.canonical : QString();
 }
 
 bool DirectorySession::pathInsideRoot(const QString& pathValue, const QString& rootPath) {
@@ -100,6 +159,17 @@ QString DirectorySession::path() const {
 
 QString DirectorySession::title() const {
     const QString currentPath = path();
+    const LocationSpec location = LocationSpec::parse(currentPath);
+    if (location.isNetwork()) {
+        QUrl url(location.canonical, QUrl::StrictMode);
+        QString remotePath = url.path(QUrl::FullyDecoded);
+        while (remotePath.size() > 1 && remotePath.endsWith(QLatin1Char('/')))
+            remotePath.chop(1);
+
+        const QString leaf = remotePath.section(QLatin1Char('/'), -1);
+        return leaf.isEmpty() ? location.displayName : leaf;
+    }
+
     if (currentPath == QDir::homePath())
         return tr("Home");
     if (currentPath == QStringLiteral("/"))
@@ -312,9 +382,12 @@ void DirectorySession::setPreviewVisible(bool visible) {
 }
 
 bool DirectorySession::navigate(const QString& requestedPath) {
-    const QString target = normalizeDirectoryPath(requestedPath);
-    if (target.isEmpty() || !QDir(target).exists()) {
-        emit errorOccurred(tr("Folder does not exist: %1").arg(requestedPath));
+    QString error;
+    const QString target = normalizeSessionLocation(requestedPath, &error);
+    if (target.isEmpty()) {
+        emit errorOccurred(error.isEmpty()
+            ? tr("Location is invalid: %1").arg(requestedPath)
+            : error);
         return false;
     }
 
@@ -399,12 +472,34 @@ bool DirectorySession::recoverFromUnmount(
     return true;
 }
 
+void DirectorySession::applyBackendForLocation(const QString& location) {
+    const LocationSpec spec = LocationSpec::parse(location);
+    if (spec.isNetwork()) {
+        if (m_deepSearch.active())
+            m_deepSearch.clear();
+        if (m_previewVisible) {
+            m_previewVisible = false;
+            emit previewVisibleChanged();
+        }
+
+        m_localModel.setActive(false);
+        m_remoteModel.setUri(spec.canonical);
+        m_model.useRemote(&m_remoteModel);
+        return;
+    }
+
+    m_remoteModel.cancel();
+    m_localModel.setPath(spec.localPath);
+    m_model.useLocal(&m_localModel);
+    m_localModel.setActive(true);
+}
+
 void DirectorySession::applyHistoryEntry() {
     const auto* entry = currentEntry();
     if (!entry)
         return;
 
-    m_model.setPath(entry->path);
+    applyBackendForLocation(entry->path);
     emit pathChanged();
     emit titleChanged();
     emit historyChanged();
@@ -427,6 +522,13 @@ void DirectorySession::goForward() {
 }
 
 void DirectorySession::goUp() {
+    if (remote()) {
+        const QString parent = parentRemoteLocation(path());
+        if (!parent.isEmpty())
+            navigate(parent);
+        return;
+    }
+
     QDir directory(path());
     if (directory.cdUp())
         navigate(directory.absolutePath());
@@ -443,6 +545,11 @@ void DirectorySession::activate(int index) {
 
     if (m_model.isDirectoryAt(index)) {
         navigate(target);
+        return;
+    }
+
+    if (remote()) {
+        emit errorOccurred(tr("Opening remote files is not available yet"));
         return;
     }
 

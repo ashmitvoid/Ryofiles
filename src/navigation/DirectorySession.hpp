@@ -2,6 +2,8 @@
 #pragma once
 
 #include "../fs/DirectoryModel.hpp"
+#include "../locations/RemoteDirectoryModel.hpp"
+#include "../locations/SessionFileModel.hpp"
 #include "../search/DeepSearchModel.hpp"
 
 #include <QObject>
@@ -11,10 +13,11 @@
 class DirectorySession : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(DirectoryModel* model READ model CONSTANT)
+    Q_PROPERTY(SessionFileModel* model READ model CONSTANT)
     Q_PROPERTY(DeepSearchModel* deepSearch READ deepSearch CONSTANT)
     Q_PROPERTY(QString path READ path NOTIFY pathChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
+    Q_PROPERTY(bool remote READ remote NOTIFY locationKindChanged)
     Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
     Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
 
@@ -37,15 +40,19 @@ public:
 
     explicit DirectorySession(const QString& initialPath = QString(), QObject* parent = nullptr);
 
-    DirectoryModel* model() { return &m_model; }
-    const DirectoryModel* model() const { return &m_model; }
+    SessionFileModel* model() { return &m_model; }
+    const SessionFileModel* model() const { return &m_model; }
     DeepSearchModel* deepSearch() { return &m_deepSearch; }
     const DeepSearchModel* deepSearch() const { return &m_deepSearch; }
 
     QString path() const;
     QString title() const;
+    bool remote() const { return m_model.remote(); }
     bool canGoBack() const;
     bool canGoForward() const;
+
+    // Exposed for deterministic backend-lifecycle tests, not as QML API.
+    bool localBackendActive() const { return m_localModel.active(); }
 
     QString selectedPath() const;
     void setSelectedPath(const QString& path);
@@ -87,6 +94,7 @@ public:
 signals:
     void pathChanged();
     void titleChanged();
+    void locationKindChanged();
     void historyChanged();
     void selectionChanged();
     void scrollPositionChanged();
@@ -104,12 +112,17 @@ private:
     };
 
     static QString normalizeDirectoryPath(const QString& path);
+    static QString normalizeSessionLocation(const QString& location, QString* error = nullptr);
+    static QString parentRemoteLocation(const QString& location);
     void applyHistoryEntry();
+    void applyBackendForLocation(const QString& location);
     void emitSelectionChanged();
     HistoryEntry* currentEntry();
     const HistoryEntry* currentEntry() const;
 
-    DirectoryModel m_model;
+    DirectoryModel m_localModel;
+    RemoteDirectoryModel m_remoteModel;
+    SessionFileModel m_model;
     DeepSearchModel m_deepSearch;
     QVector<HistoryEntry> m_history;
     int m_historyIndex = -1;
