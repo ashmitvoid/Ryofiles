@@ -2,7 +2,7 @@
 
 Ryofiles is a native C++20 / Qt 6 / QML file manager built specifically for the Ryoku desktop and Hyprland.
 
-> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, and the FileChooser portal backend core are implemented; portal routing/compatibility hardening and archive workflows remain in progress.
+> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, and the FileChooser portal backend core are implemented; portal compatibility hardening and archive workflows remain in progress.
 
 ## Project direction
 
@@ -49,7 +49,23 @@ The Arch/CachyOS package installs only neutral backend discovery and D-Bus activ
 - `/usr/share/xdg-desktop-portal/portals/ryofiles.portal`
 - `/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service`
 
-Installation does **not** write `portals.conf`, use legacy `UseIn=` selection, change `xdg-settings`, or replace Ryoku's current portal choices. Ryoku currently routes FileChooser to GTK while ScreenCast/Screenshot remain explicitly routed to the Hyprland backend. Selecting Ryofiles for FileChooser is therefore a separate opt-in/reversible integration step.
+Installation does **not** write `portals.conf`, use legacy `UseIn=` selection, change `xdg-settings`, or replace Ryoku's current portal choices. Ryoku currently routes FileChooser to GTK while ScreenCast/Screenshot remain explicitly routed to the Hyprland backend.
+
+### Opt-in Ryoku FileChooser routing
+
+The package also provides a headless QtCore-only helper. It changes only the FileChooser line in Ryoku's existing `~/.config/xdg-desktop-portal/hyprland-portals.conf`; it does not touch `default`, ScreenCast, or Screenshot routing.
+
+```text
+ryofiles-portalctl status
+ryofiles-portalctl enable
+ryofiles-portalctl disable
+```
+
+`enable` preserves the previous FileChooser backend list as fallback and records the exact prior line under `$XDG_STATE_HOME/ryofiles/portal-routing.json` (or `~/.local/state/ryofiles/portal-routing.json`). `disable` restores that exact prior line. The helper uses atomic writes, refuses symlinked routing configs, and refuses to overwrite later external edits. If Ryofiles was configured by another tool, `disable` will not claim or remove that external configuration.
+
+After an enable/disable change, restart `xdg-desktop-portal` or log out and back in before testing. The helper deliberately does not kill/restart portal services automatically, because doing so can interrupt active portal requests or screen sharing.
+
+Before uninstalling Ryofiles after using the managed route, run `ryofiles-portalctl disable` so the exact previous FileChooser line is restored. The package itself never changes routing during install or removal.
 
 ## Non-negotiable performance rules
 
@@ -63,7 +79,7 @@ Installation does **not** write `portals.conf`, use legacy `UseIn=` selection, c
 
 ## Build
 
-Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, runs the full test suite, and smoke-tests a staged install on Linux. The Arch package CI separately verifies package payload, portal registration neutrality, exact source SHA, installation, and runtime linkage.
+Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, builds/tests the headless portal-routing helper independently, runs the full test suite, and smoke-tests staged installs on Linux. The Arch package CI separately verifies package payload, portal registration neutrality, routing-helper tests, exact source SHA, installation, and runtime linkage.
 
 ## License
 
