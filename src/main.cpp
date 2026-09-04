@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "fs/DirectoryModel.hpp"
+#include "git/GitActionController.hpp"
 #include "git/GitStatusController.hpp"
 #include "integrations/ClipboardController.hpp"
 #include "integrations/DesktopIntegration.hpp"
@@ -29,12 +30,14 @@ int main(int argc, char* argv[]) {
     DesktopIntegration desktop;
     ThumbnailController thumbnails;
     GitStatusController gitStatus;
+    GitActionController gitActions;
 
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Desktop", &desktop);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Thumbnails", &thumbnails);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitStatus", &gitStatus);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "GitActions", &gitActions);
 
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
