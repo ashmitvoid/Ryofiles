@@ -18,6 +18,11 @@
       enabled automatically by installation.
     </p>
   </description>
+  <categories>
+    <category>System</category>
+    <category>FileTools</category>
+    <category>FileManager</category>
+  </categories>
   <launchable type="desktop-id">ryofiles.desktop</launchable>
   <icon type="stock">system-file-manager</icon>
   <provides>
