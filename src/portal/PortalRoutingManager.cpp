@@ -14,7 +14,7 @@ namespace {
 constexpr auto kPreferredSection = "preferred";
 constexpr auto kFileChooserKey = "org.freedesktop.impl.portal.FileChooser";
 constexpr auto kRyofilesBackend = "ryofiles";
-constexpr int kStateVersion = 1;
+constexpr int kStateVersion = 2;
 
 struct ParsedConfig {
     bool ok = false;
@@ -35,6 +35,7 @@ struct StoredState {
     QString configPath;
     bool originalPresent = false;
     QString originalLine;
+    QString managedLine;
     QString managedValue;
 };
 
@@ -174,6 +175,10 @@ QString managedBackendValue(const QString& originalValue) {
     return backends.join(QLatin1Char(';'));
 }
 
+QString managedLineForValue(const QString& value) {
+    return QString::fromLatin1(kFileChooserKey) + QLatin1Char('=') + value;
+}
+
 QByteArray serializeConfig(const ParsedConfig& parsed) {
     QString text = parsed.lines.join(QLatin1Char('\n'));
     if (parsed.endedWithNewline)
@@ -242,6 +247,7 @@ StoredState readState(const QString& path) {
         || !object.value(QStringLiteral("configPath")).isString()
         || !object.value(QStringLiteral("originalPresent")).isBool()
         || !object.value(QStringLiteral("originalLine")).isString()
+        || !object.value(QStringLiteral("managedLine")).isString()
         || !object.value(QStringLiteral("managedValue")).isString()) {
         state.error = QStringLiteral("Portal routing state has an unsupported schema");
         return state;
@@ -250,6 +256,7 @@ StoredState readState(const QString& path) {
     state.configPath = object.value(QStringLiteral("configPath")).toString();
     state.originalPresent = object.value(QStringLiteral("originalPresent")).toBool();
     state.originalLine = object.value(QStringLiteral("originalLine")).toString();
+    state.managedLine = object.value(QStringLiteral("managedLine")).toString();
     state.managedValue = object.value(QStringLiteral("managedValue")).toString();
     state.ok = true;
     return state;
@@ -260,6 +267,7 @@ bool writeState(
     const QString& configPath,
     bool originalPresent,
     const QString& originalLine,
+    const QString& managedLine,
     const QString& managedValue,
     QString* error) {
     const QFileInfo stateInfo(path);
@@ -282,6 +290,7 @@ bool writeState(
     object.insert(QStringLiteral("configPath"), cleanAbsolutePath(configPath));
     object.insert(QStringLiteral("originalPresent"), originalPresent);
     object.insert(QStringLiteral("originalLine"), originalLine);
+    object.insert(QStringLiteral("managedLine"), managedLine);
     object.insert(QStringLiteral("managedValue"), managedValue);
 
     const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Compact) + '\n';
@@ -365,6 +374,7 @@ PortalRoutingManager::Status PortalRoutingManager::status() const {
 
     result.managed = state.exists
         && result.enabled
+        && parsed.keyLine == state.managedLine
         && parsed.value == state.managedValue;
     result.ok = true;
     if (result.managed) {
@@ -403,7 +413,10 @@ PortalRoutingManager::Result PortalRoutingManager::enable() {
     }
 
     if (state.exists) {
-        if (parsed.keyIndex >= 0 && parsed.value == state.managedValue && containsRyofiles(parsed.value)) {
+        if (parsed.keyIndex >= 0
+            && parsed.keyLine == state.managedLine
+            && parsed.value == state.managedValue
+            && containsRyofiles(parsed.value)) {
             result.ok = true;
             result.message = QStringLiteral("Ryofiles FileChooser routing is already enabled");
             return result;
@@ -433,12 +446,14 @@ PortalRoutingManager::Result PortalRoutingManager::enable() {
     const QString originalLine = originalPresent ? parsed.keyLine : QString();
     const QString originalValue = originalPresent ? parsed.value : QString();
     const QString managedValue = managedBackendValue(originalValue);
+    const QString managedLine = managedLineForValue(managedValue);
 
     if (!writeState(
             m_paths.statePath,
             m_paths.configPath,
             originalPresent,
             originalLine,
+            managedLine,
             managedValue,
             &error)) {
         result.message = error;
@@ -446,12 +461,9 @@ PortalRoutingManager::Result PortalRoutingManager::enable() {
     }
 
     if (originalPresent) {
-        parsed.lines[parsed.keyIndex] = QString::fromLatin1(kFileChooserKey)
-            + QLatin1Char('=') + managedValue;
+        parsed.lines[parsed.keyIndex] = managedLine;
     } else {
-        parsed.lines.insert(
-            parsed.preferredEnd,
-            QString::fromLatin1(kFileChooserKey) + QLatin1Char('=') + managedValue);
+        parsed.lines.insert(parsed.preferredEnd, managedLine);
     }
 
     const QFileDevice::Permissions permissions = QFileInfo(m_paths.configPath).permissions();
@@ -523,7 +535,7 @@ PortalRoutingManager::Result PortalRoutingManager::disable() {
         return result;
     }
 
-    if (parsed.value != state.managedValue) {
+    if (parsed.keyLine != state.managedLine || parsed.value != state.managedValue) {
         result.message = QStringLiteral(
             "FileChooser routing changed after Ryofiles enabled it; refusing to clobber external changes");
         return result;
