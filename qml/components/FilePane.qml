@@ -230,6 +230,12 @@ Item {
             }
         }
 
+        function markCutConflictSkipped(jobId) {
+            var batch = cutJobBatches[jobId]
+            if (batch !== undefined)
+                batch.failed = true
+        }
+
         function finishCutBatch(jobId, success) {
             var batch = cutJobBatches[jobId]
             if (batch === undefined)
@@ -285,8 +291,11 @@ Item {
 
             onChoose: function(decision, applyToAll) {
                 visible = false
-                if (remoteToLocal.conflictJobId !== "")
+                if (remoteToLocal.conflictJobId !== "") {
+                    if (decision === 0)
+                        remoteToLocal.markCutConflictSkipped(remoteToLocal.conflictJobId)
                     RemoteOperations.resolveConflict(remoteToLocal.conflictJobId, decision, false)
+                }
             }
         }
 
