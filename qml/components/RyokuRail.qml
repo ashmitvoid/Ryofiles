@@ -14,6 +14,12 @@ Item {
 
     width: 268 * uiScale
 
+    NetworkConnectSheet {
+        id: networkConnect
+        uiScale: rail.uiScale
+        onConnected: uri => rail.navigate(uri)
+    }
+
     function pathInside(path, rootPath) {
         if (!path || !rootPath)
             return false
@@ -358,6 +364,38 @@ Item {
                         font.pixelSize: 9 * rail.uiScale
                         font.letterSpacing: 1.5
                         bottomPadding: 3 * rail.uiScale
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 32 * rail.uiScale
+                        radius: 6 * rail.uiScale
+                        color: connectHover.hovered ? Ryoku.tint10 : "transparent"
+                        border.width: 1
+                        border.color: Ryoku.line
+                        opacity: NetworkConnection.busy ? 0.6 : 1.0
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12 * rail.uiScale
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: NetworkConnection.busy ? "CONNECTING…" : "+  CONNECT LOCATION"
+                            color: Ryoku.inkDim
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 10 * rail.uiScale
+                            font.weight: Font.Medium
+                            font.letterSpacing: 0.5
+                        }
+
+                        HoverHandler {
+                            id: connectHover
+                            enabled: !NetworkConnection.busy
+                            cursorShape: Qt.PointingHandCursor
+                        }
+                        TapHandler {
+                            enabled: !NetworkConnection.busy
+                            onTapped: networkConnect.open()
+                        }
                     }
 
                     Repeater {
