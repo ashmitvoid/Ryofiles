@@ -126,7 +126,7 @@ private slots:
         QVERIFY(temp.isValid());
 
         const PickerContract invalidMode =
-            PickerContract::parse("save", false, temp.path(), {});
+            PickerContract::parse("unknown", false, temp.path(), {});
         QVERIFY(!invalidMode.valid);
         QVERIFY(invalidMode.error.contains(QStringLiteral("open")));
 
@@ -135,10 +135,24 @@ private slots:
         QVERIFY(!multipleFolder.valid);
         QVERIFY(multipleFolder.error.contains(QStringLiteral("multiple"), Qt::CaseInsensitive));
 
+        const PickerContract multipleSave =
+            PickerContract::parse("save", true, temp.path(), {});
+        QVERIFY(!multipleSave.valid);
+        QVERIFY(multipleSave.error.contains(QStringLiteral("multiple"), Qt::CaseInsensitive));
+
         const PickerContract filteredFolder = PickerContract::parse(
             "folder", false, temp.path(), {QStringLiteral("image/*")});
         QVERIFY(!filteredFolder.valid);
         QVERIFY(filteredFolder.error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
+
+        const PickerContract suggestedOpen = PickerContract::parse(
+            "open", false, temp.path(), {}, QStringLiteral("report.txt"));
+        QVERIFY(!suggestedOpen.valid);
+        QVERIFY(suggestedOpen.error.contains(QStringLiteral("save"), Qt::CaseInsensitive));
+
+        const PickerContract invalidSuggestedSave = PickerContract::parse(
+            "save", false, temp.path(), {}, QStringLiteral("../report.txt"));
+        QVERIFY(!invalidSuggestedSave.valid);
 
         const PickerContract remoteInitial = PickerContract::parse(
             "open", false, QStringLiteral("sftp://example.invalid/home"), {});
@@ -165,6 +179,7 @@ private slots:
         QVERIFY(single.valid);
         QCOMPARE(single.modeName(), QStringLiteral("open"));
         QVERIFY(!single.folderMode);
+        QVERIFY(!single.saveMode);
         QVERIFY(!single.multiple);
         QCOMPARE(single.initialDirectory, QDir::cleanPath(temp.path()));
         QVERIFY(single.canAccept({first}, temp.path()));
@@ -225,6 +240,7 @@ private slots:
         const PickerContract picker = PickerContract::parse("folder", false, temp.path(), {});
         QVERIFY(picker.valid);
         QVERIFY(picker.folderMode);
+        QVERIFY(!picker.saveMode);
         QVERIFY(picker.canAccept({}, child));
         QVERIFY(picker.canAccept({file}, child));
         QVERIFY(!picker.canAccept({}, temp.filePath("missing")));
@@ -232,6 +248,126 @@ private slots:
         QCOMPARE(
             picker.acceptedPaths({file}, child),
             QStringList({QDir::cleanPath(child)}));
+    }
+
+    void pickerSaveModeBuildsSafeTargets() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const PickerContract picker = PickerContract::parse(
+            "save",
+            false,
+            temp.path(),
+            {QStringLiteral("text/plain")},
+            QStringLiteral("report.txt"));
+        QVERIFY(picker.valid);
+        QVERIFY(picker.saveMode);
+        QVERIFY(!picker.folderMode);
+        QVERIFY(!picker.multiple);
+        QCOMPARE(picker.modeName(), QStringLiteral("save"));
+        QCOMPARE(picker.suggestedName, QStringLiteral("report.txt"));
+
+        const auto fresh = picker.saveTarget(temp.path(), QStringLiteral("new.txt"));
+        QVERIFY(fresh.valid);
+        QVERIFY(!fresh.overwriteRequired);
+        QCOMPARE(fresh.path, temp.filePath("new.txt"));
+
+        const auto badMime = picker.saveTarget(temp.path(), QStringLiteral("image.png"));
+        QVERIFY(!badMime.valid);
+        QVERIFY(badMime.error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
+
+        QVERIFY(!picker.saveTarget(temp.path(), QStringLiteral("../escape.txt")).valid);
+        QVERIFY(!picker.saveTarget(temp.path(), QStringLiteral(".")).valid);
+        QVERIFY(!picker.saveTarget(QStringLiteral("sftp://server.invalid/share"), QStringLiteral("x.txt")).valid);
+
+        const QString folder = temp.filePath("folder.txt");
+        QVERIFY(QDir().mkpath(folder));
+        const auto directoryCollision = picker.saveTarget(temp.path(), QStringLiteral("folder.txt"));
+        QVERIFY(!directoryCollision.valid);
+        QVERIFY(directoryCollision.error.contains(QStringLiteral("folder"), Qt::CaseInsensitive));
+    }
+
+    void pickerSaveModeRequiresExplicitOverwriteConfirmation() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString existing = temp.filePath("existing.txt");
+        writeFile(existing, QByteArrayLiteral("keep"));
+
+        const PickerContract picker = PickerContract::parse("save", false, temp.path(), {});
+        QVERIFY(picker.valid);
+
+        PickerSaveState state;
+        auto first = state.request(picker, temp.path(), QStringLiteral("existing.txt"));
+        QCOMPARE(first.outcome, PickerSaveState::OverwriteConfirmationRequired);
+        QCOMPARE(first.path, existing);
+        QCOMPARE(state.pendingOverwritePath, existing);
+
+        auto secondGenericSave = state.request(picker, temp.path(), QStringLiteral("existing.txt"));
+        QCOMPARE(secondGenericSave.outcome, PickerSaveState::OverwriteConfirmationRequired);
+        QCOMPARE(state.pendingOverwritePath, existing);
+
+        auto confirmed = state.confirm(picker, temp.path(), QStringLiteral("existing.txt"));
+        QCOMPARE(confirmed.outcome, PickerSaveState::Accepted);
+        QCOMPARE(confirmed.path, existing);
+        QVERIFY(state.pendingOverwritePath.isEmpty());
+    }
+
+    void pickerSaveOverwriteConfirmationIsBoundToExactTarget() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString firstPath = temp.filePath("first.txt");
+        const QString secondPath = temp.filePath("second.txt");
+        writeFile(firstPath);
+        writeFile(secondPath);
+
+        const PickerContract picker = PickerContract::parse("save", false, temp.path(), {});
+        QVERIFY(picker.valid);
+
+        PickerSaveState state;
+        QCOMPARE(
+            state.request(picker, temp.path(), QStringLiteral("first.txt")).outcome,
+            PickerSaveState::OverwriteConfirmationRequired);
+
+        const auto changed = state.confirm(picker, temp.path(), QStringLiteral("second.txt"));
+        QCOMPARE(changed.outcome, PickerSaveState::Rejected);
+        QVERIFY(changed.error.contains(QStringLiteral("changed"), Qt::CaseInsensitive));
+        QVERIFY(state.pendingOverwritePath.isEmpty());
+
+        QCOMPARE(
+            state.request(picker, temp.path(), QStringLiteral("second.txt")).outcome,
+            PickerSaveState::OverwriteConfirmationRequired);
+        QCOMPARE(
+            state.confirm(picker, temp.path(), QStringLiteral("second.txt")).outcome,
+            PickerSaveState::Accepted);
+    }
+
+    void pickerSaveTreatsSymlinksAsOccupiedWithoutFollowingBrokenTargets() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const PickerContract picker = PickerContract::parse("save", false, temp.path(), {});
+        QVERIFY(picker.valid);
+
+        const QString target = temp.filePath("target.txt");
+        const QString link = temp.filePath("link.txt");
+        writeFile(target);
+        QVERIFY(QFile::link(target, link));
+
+        const auto linkTarget = picker.saveTarget(temp.path(), QStringLiteral("link.txt"));
+        QVERIFY(linkTarget.valid);
+        QVERIFY(linkTarget.overwriteRequired);
+
+        const QString brokenTarget = temp.filePath("missing.txt");
+        const QString brokenLink = temp.filePath("broken.txt");
+        QVERIFY(QFile::link(brokenTarget, brokenLink));
+        QVERIFY(QFileInfo(brokenLink).isSymLink());
+        QVERIFY(!QFileInfo(brokenLink).exists());
+
+        const auto broken = picker.saveTarget(temp.path(), QStringLiteral("broken.txt"));
+        QVERIFY(broken.valid);
+        QVERIFY(broken.overwriteRequired);
     }
 };
 
