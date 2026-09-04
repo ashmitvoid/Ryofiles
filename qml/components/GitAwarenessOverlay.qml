@@ -17,6 +17,16 @@ Item {
             GitStatus.path = ""
     }
 
+    function refreshIfCurrent() {
+        if (!root.session || !root.session.model)
+            return
+        if (root.session.model.loading)
+            return
+        if (GitStatus.path !== root.session.path)
+            return
+        GitStatus.refresh()
+    }
+
     GitBranchChip {
         anchors.left: parent.left
         anchors.leftMargin: 8 * root.uiScale
@@ -28,6 +38,11 @@ Item {
     Connections {
         target: root.session
         function onPathChanged() { root.syncPath() }
+    }
+
+    Connections {
+        target: root.session ? root.session.model : null
+        function onLoadingChanged() { root.refreshIfCurrent() }
     }
 
     onSessionChanged: root.syncPath()
