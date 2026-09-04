@@ -148,6 +148,32 @@ private slots:
         QVERIFY(model.truncated());
         QVERIFY(model.visitedCount() <= 200000);
     }
+
+    void uriLikeRootIsRejectedButLocalColonRootSearches() {
+        DeepSearchModel model;
+        model.start(QStringLiteral("sftp://example.invalid/share"), "needle", false);
+
+        QVERIFY(!model.running());
+        QVERIFY(model.active());
+        QCOMPARE(model.rootPath(), QStringLiteral("sftp://example.invalid/share"));
+        QCOMPARE(model.query(), QStringLiteral("needle"));
+        QCOMPARE(model.rowCount(), 0);
+        QCOMPARE(model.visitedCount(), quint64(0));
+        QVERIFY(!model.error().isEmpty());
+
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString localRoot = temp.filePath("tree:local");
+        QVERIFY(QDir().mkpath(localRoot));
+        touch(QDir(localRoot).filePath("needle.txt"));
+
+        model.start(localRoot, "needle", false);
+        QTRY_VERIFY_WITH_TIMEOUT(!model.running(), 5000);
+        QCOMPARE(model.rootPath(), localRoot);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(resultNames(model), QStringList{QStringLiteral("needle.txt")});
+        QVERIFY(model.error().isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(DeepSearchModelTest)
