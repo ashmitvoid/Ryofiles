@@ -4,7 +4,6 @@
 #include <glib.h>
 
 #include <QAbstractListModel>
-#include <QFuture>
 #include <QMutex>
 #include <QPointer>
 #include <QString>
@@ -12,6 +11,7 @@
 #include <QWaitCondition>
 
 #include <atomic>
+#include <future>
 #include <memory>
 
 typedef struct _GAsyncResult GAsyncResult;
@@ -147,7 +147,6 @@ private:
         QString sourceDisplayName;
         int keepBothAttempt = 0;
         bool keepBothMode = false;
-        bool overwrite = false;
         bool treeMode = false;
 
         ~ActiveContext();
@@ -199,14 +198,6 @@ private:
         int depth,
         bool* skipped,
         QString* error);
-    bool copyTreeEntry(
-        ActiveContext* context,
-        GFile* source,
-        GFile* desiredDestination,
-        const QString& displayName,
-        int depth,
-        bool* skipped,
-        QString* error);
     bool copyLeafWithConflicts(
         ActiveContext* context,
         GFile* source,
@@ -242,6 +233,6 @@ private:
 
     QVector<std::shared_ptr<Job>> m_jobs;
     ActiveContext* m_active = nullptr;
-    QFuture<void> m_treeFuture;
+    std::future<void> m_treeFuture;
     std::atomic_bool m_stopping = false;
 };
