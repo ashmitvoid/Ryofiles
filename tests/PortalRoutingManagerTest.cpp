@@ -59,6 +59,7 @@ private slots:
     void enableAndDisableAreIdempotent();
     void missingFileChooserEntryIsInsertedAndRemoved();
     void externalChangesAfterEnableAreNeverClobbered();
+    void formattingOnlyChangesAfterEnableAreNeverClobbered();
     void externallyConfiguredRyofilesIsNeverClaimedOrRemoved();
     void duplicateFileChooserEntriesAreRejected();
     void symlinkedConfigIsRejected();
@@ -175,6 +176,30 @@ void PortalRoutingManagerTest::externalChangesAfterEnableAreNeverClobbered() {
         "org.freedesktop.impl.portal.FileChooser=ryofiles;gtk",
         "org.freedesktop.impl.portal.FileChooser=ryofiles;kde");
     QVERIFY(writeFile(fixture.configPath, externallyChanged));
+
+    const auto disabled = manager.disable();
+    QVERIFY(!disabled.ok);
+    QVERIFY(disabled.message.contains(QStringLiteral("refusing to clobber")));
+    QCOMPARE(readFile(fixture.configPath), externallyChanged);
+    QVERIFY(QFileInfo::exists(fixture.statePath));
+}
+
+void PortalRoutingManagerTest::formattingOnlyChangesAfterEnableAreNeverClobbered() {
+    Fixture fixture;
+    QVERIFY(writeFile(fixture.configPath, kRyokuConfig));
+    PortalRoutingManager manager = fixture.manager();
+    QVERIFY(manager.enable().ok);
+
+    QByteArray externallyChanged = readFile(fixture.configPath);
+    externallyChanged.replace(
+        "org.freedesktop.impl.portal.FileChooser=ryofiles;gtk",
+        "  org.freedesktop.impl.portal.FileChooser = ryofiles;gtk");
+    QVERIFY(writeFile(fixture.configPath, externallyChanged));
+
+    const auto status = manager.status();
+    QVERIFY2(status.ok, qPrintable(status.message));
+    QVERIFY(status.enabled);
+    QVERIFY(!status.managed);
 
     const auto disabled = manager.disable();
     QVERIFY(!disabled.ok);
