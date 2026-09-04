@@ -10,6 +10,8 @@
 #include <QSet>
 #include <QVector>
 
+typedef struct _GCancellable GCancellable;
+
 class DirectorySession : public QObject {
     Q_OBJECT
 
@@ -39,6 +41,7 @@ public:
     Q_ENUM(ViewMode)
 
     explicit DirectorySession(const QString& initialPath = QString(), QObject* parent = nullptr);
+    ~DirectorySession() override;
 
     SessionFileModel* model() { return &m_model; }
     const SessionFileModel* model() const { return &m_model; }
@@ -53,6 +56,7 @@ public:
 
     // Exposed for deterministic backend-lifecycle tests, not as QML API.
     bool localBackendActive() const { return m_localModel.active(); }
+    static QString normalizeRemoteFileLaunchUri(const QString& location);
 
     QString selectedPath() const;
     void setSelectedPath(const QString& path);
@@ -120,6 +124,8 @@ private:
     static QString parentRemoteLocation(const QString& location);
     void applyHistoryEntry();
     void applyBackendForLocation(const QString& location);
+    void openRemoteFile(const QString& uri);
+    void cancelRemoteFileOpen();
     void emitSelectionChanged();
     HistoryEntry* currentEntry();
     const HistoryEntry* currentEntry() const;
@@ -133,4 +139,6 @@ private:
     int m_viewMode = DetailsView;
     bool m_previewVisible = false;
     quint64 m_selectionRevision = 0;
+    GCancellable* m_remoteOpenCancellable = nullptr;
+    quint64 m_remoteOpenGeneration = 0;
 };

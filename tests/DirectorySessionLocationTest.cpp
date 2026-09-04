@@ -78,6 +78,21 @@ private slots:
         QVERIFY(!session.deepSearch()->active());
     }
 
+    void remoteFileLaunchTargetIsCanonicalAndSecretSafe() {
+        QCOMPARE(
+            DirectorySession::normalizeRemoteFileLaunchUri(
+                QStringLiteral("SFTP://alice@example.invalid/share/report%20final.txt")),
+            QStringLiteral("sftp://alice@example.invalid/share/report%20final.txt"));
+        QVERIFY(DirectorySession::normalizeRemoteFileLaunchUri(
+            QStringLiteral("/tmp/report.txt")).isEmpty());
+        QVERIFY(DirectorySession::normalizeRemoteFileLaunchUri(
+            QStringLiteral("file:///tmp/report.txt")).isEmpty());
+        QVERIFY(DirectorySession::normalizeRemoteFileLaunchUri(
+            QStringLiteral("sftp://alice:secret@example.invalid/share/report.txt")).isEmpty());
+        QVERIFY(DirectorySession::normalizeRemoteFileLaunchUri(
+            QStringLiteral("sftp://alice@example.invalid/share/report.txt?download=1")).isEmpty());
+    }
+
     void unmountRecoveryNeverTreatsRemoteUriAsLocalPath() {
         DirectorySession session;
         QVERIFY(session.navigate(QStringLiteral("sftp://alice@example.invalid/mnt/usb/work")));

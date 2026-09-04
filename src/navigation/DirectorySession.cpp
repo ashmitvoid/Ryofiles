@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <gio/gio.h>
+
 #include "DirectorySession.hpp"
 
 #include "locations/LocationSpec.hpp"
@@ -7,9 +9,25 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QMetaObject>
+#include <QPointer>
 #include <QUrl>
 
 #include <utility>
+
+namespace {
+struct RemoteFileOpenContext {
+    QPointer<DirectorySession> owner;
+    GCancellable* cancellable = nullptr;
+    quint64 generation = 0;
+    QString uri;
+
+    ~RemoteFileOpenContext() {
+        if (cancellable)
+            g_object_unref(cancellable);
+    }
+};
+} // namespace
 
 DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     : QObject(parent)
@@ -45,6 +63,10 @@ DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     applyBackendForLocation(start);
 }
 
+DirectorySession::~DirectorySession() {
+    cancelRemoteFileOpen();
+}
+
 QString DirectorySession::normalizeDirectoryPath(const QString& input) {
     const LocationSpec location = LocationSpec::parse(input);
     return location.isLocal() ? location.localPath : QString();
@@ -68,6 +90,11 @@ QString DirectorySession::normalizeSessionLocation(const QString& input, QString
         return {};
     }
     return location.localPath;
+}
+
+QString DirectorySession::normalizeRemoteFileLaunchUri(const QString& location) {
+    const LocationSpec spec = LocationSpec::parse(location);
+    return spec.isNetwork() ? spec.canonical : QString();
 }
 
 QString DirectorySession::parentRemoteLocation(const QString& location) {
@@ -574,7 +601,86 @@ bool DirectorySession::recoverFromNetworkUnmount(
     return true;
 }
 
+void DirectorySession::cancelRemoteFileOpen() {
+    ++m_remoteOpenGeneration;
+    if (!m_remoteOpenCancellable)
+        return;
+
+    auto* cancellable = G_CANCELLABLE(g_object_ref(m_remoteOpenCancellable));
+    g_clear_object(&m_remoteOpenCancellable);
+    g_cancellable_cancel(cancellable);
+    g_object_unref(cancellable);
+}
+
+void DirectorySession::openRemoteFile(const QString& requestedUri) {
+    const QString uri = normalizeRemoteFileLaunchUri(requestedUri);
+    if (uri.isEmpty()) {
+        emit errorOccurred(tr("Remote file location is invalid"));
+        return;
+    }
+
+    cancelRemoteFileOpen();
+    const quint64 generation = m_remoteOpenGeneration;
+
+    auto* context = new RemoteFileOpenContext;
+    context->owner = this;
+    context->generation = generation;
+    context->uri = uri;
+    context->cancellable = g_cancellable_new();
+    if (!context->cancellable) {
+        delete context;
+        emit errorOccurred(tr("Could not initialize remote file opening"));
+        return;
+    }
+
+    m_remoteOpenCancellable = G_CANCELLABLE(g_object_ref(context->cancellable));
+    const QByteArray uriBytes = uri.toUtf8();
+
+    g_app_info_launch_default_for_uri_async(
+        uriBytes.constData(),
+        nullptr,
+        context->cancellable,
+        +[](GObject*, GAsyncResult* result, gpointer userData) {
+            auto* context = static_cast<RemoteFileOpenContext*>(userData);
+
+            GError* error = nullptr;
+            const bool success = g_app_info_launch_default_for_uri_finish(result, &error);
+            const bool cancelled = error && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+            const QString errorText = error && error->message
+                ? QString::fromUtf8(error->message)
+                : QString();
+            if (error)
+                g_error_free(error);
+
+            const QPointer<DirectorySession> owner = context->owner;
+            const quint64 generation = context->generation;
+            const QString uri = context->uri;
+
+            if (owner) {
+                QMetaObject::invokeMethod(
+                    owner.data(),
+                    [owner, generation, uri, success, cancelled, errorText] {
+                        if (!owner || generation != owner->m_remoteOpenGeneration)
+                            return;
+
+                        g_clear_object(&owner->m_remoteOpenCancellable);
+                        if (!success && !cancelled) {
+                            emit owner->errorOccurred(errorText.isEmpty()
+                                ? owner->tr("Could not open remote file: %1").arg(uri)
+                                : owner->tr("Could not open remote file: %1").arg(errorText));
+                        }
+                    },
+                    Qt::QueuedConnection);
+            }
+
+            delete context;
+        },
+        context);
+}
+
 void DirectorySession::applyBackendForLocation(const QString& location) {
+    cancelRemoteFileOpen();
+
     const LocationSpec spec = LocationSpec::parse(location);
     if (spec.isNetwork()) {
         if (m_deepSearch.active())
@@ -651,7 +757,7 @@ void DirectorySession::activate(int index) {
     }
 
     if (remote()) {
-        emit errorOccurred(tr("Opening remote files is not available yet"));
+        openRemoteFile(target);
         return;
     }
 
