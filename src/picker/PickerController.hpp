@@ -11,11 +11,22 @@
 #include <QSet>
 #include <QStringList>
 
+#include <utility>
+
 struct PickerContract {
+    struct SaveTarget {
+        bool valid = false;
+        bool overwriteRequired = false;
+        QString path;
+        QString error;
+    };
+
     bool valid = false;
     bool folderMode = false;
+    bool saveMode = false;
     bool multiple = false;
     QString initialDirectory = QDir::homePath();
+    QString suggestedName;
     QStringList mimeTypes;
     QString error;
 
@@ -23,21 +34,29 @@ struct PickerContract {
         const QString& modeText,
         bool multipleSelection,
         const QString& requestedInitialDirectory,
-        const QStringList& requestedMimeTypes) {
+        const QStringList& requestedMimeTypes,
+        const QString& requestedSuggestedName = QString()) {
         PickerContract contract;
 
         const QString normalizedMode = modeText.trimmed().toLower();
         if (normalizedMode == QStringLiteral("open")) {
             contract.folderMode = false;
+            contract.saveMode = false;
         } else if (normalizedMode == QStringLiteral("folder")) {
             contract.folderMode = true;
+            contract.saveMode = false;
+        } else if (normalizedMode == QStringLiteral("save")) {
+            contract.folderMode = false;
+            contract.saveMode = true;
         } else {
-            contract.error = QStringLiteral("Picker mode must be 'open' or 'folder'");
+            contract.error = QStringLiteral("Picker mode must be 'open', 'save', or 'folder'");
             return contract;
         }
 
-        if (contract.folderMode && multipleSelection) {
-            contract.error = QStringLiteral("Folder picker does not support --multiple");
+        if ((contract.folderMode || contract.saveMode) && multipleSelection) {
+            contract.error = contract.folderMode
+                ? QStringLiteral("Folder picker does not support --multiple")
+                : QStringLiteral("Save picker does not support --multiple");
             return contract;
         }
 
@@ -86,14 +105,30 @@ struct PickerContract {
             return contract;
         }
 
-        contract.multiple = !contract.folderMode && multipleSelection;
+        if (!requestedSuggestedName.isEmpty() && !contract.saveMode) {
+            contract.error = QStringLiteral("Suggested file name requires --picker save");
+            return contract;
+        }
+        if (contract.saveMode
+            && !requestedSuggestedName.isEmpty()
+            && !validLeafName(requestedSuggestedName)) {
+            contract.error = QStringLiteral("Suggested file name is invalid");
+            return contract;
+        }
+
+        contract.multiple = !contract.folderMode && !contract.saveMode && multipleSelection;
         contract.initialDirectory = QDir::cleanPath(initialInfo.absoluteFilePath());
+        contract.suggestedName = requestedSuggestedName;
         contract.valid = true;
         return contract;
     }
 
     QString modeName() const {
-        return folderMode ? QStringLiteral("folder") : QStringLiteral("open");
+        if (folderMode)
+            return QStringLiteral("folder");
+        if (saveMode)
+            return QStringLiteral("save");
+        return QStringLiteral("open");
     }
 
     QString validationError(
@@ -101,6 +136,9 @@ struct PickerContract {
         const QString& currentDirectory) const {
         if (!valid)
             return error.isEmpty() ? QStringLiteral("Picker is not configured") : error;
+
+        if (saveMode)
+            return QStringLiteral("Enter a file name");
 
         if (folderMode) {
             return normalizeExistingDirectory(currentDirectory).isEmpty()
@@ -166,7 +204,60 @@ struct PickerContract {
         return accepted;
     }
 
+    SaveTarget saveTarget(
+        const QString& currentDirectory,
+        const QString& fileName) const {
+        SaveTarget target;
+        if (!valid) {
+            target.error = error.isEmpty()
+                ? QStringLiteral("Picker is not configured")
+                : error;
+            return target;
+        }
+        if (!saveMode) {
+            target.error = QStringLiteral("Picker is not in save mode");
+            return target;
+        }
+
+        const QString directory = normalizeExistingDirectory(currentDirectory);
+        if (directory.isEmpty()) {
+            target.error = QStringLiteral("Current folder is not selectable for saving");
+            return target;
+        }
+        if (!validLeafName(fileName)) {
+            target.error = QStringLiteral("Enter a valid file name");
+            return target;
+        }
+
+        target.path = QDir::cleanPath(
+            QFileInfo(QDir(directory).filePath(fileName)).absoluteFilePath());
+
+        if (!matchesMimeFilters(target.path)) {
+            target.error = QStringLiteral("File name does not match the requested MIME filter");
+            return target;
+        }
+
+        const QFileInfo targetInfo(target.path);
+        if (targetInfo.isDir()) {
+            target.error = QStringLiteral("A folder already exists with this name");
+            return target;
+        }
+
+        target.overwriteRequired = targetInfo.exists() || targetInfo.isSymLink();
+        target.valid = true;
+        return target;
+    }
+
 private:
+    static bool validLeafName(const QString& name) {
+        return !name.isEmpty()
+            && !name.trimmed().isEmpty()
+            && !name.contains(QLatin1Char('/'))
+            && !name.contains(QChar::Null)
+            && name != QStringLiteral(".")
+            && name != QStringLiteral("..");
+    }
+
     static QString normalizeExistingDirectory(const QString& requested) {
         if (requested.trimmed().isEmpty() || LocalPathGuard::isUriLike(requested))
             return {};
@@ -202,14 +293,82 @@ private:
     }
 };
 
+struct PickerSaveState {
+    enum Outcome {
+        Rejected = 0,
+        Accepted,
+        OverwriteConfirmationRequired,
+    };
+
+    struct Decision {
+        Outcome outcome = Rejected;
+        QString path;
+        QString error;
+    };
+
+    QString pendingOverwritePath;
+
+    void clear() {
+        pendingOverwritePath.clear();
+    }
+
+    Decision request(
+        const PickerContract& contract,
+        const QString& currentDirectory,
+        const QString& fileName) {
+        const PickerContract::SaveTarget target =
+            contract.saveTarget(currentDirectory, fileName);
+        if (!target.valid) {
+            clear();
+            return {Rejected, {}, target.error};
+        }
+
+        if (target.overwriteRequired) {
+            pendingOverwritePath = target.path;
+            return {OverwriteConfirmationRequired, target.path, {}};
+        }
+
+        clear();
+        return {Accepted, target.path, {}};
+    }
+
+    Decision confirm(
+        const PickerContract& contract,
+        const QString& currentDirectory,
+        const QString& fileName) {
+        const PickerContract::SaveTarget target =
+            contract.saveTarget(currentDirectory, fileName);
+        if (!target.valid) {
+            clear();
+            return {Rejected, {}, target.error};
+        }
+
+        if (pendingOverwritePath.isEmpty()
+            || target.path != pendingOverwritePath) {
+            clear();
+            return {
+                Rejected,
+                {},
+                QStringLiteral("Save target changed; confirm the new target again")};
+        }
+
+        clear();
+        return {Accepted, target.path, {}};
+    }
+};
+
 class PickerController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString mode READ modeName CONSTANT)
     Q_PROPERTY(bool folderMode READ folderMode CONSTANT)
+    Q_PROPERTY(bool saveMode READ saveMode CONSTANT)
     Q_PROPERTY(bool multiple READ multiple CONSTANT)
     Q_PROPERTY(QString initialDirectory READ initialDirectory CONSTANT)
+    Q_PROPERTY(QString suggestedName READ suggestedName CONSTANT)
     Q_PROPERTY(QStringList mimeTypes READ mimeTypes CONSTANT)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+    Q_PROPERTY(bool overwriteConfirmationRequired READ overwriteConfirmationRequired NOTIFY overwriteConfirmationChanged)
+    Q_PROPERTY(QString pendingOverwritePath READ pendingOverwritePath NOTIFY overwriteConfirmationChanged)
 
 public:
     explicit PickerController(QObject* parent = nullptr)
@@ -221,12 +380,14 @@ public:
         bool multipleSelection,
         const QString& requestedInitialDirectory,
         const QStringList& requestedMimeTypes,
+        const QString& requestedSuggestedName = QString(),
         QString* errorOut = nullptr) {
         PickerContract contract = PickerContract::parse(
             modeText,
             multipleSelection,
             requestedInitialDirectory,
-            requestedMimeTypes);
+            requestedMimeTypes,
+            requestedSuggestedName);
         if (!contract.valid) {
             setError(contract.error);
             if (errorOut)
@@ -235,16 +396,23 @@ public:
         }
 
         m_contract = std::move(contract);
+        clearOverwriteConfirmation();
         setError(QString());
         return true;
     }
 
     QString modeName() const { return m_contract.modeName(); }
     bool folderMode() const { return m_contract.folderMode; }
+    bool saveMode() const { return m_contract.saveMode; }
     bool multiple() const { return m_contract.multiple; }
     QString initialDirectory() const { return m_contract.initialDirectory; }
+    QString suggestedName() const { return m_contract.suggestedName; }
     QStringList mimeTypes() const { return m_contract.mimeTypes; }
     QString error() const { return m_error; }
+    bool overwriteConfirmationRequired() const {
+        return !m_saveState.pendingOverwritePath.isEmpty();
+    }
+    QString pendingOverwritePath() const { return m_saveState.pendingOverwritePath; }
 
     Q_INVOKABLE QString validationError(
         const QStringList& selectedPaths,
@@ -261,6 +429,11 @@ public:
     Q_INVOKABLE bool accept(
         const QStringList& selectedPaths,
         const QString& currentDirectory) {
+        if (m_contract.saveMode) {
+            setError(QStringLiteral("Save picker requires a file name"));
+            return false;
+        }
+
         const QString validation = m_contract.validationError(selectedPaths, currentDirectory);
         if (!validation.isEmpty()) {
             setError(validation);
@@ -273,18 +446,88 @@ public:
             return false;
         }
 
+        clearOverwriteConfirmation();
         setError(QString());
         emit acceptedPaths(accepted);
         return true;
     }
 
+    Q_INVOKABLE QString saveValidationError(
+        const QString& currentDirectory,
+        const QString& fileName) const {
+        return m_contract.saveTarget(currentDirectory, fileName).error;
+    }
+
+    Q_INVOKABLE bool canSave(
+        const QString& currentDirectory,
+        const QString& fileName) const {
+        return m_contract.saveTarget(currentDirectory, fileName).valid;
+    }
+
+    Q_INVOKABLE bool saveNeedsOverwrite(
+        const QString& currentDirectory,
+        const QString& fileName) const {
+        const PickerContract::SaveTarget target =
+            m_contract.saveTarget(currentDirectory, fileName);
+        return target.valid && target.overwriteRequired;
+    }
+
+    Q_INVOKABLE bool requestSave(
+        const QString& currentDirectory,
+        const QString& fileName) {
+        const QString before = m_saveState.pendingOverwritePath;
+        const PickerSaveState::Decision decision =
+            m_saveState.request(m_contract, currentDirectory, fileName);
+        notifyOverwriteIfChanged(before);
+
+        if (decision.outcome == PickerSaveState::Rejected) {
+            setError(decision.error);
+            return false;
+        }
+        if (decision.outcome == PickerSaveState::OverwriteConfirmationRequired) {
+            setError(QString());
+            return false;
+        }
+
+        setError(QString());
+        emit acceptedPaths({decision.path});
+        return true;
+    }
+
+    Q_INVOKABLE bool confirmOverwrite(
+        const QString& currentDirectory,
+        const QString& fileName) {
+        const QString before = m_saveState.pendingOverwritePath;
+        const PickerSaveState::Decision decision =
+            m_saveState.confirm(m_contract, currentDirectory, fileName);
+        notifyOverwriteIfChanged(before);
+
+        if (decision.outcome != PickerSaveState::Accepted) {
+            setError(decision.error);
+            return false;
+        }
+
+        setError(QString());
+        emit acceptedPaths({decision.path});
+        return true;
+    }
+
+    Q_INVOKABLE void clearOverwriteConfirmation() {
+        if (m_saveState.pendingOverwritePath.isEmpty())
+            return;
+        m_saveState.clear();
+        emit overwriteConfirmationChanged();
+    }
+
     Q_INVOKABLE void cancel() {
+        clearOverwriteConfirmation();
         setError(QString());
         emit cancelled();
     }
 
 signals:
     void errorChanged();
+    void overwriteConfirmationChanged();
     void acceptedPaths(const QStringList& paths);
     void cancelled();
 
@@ -296,6 +539,12 @@ private:
         emit errorChanged();
     }
 
+    void notifyOverwriteIfChanged(const QString& before) {
+        if (before != m_saveState.pendingOverwritePath)
+            emit overwriteConfirmationChanged();
+    }
+
     PickerContract m_contract;
+    PickerSaveState m_saveState;
     QString m_error;
 };

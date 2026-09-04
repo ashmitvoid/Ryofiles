@@ -46,6 +46,7 @@ QVariant DirectoryModel::data(const QModelIndex& index, int role) const {
 
     const Entry& entry = m_entries.at(index.row());
     switch (role) {
+    case Qt::DisplayRole:
     case NameRole: return entry.name;
     case PathRole: return entry.path;
     case DirectoryRole: return entry.directory;
