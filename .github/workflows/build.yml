@@ -10,7 +10,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install build dependencies
-        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja qt6-base qt6-declarative
+        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja glib2 qt6-base qt6-declarative
       - uses: actions/checkout@v4
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRYOFILES_BUILD_TESTS=ON

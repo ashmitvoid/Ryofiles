@@ -16,6 +16,8 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Concurrent
     DBus
 )
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
@@ -32,6 +34,8 @@ qt_add_executable(ryofiles
     src/storage/DriveModel.cpp
     src/locations/LocationSpec.hpp
     src/locations/LocationSpec.cpp
+    src/locations/NetworkLocationModel.hpp
+    src/locations/NetworkLocationModel.cpp
     src/git/GitStatusController.hpp
     src/git/GitStatusController.cpp
     src/git/GitActionController.hpp
@@ -97,6 +101,7 @@ target_link_libraries(ryofiles PRIVATE
     Qt6::Quick
     Qt6::Concurrent
     Qt6::DBus
+    PkgConfig::GIO
 )
 
 option(RYOFILES_BUILD_TESTS "Build Ryofiles test targets" OFF)
@@ -287,6 +292,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME location-spec COMMAND ryofiles_location_spec_tests)
+
+    qt_add_executable(ryofiles_network_location_tests
+        tests/NetworkLocationModelTest.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/NetworkLocationModel.hpp
+        src/locations/NetworkLocationModel.cpp
+    )
+
+    target_include_directories(ryofiles_network_location_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_network_location_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME network-locations COMMAND ryofiles_network_location_tests)
 
     qt_add_executable(ryofiles_drive_tests
         tests/DriveModelTest.cpp
