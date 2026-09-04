@@ -163,6 +163,13 @@ void ClipboardController::cutFiles(const QStringList& paths) {
     setFiles(paths, true);
 }
 
+void ClipboardController::copyText(const QString& text) {
+    if (text.isEmpty())
+        return;
+    if (auto* clipboard = QGuiApplication::clipboard())
+        clipboard->setText(text, QClipboard::Clipboard);
+}
+
 bool ClipboardController::matchesFiles(
     const QStringList& requestedPaths,
     bool cutExpected) const {
