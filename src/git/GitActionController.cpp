@@ -2,6 +2,8 @@
 
 #include "GitActionController.hpp"
 
+#include "locations/LocalPathGuard.hpp"
+
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -50,6 +52,12 @@ bool GitActionController::validatedRelativePaths(
     if (error)
         error->clear();
 
+    if (LocalPathGuard::isUriLike(repositoryRoot)) {
+        if (error)
+            *error = tr("Git actions require a local filesystem repository");
+        return false;
+    }
+
     const QDir root(repositoryRoot);
     if (repositoryRoot.trimmed().isEmpty() || !root.exists()) {
         if (error)
@@ -75,6 +83,13 @@ bool GitActionController::validatedRelativePaths(
     for (const QString& requested : requestedPaths) {
         if (requested.trimmed().isEmpty())
             continue;
+
+        if (LocalPathGuard::isUriLike(requested)) {
+            if (error)
+                *error = tr("Git actions require local filesystem paths");
+            relativePaths->clear();
+            return false;
+        }
 
         const QString absolute = QFileInfo(requested).absoluteFilePath();
         const QString relative = QDir::cleanPath(normalizedRoot.relativeFilePath(absolute));
@@ -411,6 +426,9 @@ void GitActionController::cancel() {
 }
 
 bool GitActionController::openTerminal(const QString& path) const {
+    if (LocalPathGuard::isUriLike(path))
+        return false;
+
     const QFileInfo info(path);
     QString directory;
     if (info.isDir())
