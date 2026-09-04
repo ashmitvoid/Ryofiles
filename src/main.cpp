@@ -8,6 +8,7 @@
 #include "integrations/MountRecoveryRegistry.hpp"
 #include "locations/NetworkConnectionController.hpp"
 #include "locations/NetworkLocationModel.hpp"
+#include "locations/SessionFileModel.hpp"
 #include "navigation/DirectorySession.hpp"
 #include "navigation/TabManager.hpp"
 #include "operations/OperationManager.hpp"
@@ -76,9 +77,12 @@ int main(int argc, char* argv[]) {
     qmlRegisterUncreatableType<DirectorySession>(
         "Ryofiles.Core", 1, 0, "DirectorySession",
         QStringLiteral("DirectorySession instances are managed by TabManager"));
+    qmlRegisterUncreatableType<SessionFileModel>(
+        "Ryofiles.Core", 1, 0, "SessionFileModel",
+        QStringLiteral("SessionFileModel instances are owned by DirectorySession"));
     qmlRegisterUncreatableType<DirectoryModel>(
         "Ryofiles.Core", 1, 0, "DirectoryModel",
-        QStringLiteral("DirectoryModel instances are owned by DirectorySession"));
+        QStringLiteral("DirectoryModel instances are internal local backends"));
     qmlRegisterUncreatableType<DeepSearchModel>(
         "Ryofiles.Core", 1, 0, "DeepSearchModel",
         QStringLiteral("DeepSearchModel instances are owned by DirectorySession"));

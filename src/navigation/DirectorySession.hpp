@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../fs/DirectoryModel.hpp"
+#include "../locations/SessionFileModel.hpp"
 #include "../search/DeepSearchModel.hpp"
 
 #include <QObject>
@@ -11,7 +12,7 @@
 class DirectorySession : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(DirectoryModel* model READ model CONSTANT)
+    Q_PROPERTY(SessionFileModel* model READ model CONSTANT)
     Q_PROPERTY(DeepSearchModel* deepSearch READ deepSearch CONSTANT)
     Q_PROPERTY(QString path READ path NOTIFY pathChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
@@ -37,8 +38,8 @@ public:
 
     explicit DirectorySession(const QString& initialPath = QString(), QObject* parent = nullptr);
 
-    DirectoryModel* model() { return &m_model; }
-    const DirectoryModel* model() const { return &m_model; }
+    SessionFileModel* model() { return &m_files; }
+    const SessionFileModel* model() const { return &m_files; }
     DeepSearchModel* deepSearch() { return &m_deepSearch; }
     const DeepSearchModel* deepSearch() const { return &m_deepSearch; }
 
@@ -109,7 +110,9 @@ private:
     HistoryEntry* currentEntry();
     const HistoryEntry* currentEntry() const;
 
-    DirectoryModel m_model;
+    // Backends are declared before the proxy so the proxy is destroyed first.
+    DirectoryModel m_localModel;
+    SessionFileModel m_files;
     DeepSearchModel m_deepSearch;
     QVector<HistoryEntry> m_history;
     int m_historyIndex = -1;

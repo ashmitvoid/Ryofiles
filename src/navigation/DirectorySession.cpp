@@ -11,8 +11,10 @@
 
 DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
     : QObject(parent)
-    , m_model(nullptr) {
-    connect(&m_model, &DirectoryModel::errorOccurred, this, &DirectorySession::errorOccurred);
+    , m_localModel(nullptr)
+    , m_files(nullptr) {
+    connect(&m_localModel, &DirectoryModel::errorOccurred, this, &DirectorySession::errorOccurred);
+    m_files.useLocal(&m_localModel);
 
     QString start = normalizeDirectoryPath(initialPath);
     if (start.isEmpty() || !QDir(start).exists())
@@ -20,7 +22,7 @@ DirectorySession::DirectorySession(const QString& initialPath, QObject* parent)
 
     m_history.push_back({start, {}, QString(), QString(), 0.0});
     m_historyIndex = 0;
-    m_model.setPath(start);
+    m_localModel.setPath(start);
 }
 
 QString DirectorySession::normalizeDirectoryPath(const QString& input) {
@@ -168,14 +170,14 @@ void DirectorySession::setSelectedPath(const QString& pathValue) {
 }
 
 void DirectorySession::selectSingle(int index) {
-    const QString target = m_model.pathAt(index);
+    const QString target = m_files.pathAt(index);
     if (target.isEmpty())
         return;
     setSelectedPath(target);
 }
 
 void DirectorySession::toggleSelection(int index) {
-    const QString target = m_model.pathAt(index);
+    const QString target = m_files.pathAt(index);
     if (target.isEmpty())
         return;
 
@@ -199,7 +201,7 @@ void DirectorySession::toggleSelection(int index) {
 }
 
 void DirectorySession::selectRange(int index) {
-    const QString target = m_model.pathAt(index);
+    const QString target = m_files.pathAt(index);
     if (target.isEmpty())
         return;
 
@@ -207,9 +209,9 @@ void DirectorySession::selectRange(int index) {
     if (!entry)
         return;
 
-    int anchorIndex = m_model.indexOfPath(entry->anchorPath);
+    int anchorIndex = m_files.indexOfPath(entry->anchorPath);
     if (anchorIndex < 0)
-        anchorIndex = m_model.indexOfPath(entry->primarySelectedPath);
+        anchorIndex = m_files.indexOfPath(entry->primarySelectedPath);
     if (anchorIndex < 0)
         anchorIndex = index;
 
@@ -219,7 +221,7 @@ void DirectorySession::selectRange(int index) {
     QSet<QString> range;
     range.reserve(last - first + 1);
     for (int i = first; i <= last; ++i) {
-        const QString pathValue = m_model.pathAt(i);
+        const QString pathValue = m_files.pathAt(i);
         if (!pathValue.isEmpty())
             range.insert(pathValue);
     }
@@ -227,7 +229,7 @@ void DirectorySession::selectRange(int index) {
     entry->selectedPaths = std::move(range);
     entry->primarySelectedPath = target;
     if (entry->anchorPath.isEmpty())
-        entry->anchorPath = m_model.pathAt(anchorIndex);
+        entry->anchorPath = m_files.pathAt(anchorIndex);
     emitSelectionChanged();
 }
 
@@ -237,9 +239,9 @@ void DirectorySession::selectAll() {
         return;
 
     QSet<QString> all;
-    all.reserve(m_model.rowCount());
-    for (int i = 0; i < m_model.rowCount(); ++i) {
-        const QString pathValue = m_model.pathAt(i);
+    all.reserve(m_files.rowCount());
+    for (int i = 0; i < m_files.rowCount(); ++i) {
+        const QString pathValue = m_files.pathAt(i);
         if (!pathValue.isEmpty())
             all.insert(pathValue);
     }
@@ -252,8 +254,8 @@ void DirectorySession::selectAll() {
         !entry->selectedPaths.contains(entry->primarySelectedPath)) {
         entry->primarySelectedPath.clear();
     }
-    if (entry->primarySelectedPath.isEmpty() && m_model.rowCount() > 0)
-        entry->primarySelectedPath = m_model.pathAt(0);
+    if (entry->primarySelectedPath.isEmpty() && m_files.rowCount() > 0)
+        entry->primarySelectedPath = m_files.pathAt(0);
     if (entry->anchorPath.isEmpty())
         entry->anchorPath = entry->primarySelectedPath;
     emitSelectionChanged();
@@ -404,7 +406,7 @@ void DirectorySession::applyHistoryEntry() {
     if (!entry)
         return;
 
-    m_model.setPath(entry->path);
+    m_localModel.setPath(entry->path);
     emit pathChanged();
     emit titleChanged();
     emit historyChanged();
@@ -433,15 +435,15 @@ void DirectorySession::goUp() {
 }
 
 void DirectorySession::refresh() {
-    m_model.refresh();
+    m_files.refresh();
 }
 
 void DirectorySession::activate(int index) {
-    const QString target = m_model.pathAt(index);
+    const QString target = m_files.pathAt(index);
     if (target.isEmpty())
         return;
 
-    if (m_model.isDirectoryAt(index)) {
+    if (m_files.isDirectoryAt(index)) {
         navigate(target);
         return;
     }
