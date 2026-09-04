@@ -21,6 +21,7 @@ optdepends=(
   'gvfs-smb: SMB/CIFS remote locations'
   'gvfs-dnssd: WebDAV and DNS-SD support'
   'gvfs-nfs: NFS remote locations'
+  'xdg-desktop-portal: route FileChooser requests to the optional Ryofiles backend'
 )
 provides=('ryofiles')
 conflicts=('ryofiles')
@@ -58,6 +59,12 @@ package() {
   install -Dm644 \
     Ryofiles/assets/io.github.ashmitvoid.Ryofiles.metainfo.xml \
     "$pkgdir/usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml"
+  install -Dm644 \
+    Ryofiles/assets/portal/ryofiles.portal \
+    "$pkgdir/usr/share/xdg-desktop-portal/portals/ryofiles.portal"
+  install -Dm644 \
+    Ryofiles/assets/portal/org.freedesktop.impl.portal.desktop.ryofiles.service \
+    "$pkgdir/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service"
   install -Dm644 \
     Ryofiles/LICENSE \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
