@@ -288,6 +288,7 @@ QString GitActionController::startRequest(Request request) {
 
     ++m_generation;
     const quint64 generation = m_generation;
+    const QString requestId = request.id;
     auto token = std::make_shared<std::atomic_bool>(false);
     m_cancelToken = token;
     m_busy = true;
@@ -306,7 +307,7 @@ QString GitActionController::startRequest(Request request) {
     m_future = QtConcurrent::run([this, request = std::move(request), token, generation] {
         runRequest(request, token, generation);
     });
-    return request.id;
+    return requestId;
 }
 
 void GitActionController::runRequest(
