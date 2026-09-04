@@ -10,6 +10,7 @@
 #include <QtTest>
 
 #include <memory>
+#include <unistd.h>
 
 class DesktopIntegrationTest final : public QObject {
     Q_OBJECT
@@ -133,6 +134,87 @@ private slots:
         QCOMPARE(properties.value("sizeText").toString(), QStringLiteral("Not calculated"));
         QVERIFY(!properties.value("sizeBytes").isValid() || properties.value("sizeBytes").isNull());
         QCOMPARE(properties.value("mime").toString(), QStringLiteral("inode/directory"));
+    }
+
+    void folderSizeCalculatesNestedContentsWithoutFollowingSymlinks() {
+        QTemporaryDir temp;
+        QTemporaryDir outside;
+        QVERIFY(temp.isValid());
+        QVERIFY(outside.isValid());
+
+        m_desktop->cancelFolderSize();
+
+        const QString directory = QDir(temp.path()).filePath("tree");
+        const QString nested = QDir(directory).filePath("nested/deeper");
+        QVERIFY(QDir().mkpath(nested));
+
+        writeFile(QDir(directory).filePath("a.bin"), QByteArray(1024, 'a'));
+        writeFile(QDir(nested).filePath("b.bin"), QByteArray(4096, 'b'));
+        writeFile(QDir(outside.path()).filePath("outside.bin"), QByteArray(8192, 'x'));
+
+        const QString fileLink = QDir(directory).filePath("outside-file-link");
+        const QString dirLink = QDir(directory).filePath("outside-dir-link");
+        const QByteArray fileTarget = QFile::encodeName(QDir(outside.path()).filePath("outside.bin"));
+        const QByteArray fileLinkBytes = QFile::encodeName(fileLink);
+        const QByteArray dirTarget = QFile::encodeName(outside.path());
+        const QByteArray dirLinkBytes = QFile::encodeName(dirLink);
+        QVERIFY(::symlink(fileTarget.constData(), fileLinkBytes.constData()) == 0);
+        QVERIFY(::symlink(dirTarget.constData(), dirLinkBytes.constData()) == 0);
+
+        QVERIFY(m_desktop->calculateFolderSize(directory));
+        QVERIFY(m_desktop->folderSizeBusy());
+        QTRY_VERIFY_WITH_TIMEOUT(!m_desktop->folderSizeBusy(), 5000);
+
+        const QVariantMap result = m_desktop->folderSizeResult();
+        QCOMPARE(result.value("path").toString(), QDir::cleanPath(directory));
+        QCOMPARE(result.value("bytes").toLongLong(), 5120LL);
+        QCOMPARE(result.value("files").toLongLong(), 2LL);
+        QCOMPARE(result.value("folders").toLongLong(), 2LL);
+        QCOMPARE(result.value("links").toLongLong(), 2LL);
+        QVERIFY(!result.value("sizeText").toString().isEmpty());
+    }
+
+    void folderSizeRejectsUnsafeOrNonDirectoryInputs() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        m_desktop->cancelFolderSize();
+
+        const QString file = QDir(temp.path()).filePath("regular.txt");
+        const QString directory = QDir(temp.path()).filePath("real-dir");
+        const QString directoryLink = QDir(temp.path()).filePath("dir-link");
+        writeFile(file, "payload");
+        QVERIFY(QDir().mkpath(directory));
+
+        const QByteArray target = QFile::encodeName(directory);
+        const QByteArray link = QFile::encodeName(directoryLink);
+        QVERIFY(::symlink(target.constData(), link.constData()) == 0);
+
+        QVERIFY(!m_desktop->calculateFolderSize(file));
+        QVERIFY(!m_desktop->calculateFolderSize(directoryLink));
+        QVERIFY(!m_desktop->calculateFolderSize(temp.filePath("missing")));
+        QVERIFY(!m_desktop->calculateFolderSize(QStringLiteral("sftp://example.invalid/folder")));
+        QVERIFY(!m_desktop->folderSizeBusy());
+        QVERIFY(m_desktop->folderSizeResult().isEmpty());
+    }
+
+    void folderSizeCancellationClearsVisibleState() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString directory = QDir(temp.path()).filePath("cancel-tree");
+        QVERIFY(QDir().mkpath(directory));
+        for (int i = 0; i < 128; ++i)
+            writeFile(QDir(directory).filePath(QStringLiteral("%1.bin").arg(i)), QByteArray(512, 'c'));
+
+        QVERIFY(m_desktop->calculateFolderSize(directory));
+        m_desktop->cancelFolderSize();
+
+        QVERIFY(!m_desktop->folderSizeBusy());
+        QVERIFY(m_desktop->folderSizeResult().isEmpty());
+        QTest::qWait(50);
+        QVERIFY(!m_desktop->folderSizeBusy());
+        QVERIFY(m_desktop->folderSizeResult().isEmpty());
     }
 
     void ryokuSuffixContractsMatchUpstream() {
