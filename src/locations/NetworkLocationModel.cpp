@@ -8,6 +8,7 @@
 
 #include <QHash>
 #include <QMetaObject>
+#include <QPointer>
 
 #include <algorithm>
 #include <utility>
@@ -69,8 +70,40 @@ NetworkLocationModel::NetworkLocationModel(QObject* parent)
             self->scheduleRefresh();
     };
 
+    const auto removed = +[](GVolumeMonitor*, GMount* mount, gpointer userData) {
+        auto* self = static_cast<NetworkLocationModel*>(userData);
+        if (!self)
+            return;
+
+        const NetworkMountSnapshot snapshot = snapshotForMount(mount);
+        const LocationSpec root = LocationSpec::parse(snapshot.rootUri);
+        if (!root.isNetwork()) {
+            self->scheduleRefresh();
+            return;
+        }
+
+        const QString removedRoot = root.canonical;
+        QPointer<NetworkLocationModel> guard(self);
+        QMetaObject::invokeMethod(
+            self,
+            [guard, removedRoot] {
+                if (!guard)
+                    return;
+
+                // Rebuild first. A second/shadow-related GMount may still represent this
+                // canonical root, in which case sessions must remain where they are.
+                guard->rebuildFromMonitor();
+                for (int row = 0; row < guard->m_items.size(); ++row) {
+                    if (guard->m_items.at(row).rootUri == removedRoot)
+                        return;
+                }
+                emit guard->unmounted(removedRoot);
+            },
+            Qt::QueuedConnection);
+    };
+
     g_signal_connect(m_monitor, "mount-added", G_CALLBACK(changed), this);
-    g_signal_connect(m_monitor, "mount-removed", G_CALLBACK(changed), this);
+    g_signal_connect(m_monitor, "mount-removed", G_CALLBACK(removed), this);
     g_signal_connect(m_monitor, "mount-changed", G_CALLBACK(changed), this);
 
     rebuildFromMonitor();

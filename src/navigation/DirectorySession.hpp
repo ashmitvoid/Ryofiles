@@ -86,7 +86,11 @@ public:
     bool recoverFromUnmount(
         const QString& mountRoot,
         const QString& preferredFallback = QString());
+    bool recoverFromNetworkUnmount(
+        const QString& rootUri,
+        const QString& preferredFallback = QString());
     static bool pathInsideRoot(const QString& path, const QString& rootPath);
+    static bool locationInsideRoot(const QString& location, const QString& rootLocation);
     static QString recoveryPathForUnmount(
         const QString& mountRoot,
         const QString& preferredFallback = QString());

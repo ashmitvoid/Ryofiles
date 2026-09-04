@@ -59,6 +59,9 @@ public:
     Q_INVOKABLE int recoverUnmountedMount(
         const QString& mountRoot,
         const QString& preferredFallback = QString());
+    Q_INVOKABLE int recoverUnmountedNetwork(
+        const QString& rootUri,
+        const QString& preferredFallback = QString());
 
 signals:
     void currentIndexChanged();
@@ -90,4 +93,5 @@ private:
     QVector<ClosedTab> m_closedTabs;
     int m_currentIndex = -1;
     quint64 m_mountRecoverySubscription = 0;
+    quint64 m_networkMountRecoverySubscription = 0;
 };

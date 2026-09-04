@@ -6,6 +6,7 @@
 #include "integrations/ClipboardController.hpp"
 #include "integrations/DesktopIntegration.hpp"
 #include "integrations/MountRecoveryRegistry.hpp"
+#include "integrations/NetworkMountRecoveryRegistry.hpp"
 #include "locations/NetworkConnectionController.hpp"
 #include "locations/NetworkLocationModel.hpp"
 #include "navigation/DirectorySession.hpp"
@@ -62,6 +63,14 @@ int main(int argc, char* argv[]) {
         &NetworkConnectionController::connected,
         &networkLocations,
         [&networkLocations](const QString&) { networkLocations.refresh(); });
+
+    QObject::connect(
+        &networkLocations,
+        &NetworkLocationModel::unmounted,
+        &app,
+        [](const QString& rootUri) {
+            NetworkMountRecoveryRegistry::instance().notifyUnmounted(rootUri);
+        });
 
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "FileClipboard", &fileClipboard);
