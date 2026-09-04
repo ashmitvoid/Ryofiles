@@ -107,6 +107,44 @@ bool DirectorySession::pathInsideRoot(const QString& pathValue, const QString& r
     return path.startsWith(root + QLatin1Char('/'));
 }
 
+bool DirectorySession::locationInsideRoot(
+    const QString& locationValue,
+    const QString& rootValue) {
+    const LocationSpec location = LocationSpec::parse(locationValue);
+    const LocationSpec root = LocationSpec::parse(rootValue);
+
+    if (location.isLocal() && root.isLocal())
+        return pathInsideRoot(location.localPath, root.localPath);
+    if (!location.isNetwork() || !root.isNetwork())
+        return false;
+
+    const QUrl locationUrl(location.canonical, QUrl::StrictMode);
+    const QUrl rootUrl(root.canonical, QUrl::StrictMode);
+    if (QString::compare(locationUrl.scheme(), rootUrl.scheme(), Qt::CaseInsensitive) != 0 ||
+        QString::compare(locationUrl.host(), rootUrl.host(), Qt::CaseInsensitive) != 0 ||
+        locationUrl.userName() != rootUrl.userName() ||
+        locationUrl.port(-1) != rootUrl.port(-1)) {
+        return false;
+    }
+
+    auto normalizedPath = [](const QUrl& url) {
+        QString path = url.path(QUrl::FullyEncoded);
+        if (path.isEmpty())
+            path = QStringLiteral("/");
+        while (path.size() > 1 && path.endsWith(QLatin1Char('/')))
+            path.chop(1);
+        return path;
+    };
+
+    const QString path = normalizedPath(locationUrl);
+    const QString rootPath = normalizedPath(rootUrl);
+    if (path == rootPath)
+        return true;
+    if (rootPath == QStringLiteral("/"))
+        return path.startsWith(QLatin1Char('/'));
+    return path.startsWith(rootPath + QLatin1Char('/'));
+}
+
 QString DirectorySession::recoveryPathForUnmount(
     const QString& mountRoot,
     const QString& preferredFallback) {
@@ -469,6 +507,70 @@ bool DirectorySession::recoverFromUnmount(
     else if (historyAffected)
         emit historyChanged();
 
+    return true;
+}
+
+bool DirectorySession::recoverFromNetworkUnmount(
+    const QString& rootUri,
+    const QString& preferredFallback) {
+    const LocationSpec root = LocationSpec::parse(rootUri);
+    if (!root.isNetwork() || m_history.isEmpty())
+        return false;
+
+    bool historyAffected = false;
+    for (const HistoryEntry& entry : std::as_const(m_history)) {
+        if (locationInsideRoot(entry.path, root.canonical)) {
+            historyAffected = true;
+            break;
+        }
+    }
+    if (!historyAffected)
+        return false;
+
+    const bool currentAffected =
+        m_historyIndex >= 0 &&
+        m_historyIndex < m_history.size() &&
+        locationInsideRoot(m_history.at(m_historyIndex).path, root.canonical);
+
+    QString fallback = QDir::homePath();
+    const LocationSpec preferred = LocationSpec::parse(preferredFallback);
+    if (preferred.isLocal() && QDir(preferred.localPath).exists())
+        fallback = preferred.localPath;
+
+    QVector<HistoryEntry> nextHistory;
+    nextHistory.reserve(m_history.size());
+    int nextIndex = -1;
+
+    for (int i = 0; i < m_history.size(); ++i) {
+        const HistoryEntry& entry = m_history.at(i);
+        if (locationInsideRoot(entry.path, root.canonical)) {
+            if (i == m_historyIndex && currentAffected) {
+                if (nextHistory.isEmpty() || nextHistory.constLast().path != fallback)
+                    nextHistory.push_back({fallback, {}, QString(), QString(), 0.0});
+                nextIndex = nextHistory.size() - 1;
+            }
+            continue;
+        }
+
+        nextHistory.push_back(entry);
+        if (i == m_historyIndex)
+            nextIndex = nextHistory.size() - 1;
+    }
+
+    if (nextHistory.isEmpty()) {
+        nextHistory.push_back({fallback, {}, QString(), QString(), 0.0});
+        nextIndex = 0;
+    } else if (nextIndex < 0) {
+        nextIndex = qBound(0, m_historyIndex, nextHistory.size() - 1);
+    }
+
+    m_history = std::move(nextHistory);
+    m_historyIndex = nextIndex;
+
+    if (currentAffected)
+        applyHistoryEntry();
+    else
+        emit historyChanged();
     return true;
 }
 

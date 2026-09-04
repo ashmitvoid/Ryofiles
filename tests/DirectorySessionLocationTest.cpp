@@ -89,6 +89,63 @@ private slots:
         QVERIFY(session.remote());
     }
 
+    void networkRootMatchingUsesAuthorityAndPathBoundaries() {
+        const QString root = QStringLiteral("sftp://alice@example.invalid/share");
+        QVERIFY(DirectorySession::locationInsideRoot(
+            QStringLiteral("sftp://alice@example.invalid/share"), root));
+        QVERIFY(DirectorySession::locationInsideRoot(
+            QStringLiteral("sftp://alice@example.invalid/share/projects"), root));
+        QVERIFY(!DirectorySession::locationInsideRoot(
+            QStringLiteral("sftp://alice@example.invalid/share-backup"), root));
+        QVERIFY(!DirectorySession::locationInsideRoot(
+            QStringLiteral("sftp://bob@example.invalid/share/projects"), root));
+        QVERIFY(!DirectorySession::locationInsideRoot(
+            QStringLiteral("sftp://alice@other.invalid/share/projects"), root));
+        QVERIFY(!DirectorySession::locationInsideRoot(
+            QStringLiteral("/share/projects"), root));
+    }
+
+    void networkUnmountRecoversCurrentSessionAndPrunesHistory() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString fallback = QDir(temp.path()).absolutePath();
+        const QString root = QStringLiteral("sftp://alice@example.invalid/share");
+
+        DirectorySession session(fallback);
+        QVERIFY(session.navigate(root));
+        QVERIFY(session.navigate(root + QStringLiteral("/projects")));
+        session.setSelectedPath(root + QStringLiteral("/projects/file.txt"));
+        QVERIFY(session.remote());
+
+        QVERIFY(session.recoverFromNetworkUnmount(root, fallback));
+        QCOMPARE(session.path(), fallback);
+        QCOMPARE(session.selectionCount(), 0);
+        QVERIFY(!session.remote());
+        QVERIFY(!session.canGoForward());
+
+        if (session.canGoBack()) {
+            session.goBack();
+            QVERIFY(!DirectorySession::locationInsideRoot(session.path(), root));
+        }
+    }
+
+    void networkUnmountPrunesInactiveHistoryWithoutMovingUnrelatedRemote() {
+        const QString removedRoot = QStringLiteral("sftp://alice@example.invalid/share");
+        const QString current = QStringLiteral("sftp://alice@other.invalid/work");
+
+        DirectorySession session;
+        QVERIFY(session.navigate(removedRoot + QStringLiteral("/old")));
+        QVERIFY(session.navigate(current));
+        QCOMPARE(session.path(), current);
+
+        QVERIFY(session.recoverFromNetworkUnmount(removedRoot, QDir::homePath()));
+        QCOMPARE(session.path(), current);
+        QVERIFY(session.remote());
+
+        session.goBack();
+        QVERIFY(!DirectorySession::locationInsideRoot(session.path(), removedRoot));
+    }
+
     void invalidLocalNavigationDoesNotChangeSession() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());

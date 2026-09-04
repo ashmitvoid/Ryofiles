@@ -53,6 +53,7 @@ public:
 
 signals:
     void countChanged();
+    void unmounted(const QString& rootUri);
 
 private:
     void scheduleRefresh();

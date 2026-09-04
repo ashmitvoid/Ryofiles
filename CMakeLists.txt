@@ -58,6 +58,7 @@ qt_add_executable(ryofiles
     src/integrations/ClipboardController.cpp
     src/integrations/DesktopIntegration.hpp
     src/integrations/DesktopIntegration.cpp
+    src/integrations/NetworkMountRecoveryRegistry.hpp
     src/thumbnails/ThumbnailStore.hpp
     src/thumbnails/ThumbnailStore.cpp
     src/thumbnails/ThumbnailProvider.hpp
@@ -290,6 +291,37 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME tab-split COMMAND ryofiles_tab_split_tests)
+
+    qt_add_executable(ryofiles_network_mount_recovery_tests
+        tests/NetworkMountRecoveryTest.cpp
+        src/navigation/TabManager.hpp
+        src/navigation/TabManager.cpp
+        src/navigation/DirectorySession.hpp
+        src/navigation/DirectorySession.cpp
+        src/fs/DirectoryModel.hpp
+        src/fs/DirectoryModel.cpp
+        src/search/DeepSearchModel.hpp
+        src/search/DeepSearchModel.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/RemoteDirectoryModel.hpp
+        src/locations/RemoteDirectoryModel.cpp
+        src/locations/SessionFileModel.hpp
+        src/locations/SessionFileModel.cpp
+        src/integrations/NetworkMountRecoveryRegistry.hpp
+    )
+
+    target_include_directories(ryofiles_network_mount_recovery_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_network_mount_recovery_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME network-mount-recovery COMMAND ryofiles_network_mount_recovery_tests)
 
     qt_add_executable(ryofiles_directory_session_location_tests
         tests/DirectorySessionLocationTest.cpp

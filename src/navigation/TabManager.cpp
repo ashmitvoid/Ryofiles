@@ -3,6 +3,7 @@
 #include "TabManager.hpp"
 
 #include "../integrations/MountRecoveryRegistry.hpp"
+#include "../integrations/NetworkMountRecoveryRegistry.hpp"
 
 #include <QDir>
 
@@ -14,11 +15,16 @@ TabManager::TabManager(QObject* parent)
         [this](const QString& mountRoot) {
             recoverUnmountedMount(mountRoot);
         });
+    m_networkMountRecoverySubscription = NetworkMountRecoveryRegistry::instance().subscribe(
+        [this](const QString& rootUri) {
+            recoverUnmountedNetwork(rootUri);
+        });
     newTab(QDir::homePath());
 }
 
 TabManager::~TabManager() {
     MountRecoveryRegistry::instance().unsubscribe(m_mountRecoverySubscription);
+    NetworkMountRecoveryRegistry::instance().unsubscribe(m_networkMountRecoverySubscription);
 }
 
 int TabManager::rowCount(const QModelIndex& parent) const {
@@ -345,6 +351,40 @@ int TabManager::recoverUnmountedMount(
         if (DirectorySession::pathInsideRoot(tab.primaryPath, mountRoot))
             tab.primaryPath = fallback;
         if (tab.split && DirectorySession::pathInsideRoot(tab.secondaryPath, mountRoot))
+            tab.secondaryPath = fallback;
+    }
+
+    return recoveredSessions;
+}
+
+int TabManager::recoverUnmountedNetwork(
+    const QString& rootUri,
+    const QString& preferredFallback) {
+    if (rootUri.trimmed().isEmpty())
+        return 0;
+
+    QString fallback = QDir::homePath();
+    const QString candidate = preferredFallback.trimmed();
+    if (!candidate.isEmpty() &&
+        QDir::isAbsolutePath(candidate) &&
+        QDir(candidate).exists()) {
+        fallback = QDir(candidate).absolutePath();
+    }
+
+    int recoveredSessions = 0;
+    for (int i = 0; i < m_tabs.size(); ++i) {
+        if (m_tabs.at(i)->recoverFromNetworkUnmount(rootUri, fallback))
+            ++recoveredSessions;
+
+        DirectorySession* secondary = m_splitStates.at(i).secondary;
+        if (secondary && secondary->recoverFromNetworkUnmount(rootUri, fallback))
+            ++recoveredSessions;
+    }
+
+    for (ClosedTab& tab : m_closedTabs) {
+        if (DirectorySession::locationInsideRoot(tab.primaryPath, rootUri))
+            tab.primaryPath = fallback;
+        if (tab.split && DirectorySession::locationInsideRoot(tab.secondaryPath, rootUri))
             tab.secondaryPath = fallback;
     }
 
