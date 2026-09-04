@@ -42,11 +42,20 @@ public:
     enum OperationState {
         Queued = 0,
         Running,
+        WaitingForConflict,
         Completed,
         Failed,
         Cancelled,
     };
     Q_ENUM(OperationState)
+
+    enum ConflictDecision {
+        Skip = 0,
+        KeepBoth,
+        Replace,
+        CancelOperation,
+    };
+    Q_ENUM(ConflictDecision)
 
     enum Role {
         IdRole = Qt::UserRole + 1,
@@ -56,6 +65,8 @@ public:
         DestinationRole,
         ProgressRole,
         ErrorRole,
+        ConflictSourceRole,
+        ConflictDestinationRole,
     };
     Q_ENUM(Role)
 
@@ -79,6 +90,7 @@ public:
     Q_INVOKABLE QString trash(const QString& source);
 
     Q_INVOKABLE void cancel(const QString& jobId);
+    Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
     Q_INVOKABLE void dismiss(const QString& jobId);
     Q_INVOKABLE void clearFinished();
     Q_INVOKABLE QString errorFor(const QString& jobId) const;
@@ -91,10 +103,12 @@ public:
         const QString& parentDirectory,
         const QString& name);
     static bool validLeafName(const QString& name);
+    static QString keepBothName(const QString& originalName, int attempt);
 
 signals:
     void countChanged();
     void activeCountChanged();
+    void conflictRaised(const QString& jobId, const QString& source, const QString& destination);
     void jobFinished(const QString& jobId, bool success);
 
 private:
@@ -107,7 +121,11 @@ private:
         QString name;
         QString currentSource;
         QString error;
+        QString conflictSource;
+        QString conflictDestination;
         double progress = 0.0;
+        bool persistentConflictDecision = false;
+        ConflictDecision persistentDecision = Skip;
     };
 
     struct ActiveContext {
@@ -116,13 +134,19 @@ private:
         GFile* sourceFile = nullptr;
         GFile* destinationFile = nullptr;
         GCancellable* cancellable = nullptr;
+        QString sourceDisplayName;
+        int keepBothAttempt = 0;
+        bool keepBothMode = false;
+        bool overwrite = false;
 
         ~ActiveContext();
     };
 
     static bool terminal(OperationState state);
+    static bool validConflictDecision(int decision);
     static QString normalizedLocation(const QString& input, bool* network, QString* error);
     static GFile* fileForLocation(const QString& location);
+    static QString locationForFile(GFile* file);
     static QString gioErrorText(const GError* error, const QString& fallback);
 
     QString enqueue(
@@ -135,7 +159,11 @@ private:
     void startNext();
     void startActive(ActiveContext* context);
     void startTransferTypeQuery(ActiveContext* context);
+    bool prepareTransferDestination(ActiveContext* context, const QString& displayName);
     void startTransfer(ActiveContext* context);
+    void handleTransferExists(ActiveContext* context);
+    void raiseConflict(ActiveContext* context);
+    void clearConflict(const std::shared_ptr<Job>& job);
     void finishActive(
         ActiveContext* context,
         OperationState state,

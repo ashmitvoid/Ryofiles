@@ -106,7 +106,26 @@ private slots:
         QCOMPARE(manager.activeCount(), 0);
     }
 
-    void modelRolesMatchExistingOperationDrawerContract() {
+    void keepBothNamesPreserveExtensionsAndStayBounded() {
+        QCOMPARE(
+            RemoteOperationManager::keepBothName(QStringLiteral("report.txt"), 1),
+            QStringLiteral("report (copy).txt"));
+        QCOMPARE(
+            RemoteOperationManager::keepBothName(QStringLiteral("report.txt"), 2),
+            QStringLiteral("report (copy 2).txt"));
+        QCOMPARE(
+            RemoteOperationManager::keepBothName(QStringLiteral("archive.tar.gz"), 3),
+            QStringLiteral("archive.tar (copy 3).gz"));
+        QCOMPARE(
+            RemoteOperationManager::keepBothName(QStringLiteral(".env"), 1),
+            QStringLiteral(".env (copy)"));
+        QCOMPARE(
+            RemoteOperationManager::keepBothName(QStringLiteral("README"), 0),
+            QStringLiteral("README (copy)"));
+        QVERIFY(RemoteOperationManager::keepBothName(QString(), 1).isEmpty());
+    }
+
+    void modelRolesMatchExistingOperationDrawerAndConflictContract() {
         RemoteOperationManager manager;
         const auto roles = manager.roleNames();
         QCOMPARE(roles.value(RemoteOperationManager::IdRole), QByteArray("jobId"));
@@ -116,6 +135,8 @@ private slots:
         QCOMPARE(roles.value(RemoteOperationManager::DestinationRole), QByteArray("destination"));
         QCOMPARE(roles.value(RemoteOperationManager::ProgressRole), QByteArray("progress"));
         QCOMPARE(roles.value(RemoteOperationManager::ErrorRole), QByteArray("errorText"));
+        QCOMPARE(roles.value(RemoteOperationManager::ConflictSourceRole), QByteArray("conflictSource"));
+        QCOMPARE(roles.value(RemoteOperationManager::ConflictDestinationRole), QByteArray("conflictDestination"));
     }
 };
 
