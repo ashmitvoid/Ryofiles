@@ -18,6 +18,9 @@ Item {
     property string pendingGitOperation: ""
     property string gitMessage: ""
     property bool diffMode: false
+    property bool ryokuInstallAvailable: false
+    property bool ryokuCompressAvailable: false
+    property string ryokuMessage: ""
 
     signal openRequested()
     signal openNewTabRequested()
@@ -73,17 +76,31 @@ Item {
         }
     }
 
+    function refreshRyokuCapabilities() {
+        var oneRegularFile = root.selectionCount === 1
+            && root.targetPath !== ""
+            && !root.targetIsDirectory
+
+        root.ryokuInstallAvailable = oneRegularFile
+            && Desktop.canRyokuInstall([root.targetPath])
+        root.ryokuCompressAvailable = oneRegularFile
+            && Desktop.canRyokuCompress([root.targetPath])
+    }
+
     function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
         if (diffPanel.visible)
             diffPanel.close()
         root.diffMode = false
         if (root.pendingGitOperation === "")
             root.gitMessage = ""
+        if (!Desktop.ryokuActionBusy)
+            root.ryokuMessage = ""
         root.targetPath = path
         root.targetIsDirectory = isDirectory
         root.selectionCount = selectedCount
         root.clipboardHasFiles = hasClipboard
         root.refreshGitCapabilities()
+        root.refreshRyokuCapabilities()
         root.visible = true
 
         Qt.callLater(function() {
@@ -113,6 +130,31 @@ Item {
 
         root.pendingGitOperation = id
         root.gitMessage = stage ? "// STAGING…" : "// UNSTAGING…"
+    }
+
+    function startRyokuAction(install) {
+        if (Desktop.ryokuActionBusy || root.selectionCount !== 1
+                || root.targetPath === "" || root.targetIsDirectory)
+            return
+
+        var started = install
+            ? Desktop.installWithRyoku([root.targetPath])
+            : Desktop.compressWithRyoku([root.targetPath])
+
+        if (!started) {
+            root.ryokuMessage = Desktop.ryokuActionError !== ""
+                ? Desktop.ryokuActionError
+                : (install
+                    ? "Could not start Ryoku install"
+                    : "Could not start Ryoku compression")
+            root.refreshRyokuCapabilities()
+            return
+        }
+
+        root.ryokuMessage = install
+            ? "// INSTALLING WITH RYOKU…"
+            : "// COMPRESSING WITH RYOKU…"
+        root.refreshRyokuCapabilities()
     }
 
     function openGitDiff(staged) {
@@ -177,6 +219,8 @@ Item {
                     { label: "CUT", action: "cut", enabled: root.selectionCount > 0, visible: true },
                     { label: "PASTE INTO", action: "pasteinto", enabled: root.clipboardHasFiles, visible: root.targetIsDirectory && root.selectionCount === 1 },
                     { label: "DUPLICATE", action: "duplicate", enabled: root.selectionCount > 0, visible: true },
+                    { label: "RYOKU · INSTALL", action: "ryokuinstall", enabled: root.ryokuInstallAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuInstallAvailable },
+                    { label: "RYOKU · COMPRESS", action: "ryokucompress", enabled: root.ryokuCompressAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuCompressAvailable },
                     { label: "RENAME", action: "rename", enabled: root.selectionCount === 1, visible: true },
                     { label: "GIT · STAGE", action: "gitstage", enabled: root.gitStageAvailable && !GitActions.busy, visible: root.gitStageAvailable },
                     { label: "GIT · UNSTAGE", action: "gitunstage", enabled: root.gitUnstageAvailable && !GitActions.busy, visible: root.gitUnstageAvailable },
@@ -240,6 +284,14 @@ Item {
                                 root.openGitDiff(true)
                                 return
                             }
+                            if (action === "ryokuinstall") {
+                                root.startRyokuAction(true)
+                                return
+                            }
+                            if (action === "ryokucompress") {
+                                root.startRyokuAction(false)
+                                return
+                            }
                             if (action === "terminal") {
                                 if (GitActions.openTerminal(root.targetPath))
                                     root.visible = false
@@ -273,18 +325,22 @@ Item {
 
             Item {
                 width: items.width
-                height: visible ? Math.max(32 * root.uiScale, gitMessageText.implicitHeight + 12 * root.uiScale) : 0
-                visible: root.pendingGitOperation !== "" || root.gitMessage !== ""
+                height: visible ? Math.max(32 * root.uiScale, statusMessage.implicitHeight + 12 * root.uiScale) : 0
+                visible: root.pendingGitOperation !== ""
+                    || root.gitMessage !== ""
+                    || root.ryokuMessage !== ""
 
                 Text {
-                    id: gitMessageText
+                    id: statusMessage
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.margins: 8 * root.uiScale
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.gitMessage
+                    text: root.ryokuMessage !== "" ? root.ryokuMessage : root.gitMessage
                     wrapMode: Text.Wrap
-                    color: root.pendingGitOperation !== "" ? Ryoku.inkMuted : Ryoku.sun
+                    color: root.pendingGitOperation !== "" || Desktop.ryokuActionBusy
+                        ? Ryoku.inkMuted
+                        : Ryoku.sun
                     font.family: Ryoku.monoFont
                     font.pixelSize: 8 * root.uiScale
                     lineHeight: 1.2
@@ -324,6 +380,33 @@ Item {
 
             root.gitMessage = error !== "" ? error : "Git action failed"
             root.refreshGitCapabilities()
+        }
+    }
+
+    Connections {
+        target: Desktop
+
+        function onRyokuActionBusyChanged() {
+            root.refreshRyokuCapabilities()
+        }
+
+        function onRyokuActionStarted(action, count) {
+            root.ryokuMessage = "// RYOKU " + action.toUpperCase() + " · " + count
+            root.refreshRyokuCapabilities()
+        }
+
+        function onRyokuActionFinished(action, succeeded, failed, error) {
+            root.refreshRyokuCapabilities()
+
+            if (failed === 0) {
+                root.ryokuMessage = ""
+                root.visible = false
+                return
+            }
+
+            root.ryokuMessage = error !== ""
+                ? error
+                : ("Ryoku " + action + " failed for " + failed + " item(s)")
         }
     }
 }
