@@ -79,6 +79,7 @@ qt_add_qml_module(ryofiles
     QML_FILES
         qml/Main.qml
         qml/components/RyokuRail.qml
+        qml/components/NetworkConnectSheet.qml
         qml/components/TabStrip.qml
         qml/components/FilePane.qml
         qml/components/SplitPaneContainer.qml
