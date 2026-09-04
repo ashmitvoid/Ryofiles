@@ -275,10 +275,4 @@ Item {
             }
         }
     }
-
-    Shortcut {
-        sequence: "Escape"
-        enabled: root.visible
-        onActivated: root.close()
-    }
 }
