@@ -172,4 +172,202 @@ Item {
         uiScale: root.uiScale
         paneActive: root.paneActive
     }
+
+    Item {
+        id: remoteToLocal
+        anchors.fill: parent
+        z: 720
+        visible: root.session && !root.session.remote
+
+        property var ownedJobs: ({})
+        property var cutJobBatches: ({})
+        property string conflictJobId: ""
+        property string message: ""
+        property int ownedCount: 0
+
+        readonly property bool available:
+            visible && root.paneActive && FileClipboard.hasLocations && !FileClipboard.hasFiles
+
+        function rememberJob(jobId) {
+            if (!jobId || jobId === "")
+                return false
+            ownedJobs[jobId] = true
+            ownedCount += 1
+            return true
+        }
+
+        function pasteRemoteClipboard() {
+            if (!available || !root.session)
+                return
+
+            var sources = FileClipboard.locations()
+            if (!sources || sources.length === 0)
+                return
+
+            var ids = []
+            for (var i = 0; i < sources.length; ++i) {
+                var id = FileClipboard.cut
+                    ? RemoteOperations.moveFile(sources[i], root.session.path)
+                    : RemoteOperations.copyFile(sources[i], root.session.path)
+                if (rememberJob(id))
+                    ids.push(id)
+            }
+
+            if (ids.length === 0) {
+                message = "Could not start remote transfer"
+                messageTimer.restart()
+                return
+            }
+
+            if (FileClipboard.cut) {
+                var batch = {
+                    remaining: ids.length,
+                    failed: false,
+                    locations: sources
+                }
+                for (var j = 0; j < ids.length; ++j)
+                    cutJobBatches[ids[j]] = batch
+            }
+        }
+
+        function finishCutBatch(jobId, success) {
+            var batch = cutJobBatches[jobId]
+            if (batch === undefined)
+                return
+
+            delete cutJobBatches[jobId]
+            batch.remaining = Math.max(0, batch.remaining - 1)
+            if (!success)
+                batch.failed = true
+            if (batch.remaining === 0 && !batch.failed)
+                FileClipboard.clearIfMatchesLocations(batch.locations, true)
+        }
+
+        Shortcut {
+            sequence: "Ctrl+Shift+V"
+            enabled: remoteToLocal.available && remoteToLocal.conflictJobId === ""
+            onActivated: remoteToLocal.pasteRemoteClipboard()
+        }
+
+        Rectangle {
+            anchors.top: parent.top
+            anchors.topMargin: 36 * root.uiScale
+            anchors.right: parent.right
+            anchors.rightMargin: 8 * root.uiScale
+            width: pasteLabel.implicitWidth + 18 * root.uiScale
+            height: 28 * root.uiScale
+            visible: remoteToLocal.available
+            radius: 6 * root.uiScale
+            color: pasteHover.hovered ? Ryoku.tint10 : Ryoku.paperLift
+            border.width: 1
+            border.color: Ryoku.lineStrong
+
+            Text {
+                id: pasteLabel
+                anchors.centerIn: parent
+                text: FileClipboard.cut ? "MOVE REMOTE HERE" : "PASTE REMOTE HERE"
+                color: Ryoku.inkDim
+                font.family: Ryoku.uiFont
+                font.pixelSize: 9 * root.uiScale
+                font.weight: Font.Medium
+                font.letterSpacing: 0.8
+            }
+
+            HoverHandler { id: pasteHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: remoteToLocal.pasteRemoteClipboard() }
+        }
+
+        ConflictSheet {
+            id: remoteLocalConflict
+            uiScale: root.uiScale
+            allowApplyToAll: false
+            allowReplace: false
+
+            onChoose: function(decision, applyToAll) {
+                visible = false
+                if (remoteToLocal.conflictJobId !== "")
+                    RemoteOperations.resolveConflict(remoteToLocal.conflictJobId, decision, false)
+            }
+        }
+
+        OperationDrawer {
+            anchors.right: parent.right
+            anchors.rightMargin: 10 * root.uiScale
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 10 * root.uiScale
+            operations: RemoteOperations
+            uiScale: root.uiScale
+            visible: remoteToLocal.ownedCount > 0
+            z: 650
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.leftMargin: 10 * root.uiScale
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 10 * root.uiScale
+            width: Math.min(parent.width - 20 * root.uiScale, localMessage.implicitWidth + 20 * root.uiScale)
+            height: remoteToLocal.message !== "" ? 32 * root.uiScale : 0
+            visible: remoteToLocal.message !== ""
+            radius: 6 * root.uiScale
+            color: Ryoku.paperLift
+            border.width: 1
+            border.color: Ryoku.sun
+
+            Text {
+                id: localMessage
+                anchors.centerIn: parent
+                text: remoteToLocal.message
+                color: Ryoku.sun
+                font.family: Ryoku.monoFont
+                font.pixelSize: 9 * root.uiScale
+                elide: Text.ElideRight
+            }
+        }
+
+        Timer {
+            id: messageTimer
+            interval: 5000
+            onTriggered: remoteToLocal.message = ""
+        }
+
+        Connections {
+            target: RemoteOperations
+
+            function onConflictRaised(jobId, source, destination) {
+                if (remoteToLocal.ownedJobs[jobId] === undefined)
+                    return
+                remoteToLocal.conflictJobId = jobId
+                remoteLocalConflict.restoreMode = false
+                remoteLocalConflict.applyToAll = false
+                remoteLocalConflict.sourcePath = source
+                remoteLocalConflict.destinationPath = destination
+                remoteLocalConflict.visible = true
+            }
+
+            function onJobFinished(jobId, success) {
+                if (remoteToLocal.ownedJobs[jobId] === undefined)
+                    return
+
+                delete remoteToLocal.ownedJobs[jobId]
+                remoteToLocal.ownedCount = Math.max(0, remoteToLocal.ownedCount - 1)
+                remoteToLocal.finishCutBatch(jobId, success)
+
+                if (remoteToLocal.conflictJobId === jobId) {
+                    remoteLocalConflict.visible = false
+                    remoteToLocal.conflictJobId = ""
+                }
+
+                if (!success) {
+                    var error = RemoteOperations.errorFor(jobId)
+                    if (error !== "") {
+                        remoteToLocal.message = error
+                        messageTimer.restart()
+                    }
+                } else if (root.session && !root.session.remote) {
+                    root.session.refresh()
+                }
+            }
+        }
+    }
 }
