@@ -187,8 +187,19 @@ Item {
                             readonly property bool active:
                                 drive.mounted && rail.pathInside(rail.fs.path, drive.mountPoint)
 
+                            function openOrMount() {
+                                if (drive.busy)
+                                    return
+                                if (drive.mounted) {
+                                    if (drive.mountPoint !== "")
+                                        rail.navigate(drive.mountPoint)
+                                } else {
+                                    Drives.mount(drive.objectPath)
+                                }
+                            }
+
                             width: parent.width
-                            height: 48 * rail.uiScale
+                            height: (drive.mounted ? 56 : 48) * rail.uiScale
                             radius: 6 * rail.uiScale
                             color: drive.active
                                 ? Ryoku.bone
@@ -197,62 +208,112 @@ Item {
                             border.color: drive.active ? Ryoku.bone : Ryoku.lineSoft
                             opacity: drive.busy ? 0.62 : 1.0
 
-                            Column {
+                            Item {
+                                id: driveBody
                                 anchors.left: parent.left
-                                anchors.leftMargin: 12 * rail.uiScale
-                                anchors.right: stateLabel.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.right: actions.left
+                                anchors.rightMargin: 6 * rail.uiScale
+
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 12 * rail.uiScale
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 1 * rail.uiScale
+
+                                    Text {
+                                        width: parent.width
+                                        text: (drive.active ? "//  " : "") + drive.name
+                                        elide: Text.ElideMiddle
+                                        color: drive.active ? Ryoku.inkOnBone : Ryoku.inkDim
+                                        font.family: Ryoku.uiFont
+                                        font.pixelSize: 12 * rail.uiScale
+                                        font.weight: Font.Medium
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: drive.mounted
+                                            ? drive.mountPoint
+                                            : ((drive.fsType !== "" ? drive.fsType.toUpperCase() + "  ·  " : "") + drive.sizeText)
+                                        elide: Text.ElideMiddle
+                                        color: drive.active ? Ryoku.inkOnBoneDim : Ryoku.inkFaint
+                                        font.family: Ryoku.monoFont
+                                        font.pixelSize: 8 * rail.uiScale
+                                    }
+                                }
+
+                                HoverHandler {
+                                    id: driveHover
+                                    enabled: !drive.busy
+                                    cursorShape: Qt.PointingHandCursor
+                                }
+                                TapHandler {
+                                    enabled: !drive.busy
+                                    onTapped: drive.openOrMount()
+                                }
+                            }
+
+                            Column {
+                                id: actions
+                                anchors.right: parent.right
                                 anchors.rightMargin: 8 * rail.uiScale
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 1 * rail.uiScale
+                                width: 58 * rail.uiScale
+                                spacing: 2 * rail.uiScale
 
-                                Text {
+                                Rectangle {
                                     width: parent.width
-                                    text: (drive.active ? "//  " : "") + drive.name
-                                    elide: Text.ElideMiddle
-                                    color: drive.active ? Ryoku.inkOnBone : Ryoku.inkDim
-                                    font.family: Ryoku.uiFont
-                                    font.pixelSize: 12 * rail.uiScale
-                                    font.weight: Font.Medium
+                                    height: 20 * rail.uiScale
+                                    radius: 4 * rail.uiScale
+                                    color: openHover.hovered && !drive.busy ? Ryoku.tint10 : "transparent"
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: drive.busy ? "…" : (drive.mounted ? "OPEN" : "MOUNT")
+                                        color: drive.active ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
+                                        font.family: Ryoku.monoFont
+                                        font.pixelSize: 8 * rail.uiScale
+                                        font.letterSpacing: 0.7
+                                    }
+
+                                    HoverHandler {
+                                        id: openHover
+                                        enabled: !drive.busy
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
+                                    TapHandler {
+                                        enabled: !drive.busy
+                                        onTapped: drive.openOrMount()
+                                    }
                                 }
 
-                                Text {
+                                Rectangle {
                                     width: parent.width
-                                    text: drive.mounted
-                                        ? drive.mountPoint
-                                        : ((drive.fsType !== "" ? drive.fsType.toUpperCase() + "  ·  " : "") + drive.sizeText)
-                                    elide: Text.ElideMiddle
-                                    color: drive.active ? Ryoku.inkOnBoneDim : Ryoku.inkFaint
-                                    font.family: Ryoku.monoFont
-                                    font.pixelSize: 8 * rail.uiScale
-                                }
-                            }
+                                    height: visible ? 20 * rail.uiScale : 0
+                                    visible: drive.mounted
+                                    radius: 4 * rail.uiScale
+                                    color: unmountHover.hovered && !drive.busy ? Ryoku.tint10 : "transparent"
 
-                            Text {
-                                id: stateLabel
-                                anchors.right: parent.right
-                                anchors.rightMargin: 10 * rail.uiScale
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: drive.busy ? "…" : (drive.mounted ? "OPEN" : "MOUNT")
-                                color: drive.active ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 8 * rail.uiScale
-                                font.letterSpacing: 0.7
-                            }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "UNMOUNT"
+                                        color: drive.active ? Ryoku.inkOnBoneDim : Ryoku.sun
+                                        font.family: Ryoku.monoFont
+                                        font.pixelSize: 7 * rail.uiScale
+                                        font.letterSpacing: 0.45
+                                    }
 
-                            HoverHandler {
-                                id: driveHover
-                                enabled: !drive.busy
-                                cursorShape: Qt.PointingHandCursor
-                            }
-
-                            TapHandler {
-                                enabled: !drive.busy
-                                onTapped: {
-                                    if (drive.mounted) {
-                                        if (drive.mountPoint !== "")
-                                            rail.navigate(drive.mountPoint)
-                                    } else {
-                                        Drives.mount(drive.objectPath)
+                                    HoverHandler {
+                                        id: unmountHover
+                                        enabled: !drive.busy
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
+                                    TapHandler {
+                                        enabled: !drive.busy
+                                        onTapped: Drives.unmount(drive.objectPath)
                                     }
                                 }
                             }
