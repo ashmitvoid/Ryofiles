@@ -19,6 +19,7 @@ public:
     Q_INVOKABLE QStringList filePaths() const;
     Q_INVOKABLE void copyFiles(const QStringList& paths);
     Q_INVOKABLE void cutFiles(const QStringList& paths);
+    Q_INVOKABLE void copyText(const QString& text);
     Q_INVOKABLE bool matchesFiles(const QStringList& paths, bool cutExpected) const;
     Q_INVOKABLE void clearIfMatches(const QStringList& paths, bool cutExpected);
     Q_INVOKABLE void clear();

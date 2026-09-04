@@ -10,6 +10,14 @@ Item {
     property bool targetIsDirectory: false
     property int selectionCount: 0
     property bool clipboardHasFiles: false
+    property string gitCode: ""
+    property bool gitStageAvailable: false
+    property bool gitUnstageAvailable: false
+    property bool gitWorktreeDiffAvailable: false
+    property bool gitStagedDiffAvailable: false
+    property string pendingGitOperation: ""
+    property string gitMessage: ""
+    property bool diffMode: false
 
     signal openRequested()
     signal openNewTabRequested()
@@ -26,12 +34,57 @@ Item {
     anchors.fill: parent
     z: 900
 
+    function targetInsideRepository(path) {
+        var repo = GitStatus.rootPath
+        if (!repo || repo === "" || !path || path === "")
+            return false
+        if (repo === "/")
+            return path.indexOf("/") === 0
+        return path === repo || path.indexOf(repo + "/") === 0
+    }
+
+    function refreshGitCapabilities() {
+        root.gitCode = ""
+        root.gitStageAvailable = false
+        root.gitUnstageAvailable = false
+        root.gitWorktreeDiffAvailable = false
+        root.gitStagedDiffAvailable = false
+
+        if (root.selectionCount !== 1 || GitActions.busy || !GitStatus.repository
+                || !root.targetInsideRepository(root.targetPath))
+            return
+
+        root.gitCode = GitStatus.statusForPath(root.targetPath)
+        root.gitStageAvailable = root.gitCode === "modified"
+            || root.gitCode === "untracked"
+            || root.gitCode === "mixed"
+            || root.gitCode === "conflict"
+        root.gitUnstageAvailable = root.gitCode === "staged"
+            || root.gitCode === "mixed"
+            || root.gitCode === "conflict"
+
+        if (!root.targetIsDirectory) {
+            root.gitWorktreeDiffAvailable = root.gitCode === "modified"
+                || root.gitCode === "mixed"
+                || root.gitCode === "conflict"
+            root.gitStagedDiffAvailable = root.gitCode === "staged"
+                || root.gitCode === "mixed"
+                || root.gitCode === "conflict"
+        }
+    }
+
     function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
-        targetPath = path
-        targetIsDirectory = isDirectory
-        selectionCount = selectedCount
-        clipboardHasFiles = hasClipboard
-        visible = true
+        if (diffPanel.visible)
+            diffPanel.close()
+        root.diffMode = false
+        if (root.pendingGitOperation === "")
+            root.gitMessage = ""
+        root.targetPath = path
+        root.targetIsDirectory = isDirectory
+        root.selectionCount = selectedCount
+        root.clipboardHasFiles = hasClipboard
+        root.refreshGitCapabilities()
+        root.visible = true
 
         Qt.callLater(function() {
             menu.x = Math.max(
@@ -43,15 +96,57 @@ Item {
         })
     }
 
+    function startGitMutation(stage) {
+        if (root.pendingGitOperation !== "" || GitActions.busy || !GitStatus.repository)
+            return
+
+        var id = stage
+            ? GitActions.stage(GitStatus.rootPath, [root.targetPath])
+            : GitActions.unstage(GitStatus.rootPath, [root.targetPath])
+
+        if (id === "") {
+            root.gitMessage = GitActions.error !== ""
+                ? GitActions.error
+                : (stage ? "Could not start Git stage" : "Could not start Git unstage")
+            return
+        }
+
+        root.pendingGitOperation = id
+        root.gitMessage = stage ? "// STAGING…" : "// UNSTAGING…"
+    }
+
+    function openGitDiff(staged) {
+        root.gitMessage = ""
+        root.diffMode = true
+        if (!diffPanel.openFor(root.targetPath, staged)) {
+            root.diffMode = false
+            root.gitMessage = GitActions.error !== ""
+                ? GitActions.error
+                : "Could not start Git diff"
+        }
+    }
+
+    onVisibleChanged: {
+        if (!visible && root.diffMode) {
+            root.diffMode = false
+            diffPanel.close()
+        }
+    }
+
     MouseArea {
         anchors.fill: parent
+        visible: !root.diffMode
         acceptedButtons: Qt.AllButtons
-        onPressed: root.visible = false
+        onPressed: {
+            if (root.pendingGitOperation === "")
+                root.visible = false
+        }
     }
 
     Rectangle {
         id: menu
-        width: 230 * root.uiScale
+        visible: !root.diffMode
+        width: 250 * root.uiScale
         height: items.implicitHeight + 16 * root.uiScale
         radius: 6 * root.uiScale
         color: Ryoku.paperLift
@@ -73,14 +168,20 @@ Item {
 
             Repeater {
                 model: [
-                    { label: root.targetIsDirectory ? "OPEN" : "OPEN", action: "open", enabled: root.selectionCount === 1, visible: true },
+                    { label: "OPEN", action: "open", enabled: root.selectionCount === 1, visible: true },
                     { label: "OPEN IN NEW TAB", action: "newtab", enabled: root.selectionCount === 1, visible: root.targetIsDirectory },
                     { label: "OPEN WITH…", action: "openwith", enabled: root.selectionCount === 1, visible: !root.targetIsDirectory },
+                    { label: "OPEN TERMINAL", action: "terminal", enabled: root.selectionCount === 1 && root.targetPath !== "", visible: root.selectionCount === 1 },
+                    { label: "COPY PATH", action: "copypath", enabled: root.selectionCount === 1 && root.targetPath !== "", visible: root.selectionCount === 1 },
                     { label: "COPY", action: "copy", enabled: root.selectionCount > 0, visible: true },
                     { label: "CUT", action: "cut", enabled: root.selectionCount > 0, visible: true },
                     { label: "PASTE INTO", action: "pasteinto", enabled: root.clipboardHasFiles, visible: root.targetIsDirectory && root.selectionCount === 1 },
                     { label: "DUPLICATE", action: "duplicate", enabled: root.selectionCount > 0, visible: true },
                     { label: "RENAME", action: "rename", enabled: root.selectionCount === 1, visible: true },
+                    { label: "GIT · STAGE", action: "gitstage", enabled: root.gitStageAvailable && !GitActions.busy, visible: root.gitStageAvailable },
+                    { label: "GIT · UNSTAGE", action: "gitunstage", enabled: root.gitUnstageAvailable && !GitActions.busy, visible: root.gitUnstageAvailable },
+                    { label: "GIT · DIFF WORKTREE", action: "gitdiff", enabled: root.gitWorktreeDiffAvailable && !GitActions.busy, visible: root.gitWorktreeDiffAvailable },
+                    { label: "GIT · DIFF STAGED", action: "gitdiffstaged", enabled: root.gitStagedDiffAvailable && !GitActions.busy, visible: root.gitStagedDiffAvailable },
                     { label: "MOVE TO TRASH", action: "trash", enabled: root.selectionCount > 0, visible: true },
                     { label: "PROPERTIES", action: "properties", enabled: root.selectionCount === 1, visible: true }
                 ]
@@ -121,8 +222,39 @@ Item {
                     TapHandler {
                         enabled: actionRow.modelData.enabled
                         onTapped: {
+                            var action = actionRow.modelData.action
+
+                            if (action === "gitstage") {
+                                root.startGitMutation(true)
+                                return
+                            }
+                            if (action === "gitunstage") {
+                                root.startGitMutation(false)
+                                return
+                            }
+                            if (action === "gitdiff") {
+                                root.openGitDiff(false)
+                                return
+                            }
+                            if (action === "gitdiffstaged") {
+                                root.openGitDiff(true)
+                                return
+                            }
+                            if (action === "terminal") {
+                                if (GitActions.openTerminal(root.targetPath))
+                                    root.visible = false
+                                else
+                                    root.gitMessage = "Could not open the configured terminal"
+                                return
+                            }
+                            if (action === "copypath") {
+                                FileClipboard.copyText(root.targetPath)
+                                root.visible = false
+                                return
+                            }
+
                             root.visible = false
-                            switch (actionRow.modelData.action) {
+                            switch (action) {
                             case "open": root.openRequested(); break
                             case "newtab": root.openNewTabRequested(); break
                             case "openwith": root.openWithRequested(); break
@@ -138,6 +270,60 @@ Item {
                     }
                 }
             }
+
+            Item {
+                width: items.width
+                height: visible ? Math.max(32 * root.uiScale, gitMessageText.implicitHeight + 12 * root.uiScale) : 0
+                visible: root.pendingGitOperation !== "" || root.gitMessage !== ""
+
+                Text {
+                    id: gitMessageText
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 8 * root.uiScale
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.gitMessage
+                    wrapMode: Text.Wrap
+                    color: root.pendingGitOperation !== "" ? Ryoku.inkMuted : Ryoku.sun
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 8 * root.uiScale
+                    lineHeight: 1.2
+                }
+            }
+        }
+    }
+
+    GitDiffPanel {
+        id: diffPanel
+        anchors.fill: parent
+        uiScale: root.uiScale
+        actions: GitActions
+
+        onVisibleChanged: {
+            if (!visible && root.diffMode) {
+                root.diffMode = false
+                root.visible = false
+            }
+        }
+    }
+
+    Connections {
+        target: GitActions
+
+        function onOperationFinished(operationId, success, error) {
+            if (operationId !== root.pendingGitOperation)
+                return
+
+            root.pendingGitOperation = ""
+            if (success) {
+                root.gitMessage = ""
+                GitStatus.refresh()
+                root.visible = false
+                return
+            }
+
+            root.gitMessage = error !== "" ? error : "Git action failed"
+            root.refreshGitCapabilities()
         }
     }
 }
