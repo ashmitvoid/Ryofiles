@@ -45,7 +45,7 @@ The repository now has the core native vertical slices required for daily file-m
 16. removable-storage and GVfs remote navigation/mutation support;
 17. Git status/actions and Ryoku-native contextual actions;
 18. explicit on-demand folder-size calculation outside the browsing path;
-19. lightweight picker bootstrap with separate `Ryofiles Picker` identity.
+19. lightweight open/save/folder picker bootstrap with separate `Ryofiles Picker` identity.
 
 ## Hard invariants
 
@@ -62,21 +62,24 @@ The repository now has the core native vertical slices required for daily file-m
 
 Picker mode is intentionally a separate lightweight bootstrap path. `--picker` does not initialize the main window's Git, drive, network-management, Trash, clipboard-operation, or preview services. It reuses the same `DirectorySession`/`SessionFileModel` engine so picker behavior does not fork filesystem semantics.
 
-Phase A supports:
+The picker contract supports:
 
 - `--picker open`;
 - optional open-file multi-selection;
-- local initial directory;
-- exact and wildcard MIME filters;
+- `--picker save`;
+- optional save suggested name;
+- exact and wildcard MIME filters for open/save;
 - `--picker folder` selecting the current local directory;
+- local initial directory;
 - percent-encoded `file://` URI results on stdout;
 - distinct `Ryofiles Picker` / `ryofiles-picker` window identity.
 
-Save-file mode remains separate because the no-silent-overwrite invariant requires an explicit target-name and overwrite-confirmation state machine before portal integration.
+Save mode uses a pure `PickerSaveState` shared-capable state machine rather than encoding overwrite semantics in QML. Existing files require an explicit confirmation tied to the exact canonical target path. A repeated generic Save action remains a confirmation request rather than becoming implicit authorization, and changing the filename or current directory invalidates the pending confirmation. Existing directories are rejected as save targets and symlink entries are treated as occupied targets rather than silently followed as new names.
+
+The pure picker contract and save state are intentionally reusable by the future FileChooser portal backend so portal behavior does not fork validation or overwrite semantics.
 
 ## Next engine milestones
 
-- save-file picker with explicit overwrite confirmation and MIME/name filters;
 - archive browsing/extract/compress workflows with bounded background work;
 - narrow XDG FileChooser portal backend using the picker contract;
 - opt-in/reversible Ryoku portal routing and application compatibility testing;
