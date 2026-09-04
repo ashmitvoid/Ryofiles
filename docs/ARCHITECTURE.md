@@ -6,7 +6,7 @@ Ryoku is the product and integration authority. Atlas is a technical upstream/re
 
 Pinned development baselines:
 
-- Ryoku `unstable-dev`: `e5b259c85bd187367fc1da337814c29f8b5de16c` (`0.55.9-beta.19`)
+- Ryoku `unstable-dev`: `5f0d4d66416cd632e83cb6c335f285ada51190e0` (`0.57.7-beta.19`)
 - Atlas `main`: `f3c8e58336d72d9581be1b598c8af4be751c74e5`
 
 ## Layers
