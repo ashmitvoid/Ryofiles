@@ -23,6 +23,13 @@ Item {
     property bool ryokuCompressAvailable: false
     property string ryokuMessage: ""
 
+    property bool deleteMode: false
+    property var deletePaths: []
+    property var deleteSession: null
+    property string deleteJobId: ""
+    property string deleteMessage: ""
+    readonly property bool deleteBusy: root.deleteJobId !== ""
+
     signal openRequested()
     signal openNewTabRequested()
     signal openWithRequested()
@@ -37,6 +44,10 @@ Item {
     visible: false
     anchors.fill: parent
     z: 900
+
+    OperationManager {
+        id: permanentOperations
+    }
 
     function targetInsideRepository(path) {
         var repo = GitStatus.rootPath
@@ -103,9 +114,15 @@ Item {
     }
 
     function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
+        if (root.deleteBusy)
+            return
         if (diffPanel.visible)
             diffPanel.close()
         root.diffMode = false
+        root.deleteMode = false
+        root.deletePaths = []
+        root.deleteSession = null
+        root.deleteMessage = ""
         if (root.pendingGitOperation === "")
             root.gitMessage = ""
         if (!Desktop.ryokuActionBusy)
@@ -184,13 +201,119 @@ Item {
         }
     }
 
+    function leafName(path) {
+        if (!path || path === "")
+            return ""
+        var slash = path.lastIndexOf("/")
+        return slash >= 0 ? path.substring(slash + 1) : path
+    }
+
+    function deletePreviewText() {
+        var paths = root.deletePaths
+        if (!paths || paths.length === 0)
+            return ""
+
+        var names = []
+        var limit = Math.min(3, paths.length)
+        for (var i = 0; i < limit; ++i)
+            names.push(root.leafName(paths[i]))
+        if (paths.length > limit)
+            names.push("+" + (paths.length - limit) + " more")
+        return names.join("\n")
+    }
+
+    function beginPermanentDelete(paths) {
+        if (root.deleteBusy)
+            return
+
+        var window = root.Window.window
+        if (!window || window.modalOpen && !root.visible
+                || window.trashMode || !window.session || window.session.remote)
+            return
+
+        var snapshot = []
+        if (paths) {
+            for (var i = 0; i < paths.length; ++i) {
+                if (paths[i] && paths[i] !== "")
+                    snapshot.push(paths[i])
+            }
+        }
+        if (snapshot.length === 0)
+            return
+
+        root.diffMode = false
+        root.deletePaths = snapshot
+        root.deleteSession = window.session
+        root.deleteMessage = ""
+        root.deleteMode = true
+        root.visible = true
+    }
+
+    function cancelPermanentDelete() {
+        if (root.deleteBusy)
+            return
+        root.deleteMode = false
+        root.deletePaths = []
+        root.deleteSession = null
+        root.deleteMessage = ""
+        root.visible = false
+    }
+
+    function confirmPermanentDelete() {
+        if (!root.deleteMode || root.deleteBusy
+                || !root.deletePaths || root.deletePaths.length === 0)
+            return
+
+        var id = permanentOperations.removePermanently(root.deletePaths)
+        if (id === "") {
+            root.deletePaths = []
+            root.deleteMessage = "Permanent delete was rejected before it started"
+            return
+        }
+
+        root.deleteJobId = id
+        root.deleteMessage = "// DELETING PERMANENTLY…"
+    }
+
     onVisibleChanged: {
+        if (!visible && root.deleteBusy) {
+            Qt.callLater(function() {
+                if (root.deleteBusy)
+                    root.visible = true
+            })
+            return
+        }
+
         if (!visible && root.diffMode) {
             root.diffMode = false
             diffPanel.close()
         }
+        if (!visible && root.deleteMode) {
+            root.deleteMode = false
+            root.deletePaths = []
+            root.deleteSession = null
+            root.deleteMessage = ""
+        }
         if (!visible && !Desktop.ryokuActionBusy)
             root.selectedPaths = []
+    }
+
+    Shortcut {
+        sequence: "Shift+Delete"
+        context: Qt.WindowShortcut
+        autoRepeat: false
+        enabled: {
+            var window = root.Window.window
+            return !root.visible
+                && !root.deleteBusy
+                && window !== null
+                && !window.modalOpen
+                && !window.trashMode
+                && window.session !== null
+                && !window.session.remote
+                && window.session.selectionCount > 0
+        }
+        onActivated: root.beginPermanentDelete(root.selectionSnapshot())
     }
 
     MouseArea {
@@ -198,6 +321,11 @@ Item {
         visible: !root.diffMode
         acceptedButtons: Qt.AllButtons
         onPressed: {
+            if (root.deleteMode) {
+                if (!root.deleteBusy)
+                    root.cancelPermanentDelete()
+                return
+            }
             if (root.pendingGitOperation === "")
                 root.visible = false
         }
@@ -205,7 +333,7 @@ Item {
 
     Rectangle {
         id: menu
-        visible: !root.diffMode
+        visible: !root.diffMode && !root.deleteMode
         width: 250 * root.uiScale
         height: items.implicitHeight + 16 * root.uiScale
         radius: 6 * root.uiScale
@@ -245,6 +373,7 @@ Item {
                     { label: "GIT · DIFF WORKTREE", action: "gitdiff", enabled: root.gitWorktreeDiffAvailable && !GitActions.busy, visible: root.gitWorktreeDiffAvailable },
                     { label: "GIT · DIFF STAGED", action: "gitdiffstaged", enabled: root.gitStagedDiffAvailable && !GitActions.busy, visible: root.gitStagedDiffAvailable },
                     { label: "MOVE TO TRASH", action: "trash", enabled: root.selectionCount > 0, visible: true },
+                    { label: "DELETE PERMANENTLY…", action: "permadelete", enabled: root.selectionCount > 0 && !root.deleteBusy, visible: true },
                     { label: "PROPERTIES", action: "properties", enabled: root.selectionCount === 1, visible: true }
                 ]
 
@@ -267,6 +396,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         text: actionRow.modelData.label
                         color: actionRow.modelData.action === "trash"
+                                || actionRow.modelData.action === "permadelete"
                             ? Ryoku.sun
                             : Ryoku.inkDim
                         font.family: Ryoku.uiFont
@@ -308,6 +438,10 @@ Item {
                             }
                             if (action === "ryokucompress") {
                                 root.startRyokuAction(false)
+                                return
+                            }
+                            if (action === "permadelete") {
+                                root.beginPermanentDelete(root.selectedPaths)
                                 return
                             }
                             if (action === "terminal") {
@@ -367,6 +501,157 @@ Item {
         }
     }
 
+    Rectangle {
+        id: deleteSheet
+        visible: root.deleteMode
+        anchors.centerIn: parent
+        width: Math.min(460 * root.uiScale, root.width - 40 * root.uiScale)
+        height: deleteColumn.implicitHeight + 32 * root.uiScale
+        radius: 8 * root.uiScale
+        color: Ryoku.paperLift
+        border.width: 1
+        border.color: Ryoku.lineStrong
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+        }
+
+        Column {
+            id: deleteColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 16 * root.uiScale
+            spacing: 12 * root.uiScale
+
+            Text {
+                width: parent.width
+                text: "DELETE PERMANENTLY?"
+                color: Ryoku.sun
+                font.family: Ryoku.uiFont
+                font.pixelSize: 15 * root.uiScale
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.1
+            }
+
+            Text {
+                width: parent.width
+                text: root.deletePaths.length + (root.deletePaths.length === 1 ? " ITEM" : " ITEMS")
+                color: Ryoku.inkMuted
+                font.family: Ryoku.monoFont
+                font.pixelSize: 9 * root.uiScale
+                font.letterSpacing: 0.8
+            }
+
+            Text {
+                width: parent.width
+                visible: root.deletePaths.length > 0
+                text: root.deletePreviewText()
+                color: Ryoku.ink
+                wrapMode: Text.Wrap
+                maximumLineCount: 4
+                elide: Text.ElideRight
+                font.family: Ryoku.monoFont
+                font.pixelSize: 10 * root.uiScale
+                lineHeight: 1.25
+            }
+
+            Rectangle {
+                width: parent.width
+                height: warningText.implicitHeight + 18 * root.uiScale
+                radius: 6 * root.uiScale
+                color: Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.sun
+
+                Text {
+                    id: warningText
+                    anchors.fill: parent
+                    anchors.margins: 9 * root.uiScale
+                    text: "This bypasses Trash and cannot be undone."
+                    color: Ryoku.sun
+                    wrapMode: Text.Wrap
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 10 * root.uiScale
+                    font.weight: Font.Medium
+                }
+            }
+
+            Text {
+                width: parent.width
+                visible: root.deleteMessage !== ""
+                text: root.deleteMessage
+                color: root.deleteBusy ? Ryoku.inkMuted : Ryoku.sun
+                wrapMode: Text.Wrap
+                font.family: Ryoku.monoFont
+                font.pixelSize: 9 * root.uiScale
+            }
+
+            Row {
+                spacing: 8 * root.uiScale
+
+                Rectangle {
+                    width: cancelDeleteLabel.implicitWidth + 24 * root.uiScale
+                    height: 32 * root.uiScale
+                    radius: 6 * root.uiScale
+                    visible: !root.deleteBusy
+                    color: cancelDeleteHover.hovered ? Ryoku.tint10 : "transparent"
+                    border.width: 1
+                    border.color: Ryoku.line
+
+                    Text {
+                        id: cancelDeleteLabel
+                        anchors.centerIn: parent
+                        text: root.deletePaths.length > 0 ? "CANCEL" : "CLOSE"
+                        color: Ryoku.inkDim
+                        font.family: Ryoku.uiFont
+                        font.pixelSize: 9 * root.uiScale
+                        font.weight: Font.Medium
+                        font.letterSpacing: 0.8
+                    }
+
+                    HoverHandler {
+                        id: cancelDeleteHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    TapHandler {
+                        onTapped: root.cancelPermanentDelete()
+                    }
+                }
+
+                Rectangle {
+                    width: deleteConfirmLabel.implicitWidth + 24 * root.uiScale
+                    height: 32 * root.uiScale
+                    radius: 6 * root.uiScale
+                    visible: !root.deleteBusy && root.deletePaths.length > 0
+                    color: confirmDeleteHover.hovered ? Ryoku.tint10 : "transparent"
+                    border.width: 1
+                    border.color: Ryoku.sun
+
+                    Text {
+                        id: deleteConfirmLabel
+                        anchors.centerIn: parent
+                        text: "DELETE"
+                        color: Ryoku.sun
+                        font.family: Ryoku.uiFont
+                        font.pixelSize: 9 * root.uiScale
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.8
+                    }
+
+                    HoverHandler {
+                        id: confirmDeleteHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    TapHandler {
+                        onTapped: root.confirmPermanentDelete()
+                    }
+                }
+            }
+        }
+    }
+
     GitDiffPanel {
         id: diffPanel
         anchors.fill: parent
@@ -378,6 +663,35 @@ Item {
                 root.diffMode = false
                 root.visible = false
             }
+        }
+    }
+
+    Connections {
+        target: permanentOperations
+
+        function onJobFinished(jobId, success) {
+            if (jobId !== root.deleteJobId)
+                return
+
+            var session = root.deleteSession
+            var error = permanentOperations.errorFor(jobId)
+            root.deleteJobId = ""
+            if (session)
+                session.refresh()
+
+            if (success) {
+                root.deleteMode = false
+                root.deletePaths = []
+                root.deleteSession = null
+                root.deleteMessage = ""
+                root.visible = false
+                return
+            }
+
+            root.deletePaths = []
+            root.deleteMessage = error !== "" ? error : "Permanent delete failed"
+            root.deleteMode = true
+            root.visible = true
         }
     }
 
