@@ -23,11 +23,11 @@ Item {
         root.requestedStaged = staged
         root.visible = true
         root.operationId = root.actions.requestDiff(GitStatus.rootPath, path, staged)
-        if (root.operationId === "" && root.actions.error === "") {
+        if (root.operationId === "") {
             root.visible = false
             return false
         }
-        return root.operationId !== ""
+        return true
     }
 
     function close() {
