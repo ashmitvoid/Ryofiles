@@ -39,6 +39,10 @@ Item {
         expanded = false
     }
 
+    onDeepSearchRequested: function(query) {
+        deepPanel.open(query, query && query.trim() !== "")
+    }
+
     Shortcut {
         sequence: "Ctrl+F"
         onActivated: root.open()
@@ -176,6 +180,16 @@ Item {
             }
             TapHandler { onTapped: root.clearAndClose() }
         }
+    }
+
+    DeepSearchPanel {
+        id: deepPanel
+        parent: root.parent
+        anchors.fill: parent
+        session: root.session
+        files: root.files
+        desktop: Desktop
+        uiScale: root.uiScale
     }
 
     Connections {
