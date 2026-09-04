@@ -160,11 +160,13 @@ Item {
         id: plate
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        anchors.topMargin: 86 * root.uiScale
+        anchors.topMargin: Math.min(86 * root.uiScale, 24 * root.uiScale)
         width: Math.min(720 * root.uiScale, root.width - 48 * root.uiScale)
-        height: 76 * root.uiScale
-            + Math.max(42 * root.uiScale, root.matches.length * 42 * root.uiScale)
-            + 34 * root.uiScale
+        height: Math.min(
+            root.height - 48 * root.uiScale,
+            76 * root.uiScale
+                + Math.max(42 * root.uiScale, root.matches.length * 42 * root.uiScale)
+                + 34 * root.uiScale)
         radius: 6 * root.uiScale
         color: Ryoku.paperLift
         border.width: 1
@@ -221,7 +223,8 @@ Item {
                 id: field
                 anchors.left: searchMark.right
                 anchors.leftMargin: 10 * root.uiScale
-                anchors.right: hint.right
+                anchors.right: hint.left
+                anchors.rightMargin: 12 * root.uiScale
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: 8 * root.uiScale
                 height: 30 * root.uiScale
