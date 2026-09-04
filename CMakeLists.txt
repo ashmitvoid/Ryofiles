@@ -40,6 +40,8 @@ qt_add_executable(ryofiles
     src/locations/NetworkLocationModel.cpp
     src/locations/RemoteDirectoryModel.hpp
     src/locations/RemoteDirectoryModel.cpp
+    src/locations/SessionFileModel.hpp
+    src/locations/SessionFileModel.cpp
     src/git/GitStatusController.hpp
     src/git/GitStatusController.cpp
     src/git/GitActionController.hpp
@@ -333,6 +335,30 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME remote-directory COMMAND ryofiles_remote_directory_tests)
+
+    qt_add_executable(ryofiles_session_file_model_tests
+        tests/SessionFileModelTest.cpp
+        src/fs/DirectoryModel.hpp
+        src/fs/DirectoryModel.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/RemoteDirectoryModel.hpp
+        src/locations/RemoteDirectoryModel.cpp
+        src/locations/SessionFileModel.hpp
+        src/locations/SessionFileModel.cpp
+    )
+
+    target_include_directories(ryofiles_session_file_model_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_session_file_model_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME session-file-model COMMAND ryofiles_session_file_model_tests)
 
     qt_add_executable(ryofiles_network_location_tests
         tests/NetworkLocationModelTest.cpp
