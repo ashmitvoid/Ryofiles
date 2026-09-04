@@ -36,6 +36,8 @@ qt_add_executable(ryofiles
     src/locations/LocationSpec.cpp
     src/locations/NetworkConnectionController.hpp
     src/locations/NetworkConnectionController.cpp
+    src/locations/NetworkDisconnectController.hpp
+    src/locations/NetworkDisconnectController.cpp
     src/locations/NetworkLocationModel.hpp
     src/locations/NetworkLocationModel.cpp
     src/locations/RemoteDirectoryModel.hpp
@@ -383,6 +385,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME network-connection COMMAND ryofiles_network_connection_tests)
+
+    qt_add_executable(ryofiles_network_disconnect_tests
+        tests/NetworkDisconnectControllerTest.cpp
+        src/locations/LocationSpec.hpp
+        src/locations/LocationSpec.cpp
+        src/locations/NetworkDisconnectController.hpp
+        src/locations/NetworkDisconnectController.cpp
+    )
+
+    target_include_directories(ryofiles_network_disconnect_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_network_disconnect_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        PkgConfig::GIO
+    )
+
+    add_test(NAME network-disconnect COMMAND ryofiles_network_disconnect_tests)
 
     qt_add_executable(ryofiles_remote_directory_tests
         tests/RemoteDirectoryModelTest.cpp
