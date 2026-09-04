@@ -3,16 +3,23 @@ name: packaging
 on:
   push:
     paths:
+      - 'CMakeLists.txt'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
       - 'assets/*.desktop'
       - 'assets/*.metainfo.xml'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
   pull_request:
     paths:
+      - 'CMakeLists.txt'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
       - 'assets/*.desktop'
       - 'assets/*.metainfo.xml'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
+  workflow_dispatch:
 
 concurrency:
   group: packaging-${{ github.workflow }}-${{ github.ref }}
@@ -47,5 +54,108 @@ jobs:
           set -euo pipefail
           if grep -En '(xdg-mime[[:space:]]+default|xdg-settings|portals\.conf|xdg-desktop-portal.*\.conf)' packaging/arch/PKGBUILD; then
             echo 'Packaging must not change file-manager or portal defaults during installation.' >&2
+            exit 1
+          fi
+
+  arch-package:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    env:
+      PACKAGE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Install package build dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          base-devel cmake git ninja glib2 gvfs qt6-base qt6-declarative
+
+      - name: Checkout exact package source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prepare exact-SHA package recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          rm -rf "$package_work"
+          mkdir -p "$package_work"
+          cp packaging/arch/PKGBUILD "$package_work/PKGBUILD"
+
+          unpinned="source=('git+https://github.com/ashmitvoid/Ryofiles.git')"
+          pinned="source=('git+https://github.com/ashmitvoid/Ryofiles.git#commit=$PACKAGE_SOURCE_SHA')"
+
+          grep -Fxq "$unpinned" "$package_work/PKGBUILD" || {
+            echo 'PKGBUILD source declaration changed; update the CI pinning guard deliberately.' >&2
+            exit 1
+          }
+
+          sed -i "s|^source=('git+https://github.com/ashmitvoid/Ryofiles.git')$|$pinned|" "$package_work/PKGBUILD"
+          grep -Fxq "$pinned" "$package_work/PKGBUILD"
+
+      - name: Build package as unprivileged user
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          useradd --create-home builder
+          chown -R builder:builder "$package_work"
+          su builder -c "cd '$package_work' && makepkg --noconfirm --cleanbuild"
+
+      - name: Verify package source is exact CI head
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          packaged_sha="$(su builder -c "git -C '$package_work/src/Ryofiles' rev-parse HEAD")"
+          test "$packaged_sha" = "$PACKAGE_SOURCE_SHA" || {
+            echo "PKGBUILD built $packaged_sha instead of expected head $PACKAGE_SOURCE_SHA" >&2
+            exit 1
+          }
+
+      - name: Inspect package payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          package_path="$(find "$package_work" -maxdepth 1 -type f -name 'ryofiles-git-[0-9]*-x86_64.pkg.tar.zst' -print -quit)"
+          test -n "$package_path"
+          bsdtar -tf "$package_path" > /tmp/ryofiles-package-files.txt
+
+          for required in \
+            usr/bin/ryofiles \
+            usr/share/applications/ryofiles.desktop \
+            usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml \
+            usr/share/licenses/ryofiles-git/LICENSE \
+            usr/share/licenses/ryofiles-git/THIRD_PARTY_NOTICES.md; do
+            grep -Fxq "$required" /tmp/ryofiles-package-files.txt || {
+              echo "Missing package payload: $required" >&2
+              exit 1
+            }
+          done
+
+          if grep -Eq '^(etc/|usr/share/xdg-desktop-portal/)' /tmp/ryofiles-package-files.txt; then
+            echo 'Package must not write system configuration or install portal takeover files.' >&2
+            cat /tmp/ryofiles-package-files.txt >&2
+            exit 1
+          fi
+
+      - name: Install package and verify runtime linkage
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          package_path="$(find "$package_work" -maxdepth 1 -type f -name 'ryofiles-git-[0-9]*-x86_64.pkg.tar.zst' -print -quit)"
+          pacman -U --noconfirm "$package_path"
+
+          test -x /usr/bin/ryofiles
+          test -f /usr/share/applications/ryofiles.desktop
+          test -f /usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml
+          test -f /usr/share/licenses/ryofiles-git/LICENSE
+          test -f /usr/share/licenses/ryofiles-git/THIRD_PARTY_NOTICES.md
+
+          ldd /usr/bin/ryofiles | tee /tmp/ryofiles-ldd.txt
+          if grep -Fq 'not found' /tmp/ryofiles-ldd.txt; then
+            echo 'Installed package has unresolved runtime libraries.' >&2
             exit 1
           fi
