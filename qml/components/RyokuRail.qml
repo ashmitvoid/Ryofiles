@@ -349,10 +349,185 @@ Item {
 
                 Column {
                     width: parent.width
+                    spacing: 4 * rail.uiScale
+
+                    Text {
+                        text: "03  NETWORK"
+                        color: Ryoku.inkFaint
+                        font.family: Ryoku.monoFont
+                        font.pixelSize: 9 * rail.uiScale
+                        font.letterSpacing: 1.5
+                        bottomPadding: 3 * rail.uiScale
+                    }
+
+                    Repeater {
+                        model: NetworkLocations
+
+                        delegate: Rectangle {
+                            id: network
+                            required property string name
+                            required property string uri
+                            required property string rootUri
+                            required property string scheme
+                            required property string host
+                            required property bool canUnmount
+
+                            readonly property bool active: rail.pathInside(rail.fs.path, network.rootUri)
+                            readonly property bool disconnecting:
+                                NetworkDisconnect.busy && NetworkDisconnect.targetRootUri === network.rootUri
+                            readonly property bool disconnectAvailable:
+                                network.canUnmount && !NetworkDisconnect.busy
+
+                            width: parent.width
+                            height: 54 * rail.uiScale
+                            radius: 6 * rail.uiScale
+                            color: network.active
+                                ? Ryoku.bone
+                                : (networkHover.hovered && !network.disconnecting ? Ryoku.tint10 : "transparent")
+                            border.width: 1
+                            border.color: network.active ? Ryoku.bone : Ryoku.lineSoft
+                            opacity: network.disconnecting ? 0.62 : 1.0
+
+                            Item {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.right: networkActions.left
+                                anchors.rightMargin: 6 * rail.uiScale
+
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 12 * rail.uiScale
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 1 * rail.uiScale
+
+                                    Text {
+                                        width: parent.width
+                                        text: (network.active ? "//  " : "") + network.name
+                                        elide: Text.ElideMiddle
+                                        color: network.active ? Ryoku.inkOnBone : Ryoku.inkDim
+                                        font.family: Ryoku.uiFont
+                                        font.pixelSize: 11 * rail.uiScale
+                                        font.weight: Font.Medium
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: network.scheme.toUpperCase() + "  ·  " + network.host
+                                        elide: Text.ElideMiddle
+                                        color: network.active ? Ryoku.inkOnBoneDim : Ryoku.inkFaint
+                                        font.family: Ryoku.monoFont
+                                        font.pixelSize: 8 * rail.uiScale
+                                    }
+                                }
+
+                                HoverHandler {
+                                    id: networkHover
+                                    enabled: !network.disconnecting
+                                    cursorShape: Qt.PointingHandCursor
+                                }
+                                TapHandler {
+                                    enabled: !network.disconnecting
+                                    onTapped: rail.navigate(network.uri)
+                                }
+                            }
+
+                            Column {
+                                id: networkActions
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8 * rail.uiScale
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 64 * rail.uiScale
+                                spacing: 2 * rail.uiScale
+
+                                Rectangle {
+                                    width: parent.width
+                                    height: 20 * rail.uiScale
+                                    radius: 4 * rail.uiScale
+                                    color: networkOpenHover.hovered && !network.disconnecting
+                                        ? Ryoku.tint10 : "transparent"
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: network.disconnecting ? "…" : "OPEN"
+                                        color: network.active ? Ryoku.inkOnBoneDim : Ryoku.inkMuted
+                                        font.family: Ryoku.monoFont
+                                        font.pixelSize: 8 * rail.uiScale
+                                        font.letterSpacing: 0.7
+                                    }
+                                    HoverHandler {
+                                        id: networkOpenHover
+                                        enabled: !network.disconnecting
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
+                                    TapHandler {
+                                        enabled: !network.disconnecting
+                                        onTapped: rail.navigate(network.uri)
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: parent.width
+                                    height: network.canUnmount ? 20 * rail.uiScale : 0
+                                    visible: network.canUnmount
+                                    radius: 4 * rail.uiScale
+                                    color: networkDisconnectHover.hovered && network.disconnectAvailable
+                                        ? Ryoku.tint10 : "transparent"
+                                    opacity: network.disconnectAvailable || network.disconnecting ? 1.0 : 0.45
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: network.disconnecting ? "CANCEL" : "DISCONNECT"
+                                        color: network.active ? Ryoku.inkOnBoneDim : Ryoku.sun
+                                        font.family: Ryoku.monoFont
+                                        font.pixelSize: 6.4 * rail.uiScale
+                                        font.letterSpacing: 0.15
+                                    }
+                                    HoverHandler {
+                                        id: networkDisconnectHover
+                                        enabled: network.disconnectAvailable || network.disconnecting
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
+                                    TapHandler {
+                                        enabled: network.disconnectAvailable || network.disconnecting
+                                        onTapped: {
+                                            if (network.disconnecting)
+                                                NetworkDisconnect.cancel()
+                                            else
+                                                NetworkDisconnect.disconnectFrom(network.rootUri)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: NetworkLocations.count === 0
+                        text: "    NO NETWORK MOUNTS"
+                        color: Ryoku.inkFaint
+                        font.family: Ryoku.monoFont
+                        font.pixelSize: 8 * rail.uiScale
+                        font.letterSpacing: 0.5
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: NetworkDisconnect.lastError !== ""
+                        text: "// NETWORK_  " + NetworkDisconnect.lastError
+                        color: Ryoku.sun
+                        font.family: Ryoku.monoFont
+                        font.pixelSize: 8 * rail.uiScale
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                Column {
+                    width: parent.width
                     spacing: 2 * rail.uiScale
 
                     Text {
-                        text: "03  SYSTEM"
+                        text: "04  SYSTEM"
                         color: Ryoku.inkFaint
                         font.family: Ryoku.monoFont
                         font.pixelSize: 9 * rail.uiScale
@@ -396,7 +571,7 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: "Ryoku-native file manager\nPhase 4 // storage"
+                    text: "Ryoku-native file manager\nPhase 4 // network"
                     color: Ryoku.inkFaint
                     font.family: Ryoku.monoFont
                     font.pixelSize: 9 * rail.uiScale
