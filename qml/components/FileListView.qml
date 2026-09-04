@@ -139,10 +139,17 @@ Item {
                     font.pixelSize: 13 * root.uiScale
                 }
 
+                GitStatusBadge {
+                    anchors.verticalCenter: parent.verticalCenter
+                    filePath: row.filePath
+                    uiScale: root.uiScale
+                    selected: row.selected
+                }
+
                 Text {
                     width: root.compact
-                        ? Math.max(100, parent.width - (22 + 12 + 105) * root.uiScale)
-                        : Math.max(120, parent.width - (22 + 12 + 118 + 12 + 154) * root.uiScale)
+                        ? Math.max(100, parent.width - (22 + 12 + 20 + 12 + 105) * root.uiScale)
+                        : Math.max(120, parent.width - (22 + 12 + 20 + 12 + 118 + 12 + 154) * root.uiScale)
                     anchors.verticalCenter: parent.verticalCenter
                     text: row.name
                     elide: Text.ElideMiddle
