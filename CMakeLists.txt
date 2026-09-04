@@ -25,6 +25,8 @@ qt_add_executable(ryofiles
     src/ryoku/RyokuIntegration.cpp
     src/fs/DirectoryModel.hpp
     src/fs/DirectoryModel.cpp
+    src/search/DeepSearchModel.hpp
+    src/search/DeepSearchModel.cpp
     src/navigation/DirectorySession.hpp
     src/navigation/DirectorySession.cpp
     src/navigation/TabManager.hpp
@@ -59,6 +61,7 @@ qt_add_qml_module(ryofiles
         qml/components/FileListView.qml
         qml/components/FileGridView.qml
         qml/components/FolderFilterBar.qml
+        qml/components/DeepSearchPanel.qml
         qml/components/OperationDrawer.qml
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
@@ -181,6 +184,22 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME directory-filter COMMAND ryofiles_directory_filter_tests)
+
+    qt_add_executable(ryofiles_deep_search_tests
+        tests/DeepSearchModelTest.cpp
+        src/search/DeepSearchModel.hpp
+        src/search/DeepSearchModel.cpp
+    )
+
+    target_include_directories(ryofiles_deep_search_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_deep_search_tests PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME deep-search COMMAND ryofiles_deep_search_tests)
 endif()
 
 install(TARGETS ryofiles

@@ -8,6 +8,7 @@
 #include "operations/OperationManager.hpp"
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
+#include "search/DeepSearchModel.hpp"
 #include "thumbnails/ThumbnailController.hpp"
 #include "thumbnails/ThumbnailProvider.hpp"
 #include "trash/TrashManager.hpp"
@@ -38,6 +39,9 @@ int main(int argc, char* argv[]) {
     qmlRegisterUncreatableType<DirectoryModel>(
         "Ryofiles.Core", 1, 0, "DirectoryModel",
         QStringLiteral("DirectoryModel instances are owned by DirectorySession"));
+    qmlRegisterUncreatableType<DeepSearchModel>(
+        "Ryofiles.Core", 1, 0, "DeepSearchModel",
+        QStringLiteral("DeepSearchModel instances are owned by DirectorySession"));
     qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
     qmlRegisterType<OperationManager>("Ryofiles.Core", 1, 0, "OperationManager");
     qmlRegisterType<TrashManager>("Ryofiles.Core", 1, 0, "TrashManager");

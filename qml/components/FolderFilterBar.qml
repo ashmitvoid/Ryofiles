@@ -12,6 +12,8 @@ Item {
 
     readonly property bool active: expanded || (files && files.filterQuery !== "")
 
+    signal deepSearchRequested(string query)
+
     height: active ? 42 * uiScale : 0
     visible: height > 0
     clip: true
@@ -37,9 +39,18 @@ Item {
         expanded = false
     }
 
+    onDeepSearchRequested: function(query) {
+        deepPanel.open(query, query && query.trim() !== "")
+    }
+
     Shortcut {
         sequence: "Ctrl+F"
         onActivated: root.open()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+F"
+        onActivated: root.deepSearchRequested(field.text)
     }
 
     Rectangle {
@@ -57,7 +68,7 @@ Item {
         Rectangle {
             anchors.left: parent.left
             anchors.leftMargin: 4 * root.uiScale
-            anchors.right: closeButton.left
+            anchors.right: deepButton.left
             anchors.rightMargin: 8 * root.uiScale
             anchors.verticalCenter: parent.verticalCenter
             height: 30 * root.uiScale
@@ -124,6 +135,35 @@ Item {
             }
         }
 
+        Rectangle {
+            id: deepButton
+            anchors.right: closeButton.left
+            anchors.rightMargin: 8 * root.uiScale
+            anchors.verticalCenter: parent.verticalCenter
+            width: 52 * root.uiScale
+            height: 28 * root.uiScale
+            radius: 6 * root.uiScale
+            color: deepHover.hovered ? Ryoku.tint10 : "transparent"
+            border.width: 1
+            border.color: Ryoku.line
+
+            Text {
+                anchors.centerIn: parent
+                text: "DEEP"
+                color: Ryoku.inkDim
+                font.family: Ryoku.uiFont
+                font.pixelSize: 8 * root.uiScale
+                font.weight: Font.Medium
+                font.letterSpacing: 0.8
+            }
+
+            HoverHandler {
+                id: deepHover
+                cursorShape: Qt.PointingHandCursor
+            }
+            TapHandler { onTapped: root.deepSearchRequested(field.text) }
+        }
+
         Text {
             id: closeButton
             anchors.right: parent.right
@@ -140,6 +180,16 @@ Item {
             }
             TapHandler { onTapped: root.clearAndClose() }
         }
+    }
+
+    DeepSearchPanel {
+        id: deepPanel
+        parent: root.parent
+        anchors.fill: parent
+        session: root.session
+        files: root.files
+        desktop: Desktop
+        uiScale: root.uiScale
     }
 
     Connections {

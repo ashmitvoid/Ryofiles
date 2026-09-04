@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../fs/DirectoryModel.hpp"
+#include "../search/DeepSearchModel.hpp"
 
 #include <QObject>
 #include <QSet>
@@ -11,6 +12,7 @@ class DirectorySession : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(DirectoryModel* model READ model CONSTANT)
+    Q_PROPERTY(DeepSearchModel* deepSearch READ deepSearch CONSTANT)
     Q_PROPERTY(QString path READ path NOTIFY pathChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
@@ -37,6 +39,8 @@ public:
 
     DirectoryModel* model() { return &m_model; }
     const DirectoryModel* model() const { return &m_model; }
+    DeepSearchModel* deepSearch() { return &m_deepSearch; }
+    const DeepSearchModel* deepSearch() const { return &m_deepSearch; }
 
     QString path() const;
     QString title() const;
@@ -98,6 +102,7 @@ private:
     const HistoryEntry* currentEntry() const;
 
     DirectoryModel m_model;
+    DeepSearchModel m_deepSearch;
     QVector<HistoryEntry> m_history;
     int m_historyIndex = -1;
     int m_viewMode = DetailsView;
