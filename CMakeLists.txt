@@ -14,6 +14,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Qml
     Quick
     Concurrent
+    DBus
 )
 
 qt_standard_project_setup(REQUIRES 6.5)
@@ -27,6 +28,8 @@ qt_add_executable(ryofiles
     src/fs/DirectoryModel.cpp
     src/search/DeepSearchModel.hpp
     src/search/DeepSearchModel.cpp
+    src/storage/DriveModel.hpp
+    src/storage/DriveModel.cpp
     src/git/GitStatusController.hpp
     src/git/GitStatusController.cpp
     src/git/GitActionController.hpp
@@ -91,6 +94,7 @@ target_link_libraries(ryofiles PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::Concurrent
+    Qt6::DBus
 )
 
 option(RYOFILES_BUILD_TESTS "Build Ryofiles test targets" OFF)
@@ -266,6 +270,22 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME tab-split COMMAND ryofiles_tab_split_tests)
+
+    qt_add_executable(ryofiles_drive_tests
+        tests/DriveModelTest.cpp
+        src/storage/DriveModel.hpp
+        src/storage/DriveModel.cpp
+    )
+
+    target_include_directories(ryofiles_drive_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_drive_tests PRIVATE
+        Qt6::Core
+        Qt6::DBus
+        Qt6::Test
+    )
+
+    add_test(NAME drive-model COMMAND ryofiles_drive_tests)
 endif()
 
 install(TARGETS ryofiles
