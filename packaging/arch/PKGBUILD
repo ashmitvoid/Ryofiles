@@ -47,14 +47,25 @@ build() {
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DRYOFILES_BUILD_TESTS=ON
   cmake --build build
+
+  cmake \
+    -S Ryofiles/tools/portalctl \
+    -B build-portalctl \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DRYOFILES_PORTALCTL_BUILD_TESTS=ON
+  cmake --build build-portalctl
 }
 
 check() {
   ctest --test-dir build --output-on-failure
+  ctest --test-dir build-portalctl --output-on-failure
 }
 
 package() {
   DESTDIR="$pkgdir" cmake --install build
+  DESTDIR="$pkgdir" cmake --install build-portalctl
 
   install -Dm644 \
     Ryofiles/assets/io.github.ashmitvoid.Ryofiles.metainfo.xml \
