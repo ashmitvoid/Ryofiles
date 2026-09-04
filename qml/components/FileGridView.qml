@@ -167,6 +167,14 @@ Item {
                         font.family: Ryoku.monoFont
                         font.pixelSize: tile.thumbnailCandidate ? 15 * root.uiScale : 30 * root.uiScale
                     }
+
+                    GitStatusBadge {
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        filePath: tile.filePath
+                        uiScale: root.uiScale
+                        selected: tile.selected
+                    }
                 }
 
                 Text {
