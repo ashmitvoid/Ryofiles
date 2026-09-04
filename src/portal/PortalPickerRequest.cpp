@@ -448,7 +448,7 @@ namespace PortalPickerParsing {
 QString decodeNullTerminatedPath(const QByteArray& bytes, QString* error) {
     if (error)
         error->clear();
-    if (bytes.isEmpty() || bytes.constLast() != '\0') {
+    if (bytes.isEmpty() || bytes.at(bytes.size() - 1) != '\0') {
         if (error)
             *error = QStringLiteral("Portal filesystem path is not NUL-terminated");
         return {};
@@ -475,7 +475,7 @@ QString decodeNullTerminatedPath(const QByteArray& bytes, QString* error) {
 QString decodeNullTerminatedLeafName(const QByteArray& bytes, QString* error) {
     if (error)
         error->clear();
-    if (bytes.isEmpty() || bytes.constLast() != '\0') {
+    if (bytes.isEmpty() || bytes.at(bytes.size() - 1) != '\0') {
         if (error)
             *error = QStringLiteral("Portal file name is not NUL-terminated");
         return {};
