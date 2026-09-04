@@ -16,6 +16,7 @@
 #include "operations/OperationManager.hpp"
 #include "operations/RemoteOperationManager.hpp"
 #include "picker/PickerController.hpp"
+#include "portal/FileChooserPortal.hpp"
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
 #include "search/DeepSearchModel.hpp"
@@ -26,6 +27,7 @@
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QDBusConnection>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QTextStream>
@@ -33,6 +35,9 @@
 #include <QtQml>
 
 namespace {
+
+constexpr auto kPortalService = "org.freedesktop.impl.portal.desktop.ryofiles";
+constexpr auto kPortalObjectPath = "/org/freedesktop/portal/desktop";
 
 void registerNavigationTypes() {
     qmlRegisterUncreatableType<DirectorySession>(
@@ -108,6 +113,35 @@ int runPicker(
     return app.exec();
 }
 
+int runFileChooserPortal(QGuiApplication& app) {
+    QGuiApplication::setApplicationName(QStringLiteral("Ryofiles FileChooser Portal"));
+
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        QTextStream(stderr)
+            << "ryofiles: FileChooser portal requires a session D-Bus\n";
+        return 1;
+    }
+
+    FileChooserPortal portal;
+    if (!bus.registerObject(
+            QString::fromLatin1(kPortalObjectPath),
+            &portal,
+            QDBusConnection::ExportAllSlots)) {
+        QTextStream(stderr)
+            << "ryofiles: failed to export FileChooser portal object\n";
+        return 1;
+    }
+
+    if (!bus.registerService(QString::fromLatin1(kPortalService))) {
+        QTextStream(stderr)
+            << "ryofiles: failed to acquire " << kPortalService << '\n';
+        return 1;
+    }
+
+    return app.exec();
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -141,13 +175,30 @@ int main(int argc, char* argv[]) {
         QStringList{QStringLiteral("suggest-name")},
         QStringLiteral("Suggested file name for --picker save mode."),
         QStringLiteral("name"));
+    const QCommandLineOption fileChooserPortalOption(
+        QStringList{QStringLiteral("filechooser-portal")},
+        QStringLiteral("Run the XDG FileChooser portal backend service."));
 
     parser.addOption(pickerOption);
     parser.addOption(multipleOption);
     parser.addOption(initialDirectoryOption);
     parser.addOption(mimeOption);
     parser.addOption(suggestedNameOption);
+    parser.addOption(fileChooserPortalOption);
     parser.process(app);
+
+    if (parser.isSet(fileChooserPortalOption)) {
+        if (parser.isSet(pickerOption)
+            || parser.isSet(multipleOption)
+            || parser.isSet(initialDirectoryOption)
+            || parser.isSet(mimeOption)
+            || parser.isSet(suggestedNameOption)) {
+            QTextStream(stderr)
+                << "ryofiles: --filechooser-portal cannot be combined with picker options\n";
+            return 2;
+        }
+        return runFileChooserPortal(app);
+    }
 
     if (parser.isSet(pickerOption)) {
         return runPicker(

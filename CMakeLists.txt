@@ -57,6 +57,10 @@ qt_add_executable(ryofiles
     src/operations/RemoteOperationManager.hpp
     src/operations/RemoteOperationManager.cpp
     src/picker/PickerController.hpp
+    src/portal/PortalPickerRequest.hpp
+    src/portal/PortalPickerRequest.cpp
+    src/portal/FileChooserPortal.hpp
+    src/portal/FileChooserPortal.cpp
     src/trash/TrashManager.hpp
     src/trash/TrashManager.cpp
     src/integrations/ClipboardController.hpp
@@ -523,6 +527,22 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME drive-model COMMAND ryofiles_drive_tests)
+
+    qt_add_executable(ryofiles_portal_picker_tests
+        tests/PortalPickerRequestTest.cpp
+        src/portal/PortalPickerRequest.hpp
+        src/portal/PortalPickerRequest.cpp
+    )
+
+    target_include_directories(ryofiles_portal_picker_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_portal_picker_tests PRIVATE
+        Qt6::Core
+        Qt6::DBus
+        Qt6::Test
+    )
+
+    add_test(NAME portal-picker-request COMMAND ryofiles_portal_picker_tests)
 endif()
 
 install(TARGETS ryofiles
