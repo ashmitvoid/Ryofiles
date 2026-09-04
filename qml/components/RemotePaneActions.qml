@@ -150,6 +150,12 @@ Item {
             root.session.activate(idx)
     }
 
+    function markCutConflictSkipped(jobId) {
+        var batch = root.cutJobBatches[jobId]
+        if (batch !== undefined)
+            batch.failed = true
+    }
+
     function finishCutBatch(jobId, success) {
         var batch = root.cutJobBatches[jobId]
         if (batch === undefined)
@@ -264,8 +270,11 @@ Item {
 
         onChoose: function(decision, applyToAll) {
             visible = false
-            if (root.conflictJobId !== "")
+            if (root.conflictJobId !== "") {
+                if (decision === 0)
+                    root.markCutConflictSkipped(root.conflictJobId)
                 RemoteOperations.resolveConflict(root.conflictJobId, decision, false)
+            }
         }
     }
 
@@ -334,10 +343,8 @@ Item {
                 var error = RemoteOperations.errorFor(jobId)
                 if (error !== "")
                     root.showMessage(error)
-            } else {
-                if (root.clearSelectionJobs[jobId] !== undefined)
-                    root.session.clearSelection()
-                root.session.refresh()
+            } else if (root.clearSelectionJobs[jobId] !== undefined) {
+                root.session.clearSelection()
             }
 
             delete root.clearSelectionJobs[jobId]
