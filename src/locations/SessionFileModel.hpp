@@ -11,11 +11,22 @@ class RemoteDirectoryModel;
 class SessionFileModel final : public QIdentityProxyModel {
     Q_OBJECT
 
+    Q_PROPERTY(QString path READ path NOTIFY pathChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
     Q_PROPERTY(QString filterQuery READ filterQuery WRITE setFilterQuery NOTIFY filterQueryChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(bool remote READ remote NOTIFY sourceKindChanged)
+
+    // Preserve the navigation-facing properties the QML rail consumed from DirectoryModel
+    // before SessionFileModel became the stable local/remote proxy.
+    Q_PROPERTY(QString home READ home CONSTANT)
+    Q_PROPERTY(QString desktop READ desktop CONSTANT)
+    Q_PROPERTY(QString documents READ documents CONSTANT)
+    Q_PROPERTY(QString downloads READ downloads CONSTANT)
+    Q_PROPERTY(QString pictures READ pictures CONSTANT)
+    Q_PROPERTY(QString music READ music CONSTANT)
+    Q_PROPERTY(QString videos READ videos CONSTANT)
 
 public:
     enum Role {
@@ -37,6 +48,7 @@ public:
     void useLocal(DirectoryModel* model);
     void useRemote(RemoteDirectoryModel* model);
 
+    QString path() const;
     bool loading() const;
     bool showHidden() const;
     void setShowHidden(bool show);
@@ -46,12 +58,21 @@ public:
 
     bool remote() const { return m_remoteActive; }
 
+    QString home() const;
+    QString desktop() const;
+    QString documents() const;
+    QString downloads() const;
+    QString pictures() const;
+    QString music() const;
+    QString videos() const;
+
     Q_INVOKABLE void refresh();
     Q_INVOKABLE QString pathAt(int index) const;
     Q_INVOKABLE bool isDirectoryAt(int index) const;
     Q_INVOKABLE int indexOfPath(const QString& path) const;
 
 signals:
+    void pathChanged();
     void loadingChanged();
     void showHiddenChanged();
     void filterQueryChanged();
@@ -59,6 +80,7 @@ signals:
     void sourceKindChanged();
 
 private:
+    static QString standardPath(int location);
     void setBackend(QAbstractItemModel* model, bool remote);
     void clearBackendConnections();
     void connectLocal(DirectoryModel* model);

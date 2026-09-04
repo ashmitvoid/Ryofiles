@@ -33,6 +33,34 @@ private slots:
         QCOMPARE(roles.value(SessionFileModel::ThumbnailCandidateRole), QByteArray("thumbnailCandidate"));
     }
 
+    void preservesNavigationPropertiesExpectedByTheRail() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        DirectoryModel local(false, nullptr);
+        local.setPath(temp.path());
+        RemoteDirectoryModel remote;
+        remote.setUri(QStringLiteral("sftp://alice@example.invalid/share"));
+        remote.cancel();
+
+        SessionFileModel model;
+        QSignalSpy pathSpy(&model, &SessionFileModel::pathChanged);
+        model.useLocal(&local);
+        QCOMPARE(model.path(), QDir(temp.path()).absolutePath());
+        QCOMPARE(model.home(), QDir::homePath());
+        QVERIFY(!model.desktop().isEmpty());
+        QVERIFY(!model.documents().isEmpty());
+        QVERIFY(!model.downloads().isEmpty());
+        QVERIFY(!model.pictures().isEmpty());
+        QVERIFY(!model.music().isEmpty());
+        QVERIFY(!model.videos().isEmpty());
+
+        model.useRemote(&remote);
+        QCOMPARE(model.path(), QStringLiteral("sftp://alice@example.invalid/share"));
+        QCOMPARE(model.home(), QDir::homePath());
+        QVERIFY(pathSpy.count() >= 2);
+    }
+
     void delegatesLocalEntriesAndCommonMethods() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());

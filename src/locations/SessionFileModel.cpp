@@ -5,6 +5,9 @@
 #include "fs/DirectoryModel.hpp"
 #include "locations/RemoteDirectoryModel.hpp"
 
+#include <QDir>
+#include <QStandardPaths>
+
 #include <utility>
 
 static_assert(DirectoryModel::NameRole == RemoteDirectoryModel::NameRole);
@@ -55,6 +58,12 @@ void SessionFileModel::useRemote(RemoteDirectoryModel* model) {
     setBackend(model, true);
 }
 
+QString SessionFileModel::path() const {
+    if (m_remoteActive)
+        return m_remote ? m_remote->uri() : QString();
+    return m_local ? m_local->path() : QString();
+}
+
 bool SessionFileModel::loading() const {
     if (m_remoteActive)
         return m_remote ? m_remote->loading() : false;
@@ -92,6 +101,20 @@ void SessionFileModel::setFilterQuery(const QString& query) {
     if (m_local)
         m_local->setFilterQuery(query);
 }
+
+QString SessionFileModel::standardPath(int location) {
+    const QString value =
+        QStandardPaths::writableLocation(static_cast<QStandardPaths::StandardLocation>(location));
+    return value.isEmpty() ? QDir::homePath() : value;
+}
+
+QString SessionFileModel::home() const { return QDir::homePath(); }
+QString SessionFileModel::desktop() const { return standardPath(QStandardPaths::DesktopLocation); }
+QString SessionFileModel::documents() const { return standardPath(QStandardPaths::DocumentsLocation); }
+QString SessionFileModel::downloads() const { return standardPath(QStandardPaths::DownloadLocation); }
+QString SessionFileModel::pictures() const { return standardPath(QStandardPaths::PicturesLocation); }
+QString SessionFileModel::music() const { return standardPath(QStandardPaths::MusicLocation); }
+QString SessionFileModel::videos() const { return standardPath(QStandardPaths::MoviesLocation); }
 
 void SessionFileModel::refresh() {
     if (m_remoteActive) {
@@ -136,6 +159,7 @@ void SessionFileModel::setBackend(QAbstractItemModel* model, bool remote) {
 
     if (kindChanged)
         emit sourceKindChanged();
+    emit pathChanged();
     emit loadingChanged();
     emit showHiddenChanged();
     emit filterQueryChanged();
@@ -151,6 +175,9 @@ void SessionFileModel::clearBackendConnections() {
 void SessionFileModel::connectLocal(DirectoryModel* model) {
     clearBackendConnections();
     m_backendConnections.push_back(connect(
+        model, &DirectoryModel::pathChanged,
+        this, &SessionFileModel::pathChanged));
+    m_backendConnections.push_back(connect(
         model, &DirectoryModel::loadingChanged,
         this, &SessionFileModel::loadingChanged));
     m_backendConnections.push_back(connect(
@@ -163,6 +190,9 @@ void SessionFileModel::connectLocal(DirectoryModel* model) {
 
 void SessionFileModel::connectRemote(RemoteDirectoryModel* model) {
     clearBackendConnections();
+    m_backendConnections.push_back(connect(
+        model, &RemoteDirectoryModel::uriChanged,
+        this, &SessionFileModel::pathChanged));
     m_backendConnections.push_back(connect(
         model, &RemoteDirectoryModel::loadingChanged,
         this, &SessionFileModel::loadingChanged));
