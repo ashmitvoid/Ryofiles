@@ -158,6 +158,37 @@ private slots:
         QCOMPARE(readFile(trashedPath), QByteArray("trashed"));
     }
 
+    void remoteOnlyTrashIsRejected() {
+        TrashManager manager;
+
+        const QString id = manager.trash(
+            {QStringLiteral("sftp://example.invalid/file.txt")});
+
+        QVERIFY(id.isEmpty());
+        QCOMPARE(manager.count(), 0);
+        QVERIFY(!QFileInfo::exists(QDir(m_dataHome).filePath("Trash")));
+    }
+
+    void mixedLocalAndRemoteTrashIsAllOrNothing() {
+        const QString work = m_root->filePath("work-uri-guard");
+        QVERIFY(QDir().mkpath(work));
+
+        const QString source = QDir(work).filePath("important.txt");
+        writeFile(source, "keep-me");
+
+        TrashManager manager;
+        const QString id = manager.trash({
+            source,
+            QStringLiteral("sftp://example.invalid/file.txt"),
+        });
+
+        QVERIFY(id.isEmpty());
+        QVERIFY(QFileInfo::exists(source));
+        QCOMPARE(readFile(source), QByteArray("keep-me"));
+        QCOMPARE(manager.count(), 0);
+        QVERIFY(!QFileInfo::exists(QDir(m_dataHome).filePath("Trash")));
+    }
+
 private:
     std::unique_ptr<QTemporaryDir> m_root;
     QString m_dataHome;

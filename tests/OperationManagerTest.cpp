@@ -243,6 +243,65 @@ private slots:
         QVERIFY(!finishedSpy.at(0).at(1).toBool());
         QVERIFY(!QFileInfo::exists(QDir(childDestination).filePath("tree")));
     }
+
+    void rejectsUriLikeInputsWithoutCreatingJobs() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString sourceDir = temp.filePath("uri-source");
+        const QString destinationDir = temp.filePath("uri-destination");
+        QVERIFY(QDir().mkpath(sourceDir));
+        QVERIFY(QDir().mkpath(destinationDir));
+
+        const QString localSource = QDir(sourceDir).filePath("local.txt");
+        writeFile(localSource, "payload");
+
+        const QString remoteSource = QStringLiteral("sftp://example.invalid/file.txt");
+        const QString remoteDestination = QStringLiteral("sftp://example.invalid/folder");
+
+        OperationManager manager;
+
+        QVERIFY(manager.copy({remoteSource}, destinationDir).isEmpty());
+        QVERIFY(manager.move({remoteSource}, destinationDir).isEmpty());
+        QVERIFY(manager.copy({localSource, remoteSource}, destinationDir).isEmpty());
+        QVERIFY(manager.move({localSource, remoteSource}, destinationDir).isEmpty());
+        QVERIFY(manager.copy({localSource}, remoteDestination).isEmpty());
+        QVERIFY(manager.move({localSource}, remoteDestination).isEmpty());
+        QVERIFY(manager.rename(remoteSource, "renamed.txt").isEmpty());
+        QVERIFY(manager.duplicate({remoteSource}).isEmpty());
+        QVERIFY(manager.duplicate({localSource, remoteSource}).isEmpty());
+        QVERIFY(manager.createFolder(remoteDestination, "Folder").isEmpty());
+
+        QCOMPARE(manager.rowCount(), 0);
+        QVERIFY(QFileInfo::exists(localSource));
+        QVERIFY(!QFileInfo::exists(QDir(destinationDir).filePath("local.txt")));
+    }
+
+    void localColonPathRemainsValid() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString sourceDir = temp.filePath("source:colon");
+        const QString destinationDir = temp.filePath("destination");
+        QVERIFY(QDir().mkpath(sourceDir));
+        QVERIFY(QDir().mkpath(destinationDir));
+
+        const QString source = QDir(sourceDir).filePath("report:2026.txt");
+        writeFile(source, "payload");
+
+        OperationManager manager;
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.copy({source}, destinationDir);
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(finishedSpy.takeFirst().at(1).toBool());
+
+        QCOMPARE(
+            readFile(QDir(destinationDir).filePath("report:2026.txt")),
+            QByteArray("payload"));
+        QCOMPARE(readFile(source), QByteArray("payload"));
+    }
 };
 
 QTEST_MAIN(OperationManagerTest)
