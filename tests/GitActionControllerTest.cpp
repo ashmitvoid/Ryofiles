@@ -109,6 +109,32 @@ private slots:
         QVERIFY(actions.error().contains(QStringLiteral("outside"), Qt::CaseInsensitive));
     }
 
+    void rejectsUriInputsAtLocalBoundary() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        initRepository(temp.path());
+
+        const QString tracked = QDir(temp.path()).filePath(QStringLiteral("tracked.txt"));
+        const QString remoteFile = QStringLiteral("sftp://alice@example.invalid/repo/tracked.txt");
+        const QString remoteRoot = QStringLiteral("smb://nas.invalid/team/repo");
+
+        GitActionController actions;
+
+        QVERIFY(actions.stage(temp.path(), {remoteFile}).isEmpty());
+        QVERIFY(actions.error().contains(QStringLiteral("local filesystem"), Qt::CaseInsensitive));
+        QVERIFY(!actions.busy());
+
+        QVERIFY(actions.unstage(remoteRoot, {tracked}).isEmpty());
+        QVERIFY(actions.error().contains(QStringLiteral("local filesystem"), Qt::CaseInsensitive));
+        QVERIFY(!actions.busy());
+
+        QVERIFY(actions.requestDiff(temp.path(), QStringLiteral("file:///tmp/tracked.txt"), false).isEmpty());
+        QVERIFY(actions.error().contains(QStringLiteral("local filesystem"), Qt::CaseInsensitive));
+        QVERIFY(!actions.busy());
+
+        QVERIFY(!actions.openTerminal(QStringLiteral("davs://cloud.invalid/files")));
+    }
+
     void shellMetacharactersAreLiteralPaths() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
