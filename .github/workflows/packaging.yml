@@ -60,33 +60,56 @@ jobs:
   arch-package:
     runs-on: ubuntu-24.04
     container: archlinux:latest
+    env:
+      PACKAGE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
           base-devel cmake git ninja glib2 gvfs qt6-base qt6-declarative
 
-      - name: Checkout exact workflow SHA
+      - name: Checkout exact package source SHA
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prepare exact-SHA package recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          rm -rf "$package_work"
+          mkdir -p "$package_work"
+          cp packaging/arch/PKGBUILD "$package_work/PKGBUILD"
+
+          unpinned="source=('git+https://github.com/ashmitvoid/Ryofiles.git')"
+          pinned="source=('git+https://github.com/ashmitvoid/Ryofiles.git#commit=$PACKAGE_SOURCE_SHA')"
+
+          grep -Fxq "$unpinned" "$package_work/PKGBUILD" || {
+            echo 'PKGBUILD source declaration changed; update the CI pinning guard deliberately.' >&2
+            exit 1
+          }
+
+          sed -i "s|^source=('git+https://github.com/ashmitvoid/Ryofiles.git')$|$pinned|" "$package_work/PKGBUILD"
+          grep -Fxq "$pinned" "$package_work/PKGBUILD"
 
       - name: Build package as unprivileged user
         shell: bash
         run: |
           set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
           useradd --create-home builder
-          chown -R builder:builder "$GITHUB_WORKSPACE"
+          chown -R builder:builder "$package_work"
+          su builder -c "cd '$package_work' && makepkg --noconfirm --cleanbuild"
 
-          su builder -c 'git config --global protocol.file.allow always'
-          su builder -c "git config --global url.\"file://$GITHUB_WORKSPACE\".insteadOf https://github.com/ashmitvoid/Ryofiles.git"
-          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && makepkg --noconfirm --cleanbuild"
-
-      - name: Verify package source is exact CI SHA
+      - name: Verify package source is exact CI head
         shell: bash
         run: |
           set -euo pipefail
-          packaged_sha="$(git -C packaging/arch/src/Ryofiles rev-parse HEAD)"
-          test "$packaged_sha" = "$GITHUB_SHA" || {
-            echo "PKGBUILD built $packaged_sha instead of workflow SHA $GITHUB_SHA" >&2
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          packaged_sha="$(su builder -c "git -C '$package_work/src/Ryofiles' rev-parse HEAD")"
+          test "$packaged_sha" = "$PACKAGE_SOURCE_SHA" || {
+            echo "PKGBUILD built $packaged_sha instead of expected head $PACKAGE_SOURCE_SHA" >&2
             exit 1
           }
 
@@ -94,7 +117,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(find packaging/arch -maxdepth 1 -type f -name 'ryofiles-git-*.pkg.tar.zst' -print -quit)"
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          package_path="$(find "$package_work" -maxdepth 1 -type f -name 'ryofiles-git-[0-9]*-x86_64.pkg.tar.zst' -print -quit)"
           test -n "$package_path"
           bsdtar -tf "$package_path" > /tmp/ryofiles-package-files.txt
 
@@ -120,7 +144,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(find packaging/arch -maxdepth 1 -type f -name 'ryofiles-git-*.pkg.tar.zst' -print -quit)"
+          package_work="$GITHUB_WORKSPACE/.ci-arch-package"
+          package_path="$(find "$package_work" -maxdepth 1 -type f -name 'ryofiles-git-[0-9]*-x86_64.pkg.tar.zst' -print -quit)"
           pacman -U --noconfirm "$package_path"
 
           test -x /usr/bin/ryofiles
