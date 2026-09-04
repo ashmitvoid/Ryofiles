@@ -35,6 +35,28 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure --parallel 2
+      - name: Smoke-test staged install
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf stage
+          DESTDIR="$PWD/stage" cmake --install build --prefix /usr
+
+          test -x stage/usr/bin/ryofiles
+          test -f stage/usr/share/applications/ryofiles.desktop
+          test ! -e stage/etc
+
+          mapfile -t installed < <(find stage -type f -printf '%P\n' | sort)
+          expected=(
+            'usr/bin/ryofiles'
+            'usr/share/applications/ryofiles.desktop'
+          )
+
+          if [[ "${installed[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected staged install layout:\n' >&2
+            printf '  %s\n' "${installed[@]}" >&2
+            exit 1
+          fi
       - name: Compiler cache stats
         if: always()
         run: ccache --show-stats
