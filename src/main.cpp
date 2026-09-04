@@ -58,7 +58,9 @@ int runPicker(
     bool multiple,
     const QString& initialDirectory,
     const QStringList& mimeTypes,
-    const QString& suggestedName) {
+    const QString& suggestedName,
+    const QString& dialogTitle,
+    const QString& acceptLabel) {
     PickerController picker;
     QString configurationError;
     if (!picker.configure(
@@ -83,6 +85,10 @@ int runPicker(
     registerNavigationTypes();
 
     QQmlApplicationEngine engine;
+    engine.setInitialProperties({
+        {QStringLiteral("dialogTitle"), dialogTitle},
+        {QStringLiteral("customAcceptLabel"), acceptLabel},
+    });
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
@@ -175,6 +181,14 @@ int main(int argc, char* argv[]) {
         QStringList{QStringLiteral("suggest-name")},
         QStringLiteral("Suggested file name for --picker save mode."),
         QStringLiteral("name"));
+    const QCommandLineOption pickerTitleOption(
+        QStringList{QStringLiteral("picker-title")},
+        QStringLiteral("Window title for picker mode."),
+        QStringLiteral("title"));
+    const QCommandLineOption acceptLabelOption(
+        QStringList{QStringLiteral("accept-label")},
+        QStringLiteral("Custom accept-button label for picker mode."),
+        QStringLiteral("label"));
     const QCommandLineOption fileChooserPortalOption(
         QStringList{QStringLiteral("filechooser-portal")},
         QStringLiteral("Run the XDG FileChooser portal backend service."));
@@ -184,6 +198,8 @@ int main(int argc, char* argv[]) {
     parser.addOption(initialDirectoryOption);
     parser.addOption(mimeOption);
     parser.addOption(suggestedNameOption);
+    parser.addOption(pickerTitleOption);
+    parser.addOption(acceptLabelOption);
     parser.addOption(fileChooserPortalOption);
     parser.process(app);
 
@@ -192,7 +208,9 @@ int main(int argc, char* argv[]) {
             || parser.isSet(multipleOption)
             || parser.isSet(initialDirectoryOption)
             || parser.isSet(mimeOption)
-            || parser.isSet(suggestedNameOption)) {
+            || parser.isSet(suggestedNameOption)
+            || parser.isSet(pickerTitleOption)
+            || parser.isSet(acceptLabelOption)) {
             QTextStream(stderr)
                 << "ryofiles: --filechooser-portal cannot be combined with picker options\n";
             return 2;
@@ -207,15 +225,19 @@ int main(int argc, char* argv[]) {
             parser.isSet(multipleOption),
             parser.value(initialDirectoryOption),
             parser.values(mimeOption),
-            parser.value(suggestedNameOption));
+            parser.value(suggestedNameOption),
+            parser.value(pickerTitleOption),
+            parser.value(acceptLabelOption));
     }
 
     if (parser.isSet(multipleOption)
         || parser.isSet(initialDirectoryOption)
         || parser.isSet(mimeOption)
-        || parser.isSet(suggestedNameOption)) {
+        || parser.isSet(suggestedNameOption)
+        || parser.isSet(pickerTitleOption)
+        || parser.isSet(acceptLabelOption)) {
         QTextStream(stderr)
-            << "ryofiles: --multiple, --initial-dir, --mime, and --suggest-name require --picker"
+            << "ryofiles: picker-only options require --picker"
             << Qt::endl;
         return 2;
     }
