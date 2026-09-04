@@ -96,6 +96,14 @@ private slots:
         QVERIFY(arguments.contains(QStringLiteral("open")));
         QVERIFY(arguments.contains(QStringLiteral("--multiple")));
         QVERIFY(arguments.contains(QDir::cleanPath(temp.path())));
+
+        const QStringList processArguments = request.pickerProcessArguments();
+        const int titleIndex = processArguments.indexOf(QStringLiteral("--picker-title"));
+        QVERIFY(titleIndex >= 0);
+        QCOMPARE(processArguments.value(titleIndex + 1), QStringLiteral("Open a file"));
+        const int acceptIndex = processArguments.indexOf(QStringLiteral("--accept-label"));
+        QVERIFY(acceptIndex >= 0);
+        QCOMPARE(processArguments.value(acceptIndex + 1), QStringLiteral("Choose"));
     }
 
     void mapsDirectoryOpenToFolderPickerWithoutMultiplicity() {
