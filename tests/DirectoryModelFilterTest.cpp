@@ -118,6 +118,54 @@ private slots:
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(QFileInfo(model.pathAt(0)).fileName(), QStringLiteral("inside.txt"));
     }
+
+    void inactiveModelDefersIoUntilActivated() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        writeFile(QDir(temp.path()).filePath("one.txt"));
+
+        DirectoryModel model(false, nullptr);
+        QVERIFY(!model.active());
+        QVERIFY(!model.loading());
+
+        QSignalSpy loadingSpy(&model, &DirectoryModel::loadingChanged);
+        model.setPath(temp.path());
+        QCOMPARE(model.path(), temp.path());
+        QCOMPARE(model.rowCount(), 0);
+        QCOMPARE(loadingSpy.count(), 0);
+
+        model.setActive(true);
+        QVERIFY(model.active());
+        waitUntilReady(model);
+        QCOMPARE(model.rowCount(), 1);
+    }
+
+    void deactivationStopsWatcherDrivenRefreshes() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        writeFile(QDir(temp.path()).filePath("one.txt"));
+
+        DirectoryModel model;
+        model.setPath(temp.path());
+        waitUntilReady(model);
+        QCOMPARE(model.rowCount(), 1);
+
+        QSignalSpy activeSpy(&model, &DirectoryModel::activeChanged);
+        model.setActive(false);
+        QVERIFY(!model.active());
+        QCOMPARE(activeSpy.count(), 1);
+
+        QSignalSpy loadingSpy(&model, &DirectoryModel::loadingChanged);
+        writeFile(QDir(temp.path()).filePath("two.txt"));
+        QTest::qWait(250);
+
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(loadingSpy.count(), 0);
+
+        model.setActive(true);
+        waitUntilReady(model);
+        QCOMPARE(model.rowCount(), 2);
+    }
 };
 
 QTEST_GUILESS_MAIN(DirectoryModelFilterTest)
