@@ -96,7 +96,7 @@ private slots:
         DirectorySession* firstSecondary = tabs.secondarySession();
 
         tabs.newTab(other);
-        QCOMPARE(tabs.count(), 2);
+        QCOMPARE(tabs.rowCount(), 2);
         QVERIFY(!tabs.split());
         QCOMPARE(tabs.activePane(), 0);
         QCOMPARE(tabs.currentSession()->path(), other);
@@ -153,12 +153,12 @@ private slots:
         tabs.previousTab();
 
         tabs.closeCurrentTab();
-        QCOMPARE(tabs.count(), 1);
+        QCOMPARE(tabs.rowCount(), 1);
         QVERIFY(!tabs.split());
         QCOMPARE(tabs.currentSession()->path(), other);
 
         tabs.reopenClosedTab();
-        QCOMPARE(tabs.count(), 2);
+        QCOMPARE(tabs.rowCount(), 2);
         QVERIFY(tabs.split());
         QCOMPARE(tabs.primarySession()->path(), left);
         QCOMPARE(tabs.secondarySession()->path(), right);
