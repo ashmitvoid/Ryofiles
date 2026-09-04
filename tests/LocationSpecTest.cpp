@@ -5,7 +5,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -126,28 +125,29 @@ private slots:
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
 
-        QString error;
-        PickerController invalidMode;
-        QVERIFY(!invalidMode.configure("save", false, temp.path(), {}, &error));
-        QVERIFY(error.contains(QStringLiteral("open")));
+        const PickerContract invalidMode =
+            PickerContract::parse("save", false, temp.path(), {});
+        QVERIFY(!invalidMode.valid);
+        QVERIFY(invalidMode.error.contains(QStringLiteral("open")));
 
-        PickerController multipleFolder;
-        QVERIFY(!multipleFolder.configure("folder", true, temp.path(), {}, &error));
-        QVERIFY(error.contains(QStringLiteral("multiple"), Qt::CaseInsensitive));
+        const PickerContract multipleFolder =
+            PickerContract::parse("folder", true, temp.path(), {});
+        QVERIFY(!multipleFolder.valid);
+        QVERIFY(multipleFolder.error.contains(QStringLiteral("multiple"), Qt::CaseInsensitive));
 
-        PickerController filteredFolder;
-        QVERIFY(!filteredFolder.configure(
-            "folder", false, temp.path(), {QStringLiteral("image/*")}, &error));
-        QVERIFY(error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
+        const PickerContract filteredFolder = PickerContract::parse(
+            "folder", false, temp.path(), {QStringLiteral("image/*")});
+        QVERIFY(!filteredFolder.valid);
+        QVERIFY(filteredFolder.error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
 
-        PickerController remoteInitial;
-        QVERIFY(!remoteInitial.configure(
-            "open", false, QStringLiteral("sftp://example.invalid/home"), {}, &error));
-        QVERIFY(error.contains(QStringLiteral("local"), Qt::CaseInsensitive));
+        const PickerContract remoteInitial = PickerContract::parse(
+            "open", false, QStringLiteral("sftp://example.invalid/home"), {});
+        QVERIFY(!remoteInitial.valid);
+        QVERIFY(remoteInitial.error.contains(QStringLiteral("local"), Qt::CaseInsensitive));
 
-        PickerController missingInitial;
-        QVERIFY(!missingInitial.configure(
-            "open", false, temp.filePath("missing"), {}, &error));
+        const PickerContract missingInitial = PickerContract::parse(
+            "open", false, temp.filePath("missing"), {});
+        QVERIFY(!missingInitial.valid);
     }
 
     void pickerOpenModeValidatesSelectionAndMultiplicity() {
@@ -161,31 +161,24 @@ private slots:
         writeFile(second);
         QVERIFY(QDir().mkpath(folder));
 
-        PickerController single;
-        QVERIFY(single.configure("open", false, temp.path(), {}));
+        const PickerContract single = PickerContract::parse("open", false, temp.path(), {});
+        QVERIFY(single.valid);
         QCOMPARE(single.modeName(), QStringLiteral("open"));
-        QVERIFY(!single.folderMode());
-        QVERIFY(!single.multiple());
-        QCOMPARE(single.initialDirectory(), QDir::cleanPath(temp.path()));
+        QVERIFY(!single.folderMode);
+        QVERIFY(!single.multiple);
+        QCOMPARE(single.initialDirectory, QDir::cleanPath(temp.path()));
         QVERIFY(single.canAccept({first}, temp.path()));
         QVERIFY(!single.canAccept({first, second}, temp.path()));
         QVERIFY(!single.canAccept({folder}, temp.path()));
         QVERIFY(!single.canAccept({QStringLiteral("smb://server.invalid/file.txt")}, temp.path()));
+        QCOMPARE(single.acceptedPaths({first}, temp.path()), QStringList({first}));
 
-        QSignalSpy accepted(&single, &PickerController::acceptedPaths);
-        QVERIFY(single.accept({first}, temp.path()));
-        QCOMPARE(accepted.count(), 1);
-        QCOMPARE(accepted.takeFirst().at(0).toStringList(), QStringList({first}));
-
-        PickerController multiple;
-        QVERIFY(multiple.configure("open", true, temp.path(), {}));
-        QVERIFY(multiple.multiple());
+        const PickerContract multiple = PickerContract::parse("open", true, temp.path(), {});
+        QVERIFY(multiple.valid);
+        QVERIFY(multiple.multiple);
         QVERIFY(multiple.canAccept({first, second}, temp.path()));
-
-        QSignalSpy multipleAccepted(&multiple, &PickerController::acceptedPaths);
-        QVERIFY(multiple.accept({first, second, first}, temp.path()));
         QCOMPARE(
-            multipleAccepted.takeFirst().at(0).toStringList(),
+            multiple.acceptedPaths({first, second, first}, temp.path()),
             QStringList({first, second}));
     }
 
@@ -198,26 +191,26 @@ private slots:
         writeFile(image, QByteArrayLiteral("not-decoded-by-picker"));
         writeFile(text, QByteArrayLiteral("plain text"));
 
-        PickerController images;
-        QVERIFY(images.configure(
+        const PickerContract images = PickerContract::parse(
             "open",
             false,
             temp.path(),
-            {QStringLiteral("image/*"), QStringLiteral(" image/png ")}));
+            {QStringLiteral("image/*"), QStringLiteral(" image/png ")});
+        QVERIFY(images.valid);
+        QCOMPARE(images.mimeTypes, QStringList({QStringLiteral("image/*"), QStringLiteral("image/png")}));
         QVERIFY(images.canAccept({image}, temp.path()));
         QVERIFY(!images.canAccept({text}, temp.path()));
 
-        PickerController textFiles;
-        QVERIFY(textFiles.configure(
-            "open", false, temp.path(), {QStringLiteral("text/plain")}));
+        const PickerContract textFiles = PickerContract::parse(
+            "open", false, temp.path(), {QStringLiteral("text/plain")});
+        QVERIFY(textFiles.valid);
         QVERIFY(textFiles.canAccept({text}, temp.path()));
         QVERIFY(!textFiles.canAccept({image}, temp.path()));
 
-        PickerController invalidFilter;
-        QString error;
-        QVERIFY(!invalidFilter.configure(
-            "open", false, temp.path(), {QStringLiteral("image")}, &error));
-        QVERIFY(error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
+        const PickerContract invalidFilter = PickerContract::parse(
+            "open", false, temp.path(), {QStringLiteral("image")});
+        QVERIFY(!invalidFilter.valid);
+        QVERIFY(invalidFilter.error.contains(QStringLiteral("MIME"), Qt::CaseInsensitive));
     }
 
     void pickerFolderModeReturnsCurrentDirectoryOnly() {
@@ -229,19 +222,15 @@ private slots:
         QVERIFY(QDir().mkpath(child));
         writeFile(file);
 
-        PickerController picker;
-        QVERIFY(picker.configure("folder", false, temp.path(), {}));
-        QVERIFY(picker.folderMode());
+        const PickerContract picker = PickerContract::parse("folder", false, temp.path(), {});
+        QVERIFY(picker.valid);
+        QVERIFY(picker.folderMode);
         QVERIFY(picker.canAccept({}, child));
         QVERIFY(picker.canAccept({file}, child));
         QVERIFY(!picker.canAccept({}, temp.filePath("missing")));
         QVERIFY(!picker.canAccept({}, QStringLiteral("sftp://example.invalid/home")));
-
-        QSignalSpy accepted(&picker, &PickerController::acceptedPaths);
-        QVERIFY(picker.accept({file}, child));
-        QCOMPARE(accepted.count(), 1);
         QCOMPARE(
-            accepted.takeFirst().at(0).toStringList(),
+            picker.acceptedPaths({file}, child),
             QStringList({QDir::cleanPath(child)}));
     }
 };
