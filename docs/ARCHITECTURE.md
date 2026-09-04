@@ -6,7 +6,7 @@ Ryoku is the product and integration authority. Atlas is a technical upstream/re
 
 Pinned development baselines:
 
-- Ryoku `unstable-dev`: `5f0d4d66416cd632e83cb6c335f285ada51190e0` (`0.57.7-beta.19`)
+- Ryoku `unstable-dev`: `cf568032944f41ab35a05d77d484f39924cfd046` (`0.58.0-beta.19`)
 - Atlas `main`: `f3c8e58336d72d9581be1b598c8af4be751c74e5`
 
 ## Layers
@@ -23,9 +23,9 @@ Ryoku-native QML presentation
 
 The UI never owns expensive filesystem work.
 
-## Phase 0 foundation
+## Foundation already in place
 
-The first bootstrap intentionally implements only a thin vertical slice:
+The repository now has the core native vertical slices required for daily file-manager work:
 
 1. native Qt 6 application shell;
 2. live `theme.json`, `shell.json`, and `colors.json` readers;
@@ -34,9 +34,18 @@ The first bootstrap intentionally implements only a thin vertical slice:
 5. motion/reduced-motion settings;
 6. asynchronous non-recursive directory scans;
 7. generation protection so stale scans cannot replace a newer directory;
-8. `QFileSystemWatcher` refresh for the active directory;
+8. `QFileSystemWatcher` refresh for active local directories;
 9. XDG standard places;
-10. a first rail + file-list UI to exercise the contracts.
+10. `DirectorySession` navigation history with stable selection/scroll state;
+11. tabs and split view;
+12. local operation queue with explicit conflict handling;
+13. Freedesktop Trash flows and confirmed permanent deletion;
+14. bounded thumbnail and text-preview work;
+15. cancellable deep search and local filename filtering;
+16. removable-storage and GVfs remote navigation/mutation support;
+17. Git status/actions and Ryoku-native contextual actions;
+18. explicit on-demand folder-size calculation outside the browsing path;
+19. lightweight picker bootstrap with separate `Ryofiles Picker` identity.
 
 ## Hard invariants
 
@@ -49,15 +58,26 @@ The first bootstrap intentionally implements only a thin vertical slice:
 - no root GUI;
 - portal integration must be opt-in/reversible until promoted by Ryoku itself.
 
+## Picker architecture
+
+Picker mode is intentionally a separate lightweight bootstrap path. `--picker` does not initialize the main window's Git, drive, network-management, Trash, clipboard-operation, or preview services. It reuses the same `DirectorySession`/`SessionFileModel` engine so picker behavior does not fork filesystem semantics.
+
+Phase A supports:
+
+- `--picker open`;
+- optional open-file multi-selection;
+- local initial directory;
+- exact and wildcard MIME filters;
+- `--picker folder` selecting the current local directory;
+- percent-encoded `file://` URI results on stdout;
+- distinct `Ryofiles Picker` / `ryofiles-picker` window identity.
+
+Save-file mode remains separate because the no-silent-overwrite invariant requires an explicit target-name and overwrite-confirmation state machine before portal integration.
+
 ## Next engine milestones
 
-- `DirectorySession` with navigation history and stable selection/scroll restoration;
-- granular model updates instead of full resets where safe;
-- operation queue + conflict state machine;
-- Freedesktop Trash implementation/audit;
-- thumbnail scheduler with viewport priority and bounded caches;
-- cancellable streaming recursive search;
-- UDisks2/GVfs integrations;
-- tabs, split view, previews, archives, Git overlays;
-- Ryoku actions and `--picker` mode;
-- narrow XDG FileChooser portal backend.
+- save-file picker with explicit overwrite confirmation and MIME/name filters;
+- archive browsing/extract/compress workflows with bounded background work;
+- narrow XDG FileChooser portal backend using the picker contract;
+- opt-in/reversible Ryoku portal routing and application compatibility testing;
+- broaden lazy preview types only where decoding/resource loading can stay bounded and safe.
