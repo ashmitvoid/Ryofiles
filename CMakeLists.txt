@@ -69,6 +69,7 @@ qt_add_qml_module(ryofiles
         qml/components/GitStatusBadge.qml
         qml/components/GitBranchChip.qml
         qml/components/GitAwarenessOverlay.qml
+        qml/components/GitDiffPanel.qml
         qml/components/OperationDrawer.qml
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
