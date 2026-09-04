@@ -261,13 +261,13 @@ PortalPickerRequest PortalPickerRequest::saveFiles(
         return request;
     }
 
-    request.saveFiles = PortalPickerParsing::decodeFileNames(
+    request.saveFileNames = PortalPickerParsing::decodeFileNames(
         options.value(QStringLiteral("files")), &parseError);
     if (!parseError.isEmpty()) {
         request.error = parseError;
         return request;
     }
-    if (request.saveFiles.isEmpty()) {
+    if (request.saveFileNames.isEmpty()) {
         request.error = QStringLiteral("SaveFiles request did not provide any file names");
         return request;
     }
@@ -357,7 +357,7 @@ PortalPickerResult PortalPickerResult::fromPickerStdout(
         }
 
         QStringList reserved;
-        for (const QString& requestedName : request.saveFiles) {
+        for (const QString& requestedName : request.saveFileNames) {
             const QString destinationName = PortalPickerParsing::uniqueDestinationName(
                 folder, requestedName, reserved);
             if (destinationName.isEmpty()) {
