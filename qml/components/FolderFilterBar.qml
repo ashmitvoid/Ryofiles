@@ -9,6 +9,7 @@ Item {
     required property var files
     property real uiScale: 1
     property bool expanded: false
+    property bool paneActive: true
 
     readonly property bool active: expanded || (files && files.filterQuery !== "")
 
@@ -45,11 +46,13 @@ Item {
 
     Shortcut {
         sequence: "Ctrl+F"
+        enabled: root.paneActive
         onActivated: root.open()
     }
 
     Shortcut {
         sequence: "Ctrl+Shift+F"
+        enabled: root.paneActive
         onActivated: root.deepSearchRequested(field.text)
     }
 
@@ -189,13 +192,6 @@ Item {
         session: root.session
         files: root.files
         desktop: Desktop
-        uiScale: root.uiScale
-    }
-
-    GitAwarenessOverlay {
-        parent: root.parent
-        anchors.fill: parent
-        session: root.session
         uiScale: root.uiScale
     }
 

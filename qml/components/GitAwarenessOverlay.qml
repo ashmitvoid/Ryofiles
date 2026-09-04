@@ -7,10 +7,13 @@ Item {
 
     required property var session
     property real uiScale: 1
+    property bool active: true
 
     z: 45
 
     function syncPath() {
+        if (!root.active)
+            return
         if (root.session)
             GitStatus.path = root.session.path
         else
@@ -18,7 +21,7 @@ Item {
     }
 
     function refreshIfCurrent() {
-        if (!root.session || !root.session.model)
+        if (!root.active || !root.session || !root.session.model)
             return
         if (root.session.model.loading)
             return
@@ -33,6 +36,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 8 * root.uiScale
         uiScale: root.uiScale
+        visible: root.active
     }
 
     Connections {
@@ -46,10 +50,11 @@ Item {
     }
 
     onSessionChanged: root.syncPath()
+    onActiveChanged: root.syncPath()
 
     Component.onCompleted: root.syncPath()
     Component.onDestruction: {
-        if (root.session && GitStatus.path === root.session.path)
+        if (root.active && root.session && GitStatus.path === root.session.path)
             GitStatus.path = ""
     }
 }

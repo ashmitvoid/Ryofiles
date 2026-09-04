@@ -147,10 +147,10 @@ Window {
 
         return [
             { id: "nav.location", label: "Go to Location", detail: "Focus the path field", keywords: "path address folder location", shortcut: "Ctrl+L", category: "NAV", enabled: browsing },
-            { id: "nav.back", label: "Go Back", detail: "Previous folder in this tab", keywords: "history previous", shortcut: "Alt+Left", category: "NAV", enabled: browsing && root.session.canGoBack },
-            { id: "nav.forward", label: "Go Forward", detail: "Next folder in this tab", keywords: "history next", shortcut: "Alt+Right", category: "NAV", enabled: browsing && root.session.canGoForward },
+            { id: "nav.back", label: "Go Back", detail: "Previous folder in this pane", keywords: "history previous", shortcut: "Alt+Left", category: "NAV", enabled: browsing && root.session.canGoBack },
+            { id: "nav.forward", label: "Go Forward", detail: "Next folder in this pane", keywords: "history next", shortcut: "Alt+Right", category: "NAV", enabled: browsing && root.session.canGoForward },
             { id: "nav.up", label: "Go Up", detail: "Parent directory", keywords: "parent directory", shortcut: "Alt+Up", category: "NAV", enabled: browsing },
-            { id: "folder.refresh", label: "Refresh", detail: root.trashMode ? "Refresh Trash" : "Refresh current folder", keywords: "reload rescan", shortcut: "Ctrl+R", category: "NAV", enabled: hasSession || root.trashMode },
+            { id: "folder.refresh", label: "Refresh", detail: root.trashMode ? "Refresh Trash" : "Refresh active pane", keywords: "reload rescan", shortcut: "Ctrl+R", category: "NAV", enabled: hasSession || root.trashMode },
 
             { id: "tab.new", label: "New Tab", detail: "Open another directory tab", keywords: "create tab", shortcut: "Ctrl+T", category: "TAB", enabled: true },
             { id: "tab.duplicate", label: "Duplicate Tab", detail: "Open this folder in another tab", keywords: "clone tab", shortcut: "", category: "TAB", enabled: hasSession },
@@ -159,23 +159,26 @@ Window {
             { id: "tab.next", label: "Next Tab", detail: "Activate the next tab", keywords: "cycle tab", shortcut: "Ctrl+Tab", category: "TAB", enabled: tabs.count > 1 },
             { id: "tab.previous", label: "Previous Tab", detail: "Activate the previous tab", keywords: "cycle tab", shortcut: "Ctrl+Shift+Tab", category: "TAB", enabled: tabs.count > 1 },
 
-            { id: "view.list", label: "List View", detail: "Compact file rows", keywords: "compact view mode", shortcut: "Ctrl+1", category: "VIEW", enabled: browsing && root.session.viewMode !== 0 },
-            { id: "view.grid", label: "Grid View", detail: "Thumbnail grid", keywords: "tiles view mode", shortcut: "Ctrl+2", category: "VIEW", enabled: browsing && root.session.viewMode !== 1 },
-            { id: "view.details", label: "Details View", detail: "Detailed file rows", keywords: "columns view mode", shortcut: "Ctrl+3", category: "VIEW", enabled: browsing && root.session.viewMode !== 2 },
-            { id: "view.hidden", label: hiddenVisible ? "Hide Hidden Files" : "Show Hidden Files", detail: "Toggle dotfiles in this folder", keywords: "dotfiles hidden visibility", shortcut: "Ctrl+H", category: "VIEW", enabled: browsing && root.files !== null },
-            { id: "view.preview", label: previewVisible ? "Close Preview" : "Open Preview", detail: "Toggle the lazy preview pane", keywords: "preview inspect pane", shortcut: "", category: "VIEW", enabled: browsing },
+            { id: "view.list", label: "List View", detail: "Compact file rows in active pane", keywords: "compact view mode", shortcut: "Ctrl+1", category: "VIEW", enabled: browsing && root.session.viewMode !== 0 },
+            { id: "view.grid", label: "Grid View", detail: "Thumbnail grid in active pane", keywords: "tiles view mode", shortcut: "Ctrl+2", category: "VIEW", enabled: browsing && root.session.viewMode !== 1 },
+            { id: "view.details", label: "Details View", detail: "Detailed rows in active pane", keywords: "columns view mode", shortcut: "Ctrl+3", category: "VIEW", enabled: browsing && root.session.viewMode !== 2 },
+            { id: "view.hidden", label: hiddenVisible ? "Hide Hidden Files" : "Show Hidden Files", detail: "Toggle dotfiles in active pane", keywords: "dotfiles hidden visibility", shortcut: "Ctrl+H", category: "VIEW", enabled: browsing && root.files !== null },
+            { id: "view.preview", label: previewVisible ? "Close Preview" : "Open Preview", detail: "Toggle the active pane preview", keywords: "preview inspect pane", shortcut: "Ctrl+Shift+P", category: "VIEW", enabled: browsing },
+            { id: "view.split", label: tabs.split ? "Close Split View" : "Open Split View", detail: tabs.split ? "Return this tab to one pane" : "Open a second independent pane", keywords: "dual two pane split", shortcut: "F3", category: "VIEW", enabled: browsing },
+            { id: "view.otherPane", label: "Activate Other Pane", detail: "Move keyboard focus to the other split pane", keywords: "switch pane focus", shortcut: "F6", category: "VIEW", enabled: browsing && tabs.split },
+            { id: "view.swapPanes", label: "Swap Split Panes", detail: "Exchange the complete left and right pane sessions", keywords: "reverse exchange pane", shortcut: "", category: "VIEW", enabled: browsing && tabs.split },
 
             { id: "selection.all", label: "Select All", detail: "Select every visible item", keywords: "selection files", shortcut: "Ctrl+A", category: "FILE", enabled: browsing && root.files !== null && root.files.count > 0 },
             { id: "selection.copy", label: "Copy Selection", detail: "Copy selected files", keywords: "clipboard files", shortcut: "Ctrl+C", category: "FILE", enabled: browsing && hasSelection },
             { id: "selection.cut", label: "Cut Selection", detail: "Move selected files on paste", keywords: "clipboard move files", shortcut: "Ctrl+X", category: "FILE", enabled: browsing && hasSelection },
-            { id: "selection.paste", label: "Paste", detail: "Paste clipboard into this folder", keywords: "clipboard files", shortcut: "Ctrl+V", category: "FILE", enabled: browsing && FileClipboard.hasFiles },
-            { id: "folder.new", label: "New Folder", detail: "Create a folder here", keywords: "mkdir create directory", shortcut: "Ctrl+Shift+N", category: "FILE", enabled: browsing },
+            { id: "selection.paste", label: "Paste", detail: "Paste clipboard into the active pane", keywords: "clipboard files", shortcut: "Ctrl+V", category: "FILE", enabled: browsing && FileClipboard.hasFiles },
+            { id: "folder.new", label: "New Folder", detail: "Create a folder in the active pane", keywords: "mkdir create directory", shortcut: "Ctrl+Shift+N", category: "FILE", enabled: browsing },
             { id: "selection.rename", label: "Rename", detail: "Rename the selected item", keywords: "name file folder", shortcut: "F2", category: "FILE", enabled: browsing && oneSelected },
             { id: "selection.duplicate", label: "Duplicate Selection", detail: "Create copies beside selected items", keywords: "clone copy files", shortcut: "Ctrl+Shift+D", category: "FILE", enabled: browsing && hasSelection },
             { id: "selection.trash", label: "Move Selection to Trash", detail: "Trash selected files", keywords: "delete remove recycle", shortcut: "Delete", category: "FILE", enabled: browsing && hasSelection },
 
             { id: "trash.open", label: "Open Trash", detail: "Browse deleted items", keywords: "recycle deleted restore", shortcut: "", category: "NAV", enabled: !root.trashMode },
-            { id: "trash.leave", label: "Leave Trash", detail: "Return to the active directory tab", keywords: "back files folder", shortcut: "", category: "NAV", enabled: root.trashMode && hasSession },
+            { id: "trash.leave", label: "Leave Trash", detail: "Return to the active directory pane", keywords: "back files folder", shortcut: "", category: "NAV", enabled: root.trashMode && hasSession },
 
             { id: "dev.terminal", label: "Open Terminal Here", detail: "Use Ryoku's configured terminal", keywords: "shell console ryoku-app", shortcut: "", category: "DEV", enabled: browsing },
             { id: "dev.copyPath", label: "Copy Current Folder Path", detail: hasSession ? root.session.path : "", keywords: "clipboard directory path", shortcut: "", category: "DEV", enabled: browsing },
@@ -218,6 +221,12 @@ Window {
             if (root.files) root.files.showHidden = !root.files.showHidden
         } else if (commandId === "view.preview") {
             if (root.session) root.session.previewVisible = !root.session.previewVisible
+        } else if (commandId === "view.split") {
+            tabs.toggleSplitView()
+        } else if (commandId === "view.otherPane") {
+            if (tabs.split) tabs.activePane = tabs.activePane === 0 ? 1 : 0
+        } else if (commandId === "view.swapPanes") {
+            tabs.swapPanes()
         } else if (commandId === "selection.all") {
             if (root.session) root.session.selectAll()
         } else if (commandId === "selection.copy") {
@@ -388,6 +397,12 @@ Window {
         sequence: "Ctrl+K"
         enabled: !root.modalOpen
         onActivated: commandPalette.open()
+    }
+
+    Shortcut {
+        sequence: "F3"
+        enabled: !root.modalOpen && !root.trashMode && root.session !== null
+        onActivated: tabs.toggleSplitView()
     }
 
     Shortcut {
@@ -751,55 +766,13 @@ Window {
                 anchors.bottom: status.top
                 anchors.margins: 20 * root.u
 
-                Component {
-                    id: compactView
-                    FileListView {
-                        session: root.session
-                        files: root.files
-                        uiScale: root.u
-                        compact: true
-                        onContextRequested: function(sceneX, sceneY, path, isDirectory) {
-                            root.openContextMenu(sceneX, sceneY, path, isDirectory)
-                        }
-                    }
-                }
-
-                Component {
-                    id: gridView
-                    FileGridView {
-                        session: root.session
-                        files: root.files
-                        uiScale: root.u
-                        onContextRequested: function(sceneX, sceneY, path, isDirectory) {
-                            root.openContextMenu(sceneX, sceneY, path, isDirectory)
-                        }
-                    }
-                }
-
-                Component {
-                    id: detailsView
-                    FileListView {
-                        session: root.session
-                        files: root.files
-                        uiScale: root.u
-                        compact: false
-                        onContextRequested: function(sceneX, sceneY, path, isDirectory) {
-                            root.openContextMenu(sceneX, sceneY, path, isDirectory)
-                        }
-                    }
-                }
-
-                Loader {
+                SplitPaneContainer {
                     anchors.fill: parent
-                    active: !root.trashMode && root.session !== null && root.files !== null
-                    sourceComponent: {
-                        if (!root.session)
-                            return null
-                        if (root.session.viewMode === 0)
-                            return compactView
-                        if (root.session.viewMode === 1)
-                            return gridView
-                        return detailsView
+                    visible: !root.trashMode
+                    tabs: tabs
+                    uiScale: root.u
+                    onContextRequested: function(sceneX, sceneY, path, isDirectory) {
+                        root.openContextMenu(sceneX, sceneY, path, isDirectory)
                     }
                 }
 
@@ -809,43 +782,6 @@ Window {
                     trash: trash
                     uiScale: root.u
                     onRestoreRequested: itemId => trash.restore(itemId, 0)
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    visible: !root.trashMode
-                        && root.files
-                        && !root.files.loading
-                        && root.files.count === 0
-                    text: "// EMPTY_\nThis folder has no visible items"
-                    color: Ryoku.inkMuted
-                    horizontalAlignment: Text.AlignHCenter
-                    font.family: Ryoku.monoFont
-                    font.pixelSize: 11 * root.u
-                    lineHeight: 1.7
-                }
-
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    anchors.margins: 8 * root.u
-                    width: loadingLabel.implicitWidth + 18 * root.u
-                    height: 26 * root.u
-                    visible: !root.trashMode && root.files && root.files.loading
-                    radius: 6 * root.u
-                    color: Ryoku.paperLift
-                    border.width: 1
-                    border.color: Ryoku.line
-
-                    Text {
-                        id: loadingLabel
-                        anchors.centerIn: parent
-                        text: "READING…"
-                        color: Ryoku.inkMuted
-                        font.family: Ryoku.monoFont
-                        font.pixelSize: 9 * root.u
-                        font.letterSpacing: 1.1
-                    }
                 }
             }
 
@@ -878,6 +814,7 @@ Window {
                                 : "")
                                + (root.files ? root.files.count : 0) + " items"
                                + (root.files && root.files.showHidden ? "  // hidden visible" : "")
+                               + (tabs.split ? "  // pane " + (tabs.activePane + 1) + "/2" : "")
                                + "  // " + tabs.count + (tabs.count === 1 ? " tab" : " tabs")))
                     color: root.lastError !== "" ? Ryoku.sun : Ryoku.inkMuted
                     font.family: Ryoku.monoFont
@@ -890,7 +827,7 @@ Window {
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.trashMode
                         ? "RESTORE ITEMS   CTRL+R REFRESH"
-                        : "CTRL+K COMMANDS   CTRL+SHIFT+N NEW   F2 RENAME"
+                        : "CTRL+K COMMANDS   F3 SPLIT   F6 PANE   F2 RENAME"
                     color: Ryoku.inkFaint
                     font.family: Ryoku.monoFont
                     font.pixelSize: 9 * root.u

@@ -62,6 +62,8 @@ qt_add_qml_module(ryofiles
         qml/Main.qml
         qml/components/RyokuRail.qml
         qml/components/TabStrip.qml
+        qml/components/FilePane.qml
+        qml/components/SplitPaneContainer.qml
         qml/components/FileListView.qml
         qml/components/FileGridView.qml
         qml/components/FolderFilterBar.qml
@@ -241,6 +243,29 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME git-actions COMMAND ryofiles_git_action_tests)
+
+    qt_add_executable(ryofiles_tab_split_tests
+        tests/TabManagerSplitTest.cpp
+        src/navigation/TabManager.hpp
+        src/navigation/TabManager.cpp
+        src/navigation/DirectorySession.hpp
+        src/navigation/DirectorySession.cpp
+        src/fs/DirectoryModel.hpp
+        src/fs/DirectoryModel.cpp
+        src/search/DeepSearchModel.hpp
+        src/search/DeepSearchModel.cpp
+    )
+
+    target_include_directories(ryofiles_tab_split_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_tab_split_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME tab-split COMMAND ryofiles_tab_split_tests)
 endif()
 
 install(TARGETS ryofiles

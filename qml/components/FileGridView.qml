@@ -8,6 +8,7 @@ Item {
     required property var session
     required property var files
     property real uiScale: 1
+    property bool paneActive: true
 
     property bool restoring: false
     property bool pointerSelection: false
@@ -17,6 +18,7 @@ Item {
         Math.max(220 * root.uiScale, root.width * 0.34))
 
     signal contextRequested(real sceneX, real sceneY, string path, bool isDirectory)
+    signal paneActivated()
 
     clip: true
 
@@ -59,7 +61,7 @@ Item {
 
     Shortcut {
         sequence: "Ctrl+Shift+P"
-        enabled: root.session !== null
+        enabled: root.paneActive && root.session !== null
         onActivated: root.session.previewVisible = !root.session.previewVisible
     }
 
@@ -72,6 +74,7 @@ Item {
         session: root.session
         files: root.files
         uiScale: root.uiScale
+        paneActive: root.paneActive
     }
 
     GridView {
@@ -205,6 +208,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
 
                 onClicked: function(event) {
+                    root.paneActivated()
                     root.pointerSelection = true
                     view.currentIndex = tile.index
 
@@ -231,6 +235,7 @@ Item {
                 }
 
                 onDoubleClicked: function(event) {
+                    root.paneActivated()
                     view.currentIndex = tile.index
                     root.session.activate(tile.index)
                 }
@@ -286,7 +291,10 @@ Item {
         }
 
         TapHandler {
-            onTapped: if (root.session) root.session.previewVisible = true
+            onTapped: {
+                root.paneActivated()
+                if (root.session) root.session.previewVisible = true
+            }
         }
     }
 
@@ -301,7 +309,8 @@ Item {
     }
 
     Component.onCompleted: {
-        view.forceActiveFocus()
+        if (root.paneActive)
+            view.forceActiveFocus()
         restoreState()
     }
 }
