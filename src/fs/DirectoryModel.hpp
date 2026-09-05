@@ -4,6 +4,7 @@
 #include <QAbstractListModel>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
+#include <QStringList>
 #include <QTimer>
 
 class DirectoryModel : public QAbstractListModel {
@@ -14,6 +15,7 @@ class DirectoryModel : public QAbstractListModel {
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
     Q_PROPERTY(QString filterQuery READ filterQuery WRITE setFilterQuery NOTIFY filterQueryChanged)
+    Q_PROPERTY(QStringList portalNameFilters READ portalNameFilters WRITE setPortalNameFilters NOTIFY portalNameFiltersChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
 
     Q_PROPERTY(QString home READ home CONSTANT)
@@ -56,6 +58,9 @@ public:
     QString filterQuery() const { return m_filterQuery; }
     void setFilterQuery(const QString& query);
 
+    QStringList portalNameFilters() const { return m_portalNameFilters; }
+    void setPortalNameFilters(const QStringList& filters);
+
     QString home() const;
     QString desktop() const;
     QString documents() const;
@@ -78,6 +83,7 @@ signals:
     void activeChanged();
     void showHiddenChanged();
     void filterQueryChanged();
+    void portalNameFiltersChanged();
     void countChanged();
     void errorOccurred(const QString& message);
 
@@ -98,7 +104,10 @@ private:
     void setLoading(bool loading);
     void rebuildFilteredEntries();
     static QList<Entry> scanDirectory(const QString& path, bool showHidden, QString* error);
-    static QList<Entry> filterEntries(const QList<Entry>& entries, const QString& query);
+    static QList<Entry> filterEntries(
+        const QList<Entry>& entries,
+        const QString& query,
+        const QStringList& portalNameFilters);
     static QString formatSize(qint64 bytes);
     static QString standardPath(int location);
     static bool thumbnailCandidateFor(const QFileInfo& info);
@@ -107,6 +116,7 @@ private:
     QList<Entry> m_entries;
     QString m_path;
     QString m_filterQuery;
+    QStringList m_portalNameFilters;
     bool m_loading = false;
     bool m_active = true;
     bool m_showHidden = false;
