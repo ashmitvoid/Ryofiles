@@ -14,6 +14,7 @@
 #include <QStringList>
 #include <QVector>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -21,6 +22,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <utility>
 
 namespace {
 
@@ -146,11 +148,13 @@ ParentLookup openParentDirectory(
             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
 
         if (nextFd < 0 && errno == ENOENT && createParents) {
-            if (::mkdirat(current.get(), encoded.constData(), 0755) < 0 && errno != EEXIST) {
+            const bool createdDirectory =
+                ::mkdirat(current.get(), encoded.constData(), 0755) == 0;
+            if (!createdDirectory && errno != EEXIST) {
                 result.error = systemError(QStringLiteral("Could not create extraction directory"), prefix);
                 return result;
             }
-            if (errno != EEXIST)
+            if (createdDirectory)
                 recordCreated(prefix, true, created, recorded);
 
             nextFd = ::openat(
@@ -514,14 +518,24 @@ ArchiveExtractionResult ArchiveExtractor::extract(
             continue;
         }
 
+        if (rawSymlink)
+            return fail(QStringLiteral("Archive entry has symlink metadata but is not a symlink: %1")
+                            .arg(normalizedPath));
+
         if (fileType != AE_IFREG)
             return fail(QStringLiteral("Archive contains an unsupported special filesystem entry: %1")
                             .arg(normalizedPath));
 
-        const la_int64_t declaredSize = archive_entry_size(entry);
-        if (declaredSize > 0) {
+        const bool declaredSizeKnown = archive_entry_size_is_set(entry) != 0;
+        const la_int64_t declaredSize = declaredSizeKnown ? archive_entry_size(entry) : 0;
+        if (declaredSizeKnown && declaredSize < 0)
+            return fail(QStringLiteral("Archive file has an invalid negative size: %1")
+                            .arg(normalizedPath));
+
+        if (declaredSizeKnown) {
             const quint64 logicalSize = static_cast<quint64>(declaredSize);
-            if (logicalSize > limits.maximumExpandedBytes - qMin(logicalExpandedBytes, limits.maximumExpandedBytes))
+            if (logicalExpandedBytes > limits.maximumExpandedBytes
+                || logicalSize > limits.maximumExpandedBytes - logicalExpandedBytes)
                 return fail(QStringLiteral("Archive exceeds the configured expanded-size limit"));
             logicalExpandedBytes += logicalSize;
         }
@@ -545,7 +559,7 @@ ArchiveExtractionResult ArchiveExtractor::extract(
                 QStringLiteral("Could not create extracted file without overwrite"), normalizedPath));
         recordCreated(normalizedPath, false, &created, &recordedCreated);
 
-        quint64 unknownSizeBytes = 0;
+        quint64 unknownLogicalSize = 0;
         for (;;) {
             if (cancelRequested.load(std::memory_order_relaxed))
                 return cancel();
@@ -563,13 +577,25 @@ ArchiveExtractionResult ArchiveExtractor::extract(
                     > static_cast<unsigned long long>(std::numeric_limits<off_t>::max()))
                 return fail(QStringLiteral("Archive file contains an invalid sparse-data offset"));
 
-            if (declaredSize <= 0) {
-                if (blockSize > limits.maximumExpandedBytes
-                    || unknownSizeBytes > limits.maximumExpandedBytes - blockSize
-                    || logicalExpandedBytes > limits.maximumExpandedBytes - unknownSizeBytes - blockSize)
+            const quint64 logicalOffset = static_cast<quint64>(blockOffset);
+            if (blockSize > std::numeric_limits<quint64>::max() - logicalOffset)
+                return fail(QStringLiteral("Archive file sparse extent overflows the logical-size counter"));
+            const quint64 logicalExtent = logicalOffset + static_cast<quint64>(blockSize);
+
+            if (declaredSizeKnown) {
+                if (logicalExtent > static_cast<quint64>(declaredSize))
+                    return fail(QStringLiteral("Archive file data exceeds its declared size: %1")
+                                    .arg(normalizedPath));
+            } else {
+                if (logicalExpandedBytes > limits.maximumExpandedBytes
+                    || logicalExtent > limits.maximumExpandedBytes - logicalExpandedBytes)
                     return fail(QStringLiteral("Archive exceeds the configured expanded-size limit"));
-                unknownSizeBytes += static_cast<quint64>(blockSize);
+                unknownLogicalSize = std::max(unknownLogicalSize, logicalExtent);
             }
+
+            if (static_cast<quint64>(blockSize)
+                > std::numeric_limits<quint64>::max() - result.bytesWritten)
+                return fail(QStringLiteral("Archive written-byte counter overflow"));
 
             QString writeError;
             if (!writeAllAt(
@@ -585,8 +611,8 @@ ArchiveExtractionResult ArchiveExtractor::extract(
                 progress({normalizedPath, result.entriesExtracted, result.bytesWritten});
         }
 
-        if (declaredSize <= 0)
-            logicalExpandedBytes += unknownSizeBytes;
+        if (!declaredSizeKnown)
+            logicalExpandedBytes += unknownLogicalSize;
         else if (::ftruncate(output.get(), static_cast<off_t>(declaredSize)) < 0)
             return fail(systemError(QStringLiteral("Could not finalize extracted file size"), normalizedPath));
 
