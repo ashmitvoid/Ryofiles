@@ -41,6 +41,9 @@ jobs:
       - name: FileChooser public broker smoke
         shell: bash
         run: bash tests/FileChooserBrokerSmoke.sh "$PWD/build/ryofiles"
+      - name: FileChooser public broker request matrix
+        shell: bash
+        run: bash tests/FileChooserBrokerMatrix.sh "$PWD/build/ryofiles"
       - name: Configure portal routing helper
         run: >-
           cmake -S tools/portalctl -B build-portalctl -G Ninja
