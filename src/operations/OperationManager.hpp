@@ -32,6 +32,7 @@ public:
         CreateFolderOperation,
         DeleteOperation,
         ExtractOperation,
+        CreateArchiveOperation,
     };
     Q_ENUM(OperationKind)
 
@@ -90,6 +91,12 @@ public:
         const QString& archivePath,
         const QString& destinationDirectory);
     Q_INVOKABLE QString extractArchiveHere(const QString& archivePath);
+    Q_INVOKABLE bool canCreateArchive(
+        const QStringList& sources,
+        const QString& archivePath) const;
+    Q_INVOKABLE QString createArchive(
+        const QStringList& sources,
+        const QString& archivePath);
 
     Q_INVOKABLE void cancel(const QString& jobId);
     Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
@@ -142,6 +149,9 @@ private:
     QString startExtractionJob(
         const QString& archivePath,
         const QString& destinationDirectory);
+    QString startArchiveCreationJob(
+        const QStringList& sources,
+        const QString& archivePath);
 
     std::shared_ptr<Job> findJob(const QString& id) const;
     static bool terminal(OperationState state);
