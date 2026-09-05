@@ -100,7 +100,7 @@ jobs:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake git ninja glib2 gvfs qt6-base qt6-declarative
+          base-devel cmake git ninja glib2 gvfs libarchive qt6-base qt6-declarative
 
       - name: Checkout exact package source SHA
         uses: actions/checkout@v4
@@ -212,3 +212,8 @@ jobs:
             echo 'Installed package has unresolved runtime libraries.' >&2
             exit 1
           fi
+
+          grep -Eq 'libarchive\.so' /tmp/ryofiles-ldd.txt || {
+            echo 'Installed Ryofiles binary is not linked against libarchive.' >&2
+            exit 1
+          }

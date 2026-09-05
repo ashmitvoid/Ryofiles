@@ -2,7 +2,7 @@
 
 Ryofiles is a native C++20 / Qt 6 / QML file manager built specifically for the Ryoku desktop and Hyprland.
 
-> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, and the FileChooser portal backend with filter/choice handling and parent-window integration are implemented; broader application compatibility hardening and archive workflows remain in progress.
+> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, the FileChooser portal backend with filter/choice handling and parent-window integration, and a secure headless archive-extraction core are implemented; archive UI/compression workflows and broader real-application compatibility hardening remain in progress.
 
 ## Project direction
 
@@ -19,6 +19,7 @@ Ryofiles is Ryoku-first:
 - Ryoku-specific actions such as **Install with Ryoku** and **Compress with Ryoku**
 - lightweight `--picker` bootstrap that avoids initializing unrelated main-window services
 - local-only XDG FileChooser backend using the same picker validation contract
+- libarchive-backed extraction core with dirfd-anchored writes, traversal protection, no-overwrite behavior, cancellation, rollback, and bounded entry/expanded-size limits
 
 ## Compatibility baselines
 
@@ -83,6 +84,25 @@ After an enable/disable change, restart `xdg-desktop-portal` or log out and back
 
 Before uninstalling Ryofiles after using the managed route, run `ryofiles-portalctl disable` so the exact previous FileChooser line is restored. The package itself never changes routing during install or removal.
 
+## Archive extraction core
+
+Ryofiles now has a headless libarchive-backed extraction engine. This is the security and operation layer that the later archive UI will call; this branch does **not** expose an Extract action in QML yet.
+
+The engine:
+
+- reads libarchive-supported formats/filters and is tested with tar, tar.gz, zip, and 7z;
+- validates every archive entry through `ArchivePathGuard` before touching the destination;
+- anchors filesystem operations to an opened destination-directory descriptor and walks parent directories with `O_NOFOLLOW` instead of changing the process working directory;
+- creates regular files with `O_EXCL`, so an existing file/link is never silently overwritten;
+- allows existing real directories as extraction containers but refuses a symlink where a directory is expected;
+- rejects device nodes, FIFOs, sockets, unsafe hardlink targets, and symlinks that lexically escape the extraction root;
+- defers hardlinks until a regular in-root target has been extracted, including safe forward references;
+- rolls back files, links, and directories created by the current extraction when it fails or is cancelled, while leaving pre-existing destination content untouched;
+- reports current entry / extracted-entry / written-byte progress and accepts an atomic cancellation flag;
+- applies configurable entry-count and expanded-size ceilings (defaults: 1,000,000 entries and 1 TiB logical expanded data).
+
+Archive metadata that cannot be represented as valid UTF-8 is rejected rather than lossy-decoded into a potentially different path. Compression creation, conflict/replace UI, archive browsing, and remote archive extraction remain separate later slices.
+
 ## Non-negotiable performance rules
 
 1. Never recursively calculate folder sizes automatically.
@@ -95,7 +115,7 @@ Before uninstalling Ryofiles after using the managed route, run `ryofiles-portal
 
 ## Build
 
-Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, builds/tests the headless portal-routing helper independently, runs the full test suite, exercises FileChooser success/cancellation plus structured filter/choice and parent-metadata propagation on a private session D-Bus, and smoke-tests staged installs on Linux. Arch package CI is triggered by all shipped C++/QML changes and separately verifies package payload, portal registration neutrality, routing-helper tests, exact source SHA, installation, and runtime linkage.
+Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, including archive path/extraction torture tests, builds/tests the headless portal-routing helper independently, runs the full test suite, exercises FileChooser success/cancellation plus structured filter/choice and parent-metadata propagation on a private session D-Bus, and smoke-tests staged installs on Linux. Arch package CI is triggered by all shipped C++/QML changes and separately verifies package payload, portal registration neutrality, routing-helper tests, exact source SHA, installation, runtime linkage, and the production binary's libarchive dependency.
 
 ## License
 
