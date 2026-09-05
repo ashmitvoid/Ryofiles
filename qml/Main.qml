@@ -19,6 +19,7 @@ Window {
     readonly property bool modalOpen:
         conflictSheet.visible
         || renameSheet.visible
+        || archiveCreateSheet.visible
         || contextMenu.visible
         || openWithSheet.visible
         || propertiesSheet.visible
@@ -297,6 +298,7 @@ Window {
         openWithSheet.visible = false
         propertiesSheet.visible = false
         renameSheet.visible = false
+        archiveCreateSheet.visible = false
         commandPalette.close()
     }
 
@@ -324,6 +326,7 @@ Window {
                 openWithSheet.visible = false
                 propertiesSheet.visible = false
                 renameSheet.visible = false
+                archiveCreateSheet.visible = false
                 root.pendingRenamePath = ""
                 root.pendingCreateFolder = false
             }
@@ -881,6 +884,12 @@ Window {
 
             onDuplicateRequested: root.duplicateSelection()
 
+            onCreateArchiveRequested: function(paths) {
+                if (!paths || paths.length === 0 || !root.session || root.session.remote)
+                    return
+                archiveCreateSheet.openFor(paths)
+            }
+
             onExtractHereRequested: {
                 if (targetPath === "" || !root.session || root.session.remote)
                     return
@@ -985,6 +994,29 @@ Window {
                 visible = false
                 root.pendingRenamePath = ""
                 root.pendingCreateFolder = false
+            }
+        }
+
+        ArchiveCreateSheet {
+            id: archiveCreateSheet
+            uiScale: root.u
+
+            onAccepted: function(paths, archivePath) {
+                var id = operations.createArchive(paths, archivePath)
+                if (id === "") {
+                    errorText = "Could not start archive creation. Check the name, format, and destination."
+                    return
+                }
+
+                sourcePaths = []
+                errorText = ""
+                visible = false
+            }
+
+            onCancelled: {
+                sourcePaths = []
+                errorText = ""
+                visible = false
             }
         }
     }

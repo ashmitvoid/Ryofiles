@@ -41,6 +41,7 @@ Item {
     signal cutRequested()
     signal pasteIntoRequested()
     signal duplicateRequested()
+    signal createArchiveRequested(var paths)
     signal extractHereRequested()
     signal renameRequested()
     signal trashRequested()
@@ -418,6 +419,7 @@ Item {
                     { label: "CUT", action: "cut", enabled: root.selectionCount > 0, visible: true },
                     { label: "PASTE INTO", action: "pasteinto", enabled: root.clipboardHasFiles, visible: root.targetIsDirectory && root.selectionCount === 1 },
                     { label: "DUPLICATE", action: "duplicate", enabled: root.selectionCount > 0, visible: true },
+                    { label: "CREATE ARCHIVE…", action: "createarchive", enabled: root.selectionCount > 0 && root.operationManager !== null, visible: root.selectionCount > 0 },
                     { label: "EXTRACT HERE", action: "extracthere", enabled: root.archiveExtractAvailable, visible: root.archiveExtractAvailable },
                     { label: "EXTRACT TO…", action: "extractto", enabled: root.archiveExtractAvailable && !Desktop.folderPickerBusy, visible: root.archiveExtractAvailable },
                     { label: "RYOKU · INSTALL", action: "ryokuinstall", enabled: root.ryokuInstallAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuInstallAvailable },
@@ -497,6 +499,11 @@ Item {
                             }
                             if (action === "extractto") {
                                 root.startExtractTo()
+                                return
+                            }
+                            if (action === "createarchive") {
+                                root.createArchiveRequested(root.selectedPaths)
+                                root.visible = false
                                 return
                             }
                             if (action === "permadelete") {

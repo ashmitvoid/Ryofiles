@@ -100,13 +100,15 @@ Rectangle {
             required property var bytesProcessed
 
             width: list.width
-            height: (job.kind === "extract" ? 78 : 62) * root.uiScale
+            height: (job.archiveActivity ? 78 : 62) * root.uiScale
 
             readonly property bool conflictState:
                 state === "conflict" || state === "waiting"
             readonly property bool active:
                 state === "queued" || state === "running" || conflictState
             readonly property bool extraction: kind === "extract"
+            readonly property bool creation: kind === "create archive"
+            readonly property bool archiveActivity: extraction || creation
 
             Text {
                 id: title
@@ -133,7 +135,9 @@ Rectangle {
                     ? job.errorText
                     : (job.extraction
                         ? (job.source !== "" ? job.source : job.destination)
-                        : (job.currentSource !== "" ? job.currentSource : job.destination))
+                        : (job.creation
+                            ? job.destination
+                            : (job.currentSource !== "" ? job.currentSource : job.destination)))
                 elide: Text.ElideMiddle
                 color: job.errorText !== "" ? Ryoku.sun : Ryoku.inkMuted
                 font.family: Ryoku.uiFont
@@ -145,11 +149,11 @@ Rectangle {
                 anchors.top: detail.bottom
                 anchors.topMargin: 4 * root.uiScale
                 width: title.width
-                visible: job.extraction && job.errorText === ""
+                visible: job.archiveActivity && job.errorText === ""
                 text: {
                     var telemetry = Number(job.entriesProcessed) + " entries  //  "
                         + root.formatBytes(job.bytesProcessed)
-                    if (job.currentSource !== "" && job.currentSource !== job.source)
+                    if (job.currentSource !== "")
                         return job.currentSource + "  //  " + telemetry
                     return job.destination + "  //  " + telemetry
                 }

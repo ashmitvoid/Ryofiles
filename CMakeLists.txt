@@ -111,6 +111,7 @@ qt_add_qml_module(ryofiles
         qml/components/OperationDrawer.qml
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
+        qml/components/ArchiveCreateSheet.qml
         qml/components/TrashView.qml
         qml/components/FileContextMenu.qml
         qml/components/RemoteFileContextMenu.qml
