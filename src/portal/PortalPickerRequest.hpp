@@ -36,6 +36,7 @@ struct PortalPickerRequest {
     QString title;
     bool modal = true;
     QList<PortalFilter> filters;
+    int initialFilterIndex = -1;
     QStringList saveFileNames;
 
     static PortalPickerRequest openFile(
