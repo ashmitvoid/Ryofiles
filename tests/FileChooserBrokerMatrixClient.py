@@ -50,7 +50,14 @@ class PortalClient:
             fail("session bus did not provide a unique caller name")
         self.sender = unique_name[1:].replace(".", "_")
 
-    def call(self, method: str, token: str, title: str, options):
+    def call(
+        self,
+        method: str,
+        token: str,
+        title: str,
+        options,
+        expected_response: int = 0,
+    ):
         handle = f"/org/freedesktop/portal/desktop/request/{self.sender}/{token}"
         loop = GLib.MainLoop()
         state = {"seen": False, "response": None, "results": None, "timeout": False}
@@ -106,15 +113,23 @@ class PortalClient:
 
         if state["timeout"] or not state["seen"]:
             fail(f"{method} timed out waiting for Request::Response")
-        if state["response"] != 0:
-            fail(f"{method} returned portal response {state['response']!r}")
+        if state["response"] != expected_response:
+            fail(
+                f"{method} returned portal response {state['response']!r}; "
+                f"expected {expected_response!r}"
+            )
         return state["results"] or {}
 
 
 def require_uris(results, expected, label):
-    uris = unpack(results.get("uris", []))
-    if list(uris) != list(expected):
-        fail(f"{label} returned URIs {uris!r}; expected {expected!r}")
+    uris = list(unpack(results.get("uris", [])))
+    actual_paths = [os.path.normpath(local_path(uri)) for uri in uris]
+    expected_paths = [os.path.normpath(local_path(uri)) for uri in expected]
+    if actual_paths != expected_paths:
+        fail(
+            f"{label} returned URIs {uris!r} (paths {actual_paths!r}); "
+            f"expected {expected!r} (paths {expected_paths!r})"
+        )
 
 
 def main() -> int:
@@ -219,6 +234,16 @@ def main() -> int:
         },
     )
     require_uris(results, [savefiles_a_uri, savefiles_b_uri], "SaveFiles")
+
+    cancel_results = client.call(
+        "OpenFile",
+        "matrix_cancel",
+        "Cancel broker request",
+        {},
+        expected_response=1,
+    )
+    if cancel_results:
+        fail(f"cancelled OpenFile returned unexpected results {cancel_results!r}")
 
     print("FileChooser public broker request matrix passed")
     return 0
