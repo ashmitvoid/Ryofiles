@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "OperationManager.hpp"
+#include "archive/ArchiveExtractor.hpp"
 #include "locations/LocalPathGuard.hpp"
 
 #include <QDir>
@@ -33,6 +34,8 @@ QString kindText(OperationManager::OperationKind kind) {
     case OperationManager::RenameOperation: return QStringLiteral("rename");
     case OperationManager::DuplicateOperation: return QStringLiteral("duplicate");
     case OperationManager::CreateFolderOperation: return QStringLiteral("new folder");
+    case OperationManager::DeleteOperation: return QStringLiteral("delete");
+    case OperationManager::ExtractOperation: return QStringLiteral("extract");
     }
     return QStringLiteral("unknown");
 }
@@ -101,6 +104,14 @@ QVariant OperationManager::data(const QModelIndex& index, int role) const {
         return job->conflictSource;
     case ConflictDestinationRole:
         return job->conflictDestination;
+    case SourceRole:
+        return job->sources.value(0);
+    case ProgressIndeterminateRole:
+        return job->progressIndeterminate;
+    case EntriesProcessedRole:
+        return QVariant::fromValue(job->entriesProcessed);
+    case BytesProcessedRole:
+        return QVariant::fromValue(job->bytesProcessed);
     default:
         return {};
     }
@@ -117,6 +128,10 @@ QHash<int, QByteArray> OperationManager::roleNames() const {
         {ErrorRole, "errorText"},
         {ConflictSourceRole, "conflictSource"},
         {ConflictDestinationRole, "conflictDestination"},
+        {SourceRole, "source"},
+        {ProgressIndeterminateRole, "progressIndeterminate"},
+        {EntriesProcessedRole, "entriesProcessed"},
+        {BytesProcessedRole, "bytesProcessed"},
     };
 }
 
@@ -134,6 +149,54 @@ bool OperationManager::validLeafName(const QString& name) {
         && !clean.contains(QLatin1Char('/'))
         && clean != QStringLiteral(".")
         && clean != QStringLiteral("..");
+}
+
+bool OperationManager::supportedArchivePath(const QString& path) {
+    const QString name = QFileInfo(path).fileName().toLower();
+    return name.endsWith(QStringLiteral(".tar.gz"))
+        || name.endsWith(QStringLiteral(".tar"))
+        || name.endsWith(QStringLiteral(".zip"))
+        || name.endsWith(QStringLiteral(".7z"));
+}
+
+bool OperationManager::canExtractArchive(const QString& archivePath) const {
+    if (archivePath.trimmed().isEmpty() || LocalPathGuard::isUriLike(archivePath))
+        return false;
+
+    const QFileInfo info(archivePath);
+    return info.exists()
+        && info.isFile()
+        && !info.isSymLink()
+        && supportedArchivePath(info.absoluteFilePath());
+}
+
+QString OperationManager::extractArchive(
+    const QString& archivePath,
+    const QString& destinationDirectory) {
+    if (!canExtractArchive(archivePath)
+        || destinationDirectory.trimmed().isEmpty()
+        || LocalPathGuard::isUriLike(destinationDirectory)) {
+        return {};
+    }
+
+    const QFileInfo destinationInfo(destinationDirectory);
+    if (!destinationInfo.exists()
+        || !destinationInfo.isDir()
+        || destinationInfo.isSymLink()) {
+        return {};
+    }
+
+    return startExtractionJob(
+        QFileInfo(archivePath).absoluteFilePath(),
+        destinationInfo.absoluteFilePath());
+}
+
+QString OperationManager::extractArchiveHere(const QString& archivePath) {
+    if (!canExtractArchive(archivePath))
+        return {};
+
+    const QFileInfo info(archivePath);
+    return extractArchive(info.absoluteFilePath(), info.absolutePath());
 }
 
 QString OperationManager::rename(const QString& source, const QString& newName) {
@@ -225,6 +288,64 @@ QString OperationManager::startCreateFolderJob(
 
     job->future = QtConcurrent::run([this, job] {
         runJob(job);
+    });
+
+    return job->id;
+}
+
+QString OperationManager::startExtractionJob(
+    const QString& archivePath,
+    const QString& destinationDirectory) {
+    pruneFinishedJobs();
+
+    auto job = std::make_shared<Job>();
+    job->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    job->kind = ExtractOperation;
+    job->sources = {archivePath};
+    job->destinationDirectory = destinationDirectory;
+    job->currentSource = archivePath;
+    job->progressIndeterminate = true;
+
+    const int row = m_jobs.size();
+    beginInsertRows({}, row, row);
+    m_jobs.push_back(job);
+    endInsertRows();
+    emit countChanged();
+    emit activeCountChanged();
+
+    job->future = QtConcurrent::run([this, job, archivePath, destinationDirectory] {
+        updateJob(job, [](Job& mutableJob) {
+            mutableJob.state = Running;
+        });
+
+        const ArchiveExtractionResult result = ArchiveExtractor::extract(
+            archivePath,
+            destinationDirectory,
+            job->cancelRequested,
+            [this, job](const ArchiveExtractionProgress& progress) {
+                updateJob(job, [progress](Job& mutableJob) {
+                    mutableJob.currentSource = progress.entryPath;
+                    mutableJob.entriesProcessed = progress.entriesProcessed;
+                    mutableJob.bytesProcessed = progress.bytesWritten;
+                });
+            });
+
+        updateJob(job, [result](Job& mutableJob) {
+            mutableJob.entriesProcessed = result.entriesExtracted;
+            mutableJob.bytesProcessed = result.bytesWritten;
+        });
+
+        switch (result.status) {
+        case ArchiveExtractionStatus::Success:
+            finishJob(job, Completed);
+            break;
+        case ArchiveExtractionStatus::Cancelled:
+            finishJob(job, Cancelled);
+            break;
+        case ArchiveExtractionStatus::Failed:
+            finishJob(job, Failed, result.error);
+            break;
+        }
     });
 
     return job->id;

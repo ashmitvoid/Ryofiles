@@ -31,6 +31,7 @@ public:
         DuplicateOperation,
         CreateFolderOperation,
         DeleteOperation,
+        ExtractOperation,
     };
     Q_ENUM(OperationKind)
 
@@ -62,6 +63,10 @@ public:
         ErrorRole,
         ConflictSourceRole,
         ConflictDestinationRole,
+        SourceRole,
+        ProgressIndeterminateRole,
+        EntriesProcessedRole,
+        BytesProcessedRole,
     };
     Q_ENUM(Role)
 
@@ -80,6 +85,11 @@ public:
     Q_INVOKABLE QString duplicate(const QStringList& sources);
     Q_INVOKABLE QString createFolder(const QString& parentDirectory, const QString& name);
     Q_INVOKABLE QString removePermanently(const QStringList& sources);
+    Q_INVOKABLE bool canExtractArchive(const QString& archivePath) const;
+    Q_INVOKABLE QString extractArchive(
+        const QString& archivePath,
+        const QString& destinationDirectory);
+    Q_INVOKABLE QString extractArchiveHere(const QString& archivePath);
 
     Q_INVOKABLE void cancel(const QString& jobId);
     Q_INVOKABLE void resolveConflict(const QString& jobId, int decision, bool applyToAll = false);
@@ -108,6 +118,9 @@ private:
         QString conflictDestination;
         int completedItems = 0;
         int totalItems = 0;
+        quint64 entriesProcessed = 0;
+        quint64 bytesProcessed = 0;
+        bool progressIndeterminate = false;
 
         std::atomic_bool cancelRequested = false;
         QFuture<void> future;
@@ -126,6 +139,9 @@ private:
         const QString& destinationDirectory,
         const QString& renameTarget = QString());
     QString startCreateFolderJob(const QString& parentDirectory, const QString& name);
+    QString startExtractionJob(
+        const QString& archivePath,
+        const QString& destinationDirectory);
 
     std::shared_ptr<Job> findJob(const QString& id) const;
     static bool terminal(OperationState state);
@@ -155,6 +171,7 @@ private:
     static bool renamePath(const QString& source, const QString& destination);
     static bool copySymbolicLink(const QString& source, const QString& destination, QString* error);
     static bool validLeafName(const QString& name);
+    static bool supportedArchivePath(const QString& path);
     static QString uniqueSiblingPath(const QString& desiredPath);
     static QString backupSiblingPath(const QString& desiredPath);
     static QString targetPathFor(const QString& source, const QString& destinationDirectory);
