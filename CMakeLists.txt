@@ -24,6 +24,8 @@ qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(ryofiles
     src/main.cpp
+    src/archive/ArchivePathGuard.hpp
+    src/archive/ArchivePathGuard.cpp
     src/ryoku/RyokuIntegration.hpp
     src/ryoku/RyokuIntegration.cpp
     src/fs/DirectoryModel.hpp
@@ -559,6 +561,21 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME portal-picker-context COMMAND ryofiles_portal_context_tests)
+
+    qt_add_executable(ryofiles_archive_path_tests
+        tests/ArchivePathGuardTest.cpp
+        src/archive/ArchivePathGuard.hpp
+        src/archive/ArchivePathGuard.cpp
+    )
+
+    target_include_directories(ryofiles_archive_path_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_archive_path_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    add_test(NAME archive-path-guard COMMAND ryofiles_archive_path_tests)
 endif()
 
 install(TARGETS ryofiles
