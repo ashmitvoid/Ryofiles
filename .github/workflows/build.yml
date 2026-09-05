@@ -16,7 +16,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Install build dependencies
-        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja ccache dbus glib2 qt6-base qt6-declarative
+        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja ccache dbus glib2 python-gobject qt6-base qt6-declarative xdg-desktop-portal
       - uses: actions/checkout@v4
       - name: Restore compiler cache
         uses: actions/cache@v4
@@ -38,6 +38,9 @@ jobs:
       - name: FileChooser D-Bus smoke
         shell: bash
         run: dbus-run-session -- bash tests/FileChooserPortalSmoke.sh "$PWD/build/ryofiles"
+      - name: FileChooser public broker smoke
+        shell: bash
+        run: bash tests/FileChooserBrokerSmoke.sh "$PWD/build/ryofiles"
       - name: Configure portal routing helper
         run: >-
           cmake -S tools/portalctl -B build-portalctl -G Ninja
