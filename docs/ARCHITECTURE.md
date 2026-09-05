@@ -49,7 +49,8 @@ The repository now has the core native vertical slices required for daily file-m
 20. local-only QtDBus FileChooser backend core with per-request lifecycle/cancellation;
 21. package-level neutral backend discovery and D-Bus activation registration;
 22. headless opt-in/reversible Ryoku FileChooser routing control with exact previous-line restoration;
-23. FileChooser dialog title and accept-label forwarding into the lightweight picker presentation.
+23. FileChooser dialog title and accept-label forwarding into the lightweight picker presentation;
+24. private-session process smoke covering backend service acquisition, OpenFile URI return, and `org.freedesktop.impl.portal.Request.Close` cancellation.
 
 ## Hard invariants
 
@@ -86,6 +87,8 @@ Save mode uses a pure `PickerSaveState` shared-capable state machine rather than
 
 `--filechooser-portal` is a dedicated service bootstrap for `org.freedesktop.impl.portal.desktop.ryofiles`. It exposes `org.freedesktop.impl.portal.FileChooser` and uses a per-handle `org.freedesktop.impl.portal.Request` lifecycle. OpenFile, SaveFile, and SaveFiles requests are translated into the same lightweight picker contract; returned values are normalized and revalidated as local percent-encoded `file://` URIs before a portal response is emitted. The backend forwards the request title and `accept_label` to the picker UI without changing the selection/result contract.
 
+CI also launches the built production portal process under `dbus-run-session` with a minimal fake picker. The smoke requires the service to acquire its real session-bus name, complete a delayed OpenFile call with a validated local `file://` URI, export the per-request Request object, honor `Request.Close` against a blocking picker, complete that backend call with response 2, and remain alive after cancellation. This complements pure request/parser tests with the actual D-Bus/QProcess lifecycle.
+
 The Arch/CachyOS package registers the backend using only:
 
 - `usr/share/xdg-desktop-portal/portals/ryofiles.portal`;
@@ -116,7 +119,6 @@ This makes routing opt-in and reversible without turning packaging into configur
 ## Next engine milestones
 
 - FileChooser interactive filter selection and portal choices with explicit result echo;
-- private-session D-Bus integration smoke covering success and Request.Close cancellation;
 - Wayland parent-window/modal attachment using the portal's xdg-foreign parent handle rather than simulated modality;
 - broader Firefox/Chromium/Electron/GTK/Qt/Flatpak compatibility testing;
 - archive browsing/extract/compress workflows with bounded background work;
