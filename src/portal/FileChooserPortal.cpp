@@ -13,6 +13,7 @@ namespace {
 constexpr quint32 kSuccess = 0;
 constexpr quint32 kCancelled = 1;
 constexpr quint32 kOther = 2;
+constexpr qsizetype kMaximumPortalContextBytes = 1024 * 1024;
 
 class PortalRequestObject final : public QObject {
     Q_OBJECT
@@ -68,10 +69,11 @@ public:
             &QProcess::started,
             this,
             [this] {
-                const QByteArray context =
-                    QJsonDocument(m_request.pickerContextJson())
-                        .toJson(QJsonDocument::Compact);
-                m_process.write(context);
+                if (m_process.write(m_pickerContext) != m_pickerContext.size()) {
+                    m_process.kill();
+                    complete(kOther, {});
+                    return;
+                }
                 m_process.closeWriteChannel();
             });
 
@@ -150,6 +152,13 @@ public:
             return false;
         }
 
+        m_pickerContext = QJsonDocument(m_request.pickerContextJson())
+                              .toJson(QJsonDocument::Compact);
+        if (m_pickerContext.size() > kMaximumPortalContextBytes) {
+            complete(kOther, {});
+            return false;
+        }
+
         if (m_handle.path().isEmpty()
             || !m_bus.registerObject(
                 m_handle.path(),
@@ -216,6 +225,7 @@ private:
     PortalPickerRequest m_request;
     PortalRequestObject* m_requestObject = nullptr;
     QProcess m_process;
+    QByteArray m_pickerContext;
     bool m_requestRegistered = false;
     bool m_finished = false;
 };
