@@ -4,6 +4,9 @@
 
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QtTest>
@@ -43,6 +46,26 @@ private:
         return QVariantMap{
             {QStringLiteral("name"), name},
             {QStringLiteral("conditions"), serializedConditions},
+        };
+    }
+
+    static QVariant choiceVariant(
+        const QString& id,
+        const QString& label,
+        const QList<PortalChoiceOption>& options,
+        const QString& initial) {
+        QVariantList serializedOptions;
+        for (const PortalChoiceOption& option : options) {
+            serializedOptions.push_back(QVariantMap{
+                {QStringLiteral("id"), option.id},
+                {QStringLiteral("label"), option.label},
+            });
+        }
+        return QVariantMap{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("label"), label},
+            {QStringLiteral("options"), serializedOptions},
+            {QStringLiteral("initial"), initial},
         };
     }
 
@@ -100,6 +123,7 @@ private slots:
         const QStringList processArguments = request.pickerProcessArguments();
         QVERIFY(processArguments.contains(QStringLiteral("--picker-title=Open a file")));
         QVERIFY(processArguments.contains(QStringLiteral("--accept-label=Choose")));
+        QVERIFY(processArguments.contains(QStringLiteral("--portal-context-stdin")));
         QVERIFY(!processArguments.contains(QStringLiteral("--picker-title")));
         QVERIFY(!processArguments.contains(QStringLiteral("--accept-label")));
     }
@@ -160,12 +184,13 @@ private slots:
         QCOMPARE(request.filters.at(0).name, QStringLiteral("Images"));
         QCOMPARE(request.filters.at(1).name, QStringLiteral("Markdown"));
         QCOMPARE(request.initialFilterIndex, 1);
+        QVERIFY(!request.filterLocked);
 
         const QStringList arguments = request.pickerArguments();
         QVERIFY(!arguments.contains(QStringLiteral("--mime")));
     }
 
-    void currentFilterWithoutFilterListRemainsUsable() {
+    void currentFilterWithoutFilterListRemainsUsableAndLocked() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
 
@@ -181,6 +206,7 @@ private slots:
         QCOMPARE(request.filters.size(), 1);
         QCOMPARE(request.filters.constFirst().name, QStringLiteral("Markdown"));
         QCOMPARE(request.initialFilterIndex, 0);
+        QVERIFY(request.filterLocked);
     }
 
     void portalFiltersGuideButDoNotRejectReturnedSelection() {
@@ -216,6 +242,158 @@ private slots:
         QCOMPARE(
             result.uris,
             QStringList({QUrl::fromLocalFile(binary).toString(QUrl::FullyEncoded)}));
+        QCOMPARE(result.selectedFilterIndex, request.initialFilterIndex);
+    }
+
+    void decodesPortalChoicesAndSerializesPickerContext() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        QVariantMap options;
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        options.insert(QStringLiteral("filters"), QVariantList{
+            filterVariant(QStringLiteral("Markdown"), {{0, QStringLiteral("*.md")}}),
+            filterVariant(QStringLiteral("Text"), {{0, QStringLiteral("*.txt")}}),
+        });
+        options.insert(QStringLiteral("choices"), QVariantList{
+            choiceVariant(
+                QStringLiteral("readonly"),
+                QStringLiteral("Open read-only"),
+                {},
+                QStringLiteral("true")),
+            choiceVariant(
+                QStringLiteral("encoding"),
+                QStringLiteral("Encoding"),
+                {
+                    {QStringLiteral("utf8"), QStringLiteral("UTF-8")},
+                    {QStringLiteral("latin1"), QStringLiteral("Latin-1")},
+                },
+                QStringLiteral("latin1")),
+        });
+
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("Open"), options);
+        QVERIFY2(request.valid, qPrintable(request.error));
+        QCOMPARE(request.choices.size(), 2);
+        QVERIFY(request.choices.at(0).boolean);
+        QCOMPARE(request.choices.at(0).initialSelection, QStringLiteral("true"));
+        QVERIFY(!request.choices.at(1).boolean);
+        QCOMPARE(request.choices.at(1).initialSelection, QStringLiteral("latin1"));
+
+        const QJsonObject context = request.pickerContextJson();
+        QCOMPARE(context.value(QStringLiteral("version")).toInt(), 1);
+        QCOMPARE(context.value(QStringLiteral("initial_filter")).toInt(), 0);
+        QVERIFY(!context.value(QStringLiteral("filter_locked")).toBool());
+        QCOMPARE(context.value(QStringLiteral("filters")).toArray().size(), 2);
+        QCOMPARE(context.value(QStringLiteral("choices")).toArray().size(), 2);
+
+        const QJsonObject firstFilter =
+            context.value(QStringLiteral("filters")).toArray().at(0).toObject();
+        QCOMPARE(firstFilter.value(QStringLiteral("name")).toString(), QStringLiteral("Markdown"));
+        QCOMPARE(
+            firstFilter.value(QStringLiteral("patterns")).toArray().at(0).toString(),
+            QStringLiteral("*.md"));
+    }
+
+    void structuredPickerResultEchoesFilterAndChoiceSelections() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString selectedFile = temp.filePath("payload.bin");
+        writeFile(selectedFile);
+
+        QVariantMap options;
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        options.insert(QStringLiteral("filters"), QVariantList{
+            filterVariant(QStringLiteral("Binary"), {{0, QStringLiteral("*.bin")}}),
+            filterVariant(QStringLiteral("Text"), {{0, QStringLiteral("*.txt")}}),
+        });
+        options.insert(QStringLiteral("choices"), QVariantList{
+            choiceVariant(
+                QStringLiteral("readonly"),
+                QStringLiteral("Open read-only"),
+                {},
+                QStringLiteral("false")),
+            choiceVariant(
+                QStringLiteral("mode"),
+                QStringLiteral("Mode"),
+                {
+                    {QStringLiteral("a"), QStringLiteral("Mode A")},
+                    {QStringLiteral("b"), QStringLiteral("Mode B")},
+                },
+                QStringLiteral("a")),
+        });
+
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("Open"), options);
+        QVERIFY(request.valid);
+
+        const QString uri = QUrl::fromLocalFile(selectedFile).toString(QUrl::FullyEncoded);
+        const QJsonObject structured{
+            {QStringLiteral("version"), 1},
+            {QStringLiteral("uris"), QJsonArray{uri}},
+            {QStringLiteral("filter"), 1},
+            {QStringLiteral("choices"), QJsonObject{
+                {QStringLiteral("readonly"), QStringLiteral("true")},
+                {QStringLiteral("mode"), QStringLiteral("b")},
+            }},
+        };
+
+        const PortalPickerResult result = PortalPickerResult::fromPickerStdout(
+            request,
+            QJsonDocument(structured).toJson(QJsonDocument::Compact));
+        QVERIFY2(result.valid, qPrintable(result.error));
+        QCOMPARE(result.uris, QStringList({uri}));
+        QCOMPARE(result.selectedFilterIndex, 1);
+        QCOMPARE(result.choiceSelections.value(QStringLiteral("readonly")), QStringLiteral("true"));
+        QCOMPARE(result.choiceSelections.value(QStringLiteral("mode")), QStringLiteral("b"));
+    }
+
+    void structuredPickerResultRejectsUnknownOrInvalidChoiceSelections() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString selectedFile = temp.filePath("payload.bin");
+        writeFile(selectedFile);
+
+        QVariantMap options;
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        options.insert(QStringLiteral("choices"), QVariantList{
+            choiceVariant(
+                QStringLiteral("mode"),
+                QStringLiteral("Mode"),
+                {
+                    {QStringLiteral("a"), QStringLiteral("Mode A")},
+                    {QStringLiteral("b"), QStringLiteral("Mode B")},
+                },
+                QStringLiteral("a")),
+        });
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("Open"), options);
+        QVERIFY(request.valid);
+
+        const QString uri = QUrl::fromLocalFile(selectedFile).toString(QUrl::FullyEncoded);
+        QJsonObject choices{
+            {QStringLiteral("mode"), QStringLiteral("missing")},
+        };
+        QJsonObject structured{
+            {QStringLiteral("version"), 1},
+            {QStringLiteral("uris"), QJsonArray{uri}},
+            {QStringLiteral("filter"), -1},
+            {QStringLiteral("choices"), choices},
+        };
+        PortalPickerResult result = PortalPickerResult::fromPickerStdout(
+            request,
+            QJsonDocument(structured).toJson(QJsonDocument::Compact));
+        QVERIFY(!result.valid);
+        QVERIFY(result.error.contains(QStringLiteral("choice"), Qt::CaseInsensitive));
+
+        choices.insert(QStringLiteral("mode"), QStringLiteral("a"));
+        choices.insert(QStringLiteral("unexpected"), QStringLiteral("value"));
+        structured.insert(QStringLiteral("choices"), choices);
+        result = PortalPickerResult::fromPickerStdout(
+            request,
+            QJsonDocument(structured).toJson(QJsonDocument::Compact));
+        QVERIFY(!result.valid);
+        QVERIFY(result.error.contains(QStringLiteral("unknown"), Qt::CaseInsensitive));
     }
 
     void saveFileMapsCurrentFileAndCurrentNameSafely() {
