@@ -4,6 +4,7 @@
 
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QJsonDocument>
 #include <QProcess>
 #include <QStandardPaths>
 
@@ -64,6 +65,18 @@ public:
 
         connect(
             &m_process,
+            &QProcess::started,
+            this,
+            [this] {
+                const QByteArray context =
+                    QJsonDocument(m_request.pickerContextJson())
+                        .toJson(QJsonDocument::Compact);
+                m_process.write(context);
+                m_process.closeWriteChannel();
+            });
+
+        connect(
+            &m_process,
             &QProcess::finished,
             this,
             [this](int exitCode, QProcess::ExitStatus exitStatus) {
@@ -93,6 +106,29 @@ public:
 
                 QVariantMap results;
                 results.insert(QStringLiteral("uris"), pickerResult.uris);
+
+                if (pickerResult.selectedFilterIndex >= 0
+                    && pickerResult.selectedFilterIndex < m_request.filters.size()) {
+                    results.insert(
+                        QStringLiteral("current_filter"),
+                        QVariant::fromValue(
+                            m_request.filters.at(pickerResult.selectedFilterIndex)));
+                }
+
+                if (!m_request.choices.isEmpty()) {
+                    PortalChoiceSelectionList selections;
+                    selections.values.reserve(m_request.choices.size());
+                    for (const PortalChoice& choice : m_request.choices) {
+                        selections.values.push_back({
+                            choice.id,
+                            pickerResult.choiceSelections.value(choice.id),
+                        });
+                    }
+                    results.insert(
+                        QStringLiteral("choices"),
+                        QVariant::fromValue(selections));
+                }
+
                 complete(kSuccess, results);
             });
 
@@ -186,6 +222,7 @@ private:
 
 FileChooserPortal::FileChooserPortal(QObject* parent)
     : QObject(parent) {
+    registerPortalDbusTypes();
 }
 
 void FileChooserPortal::OpenFile(
