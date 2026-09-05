@@ -73,6 +73,42 @@ private slots:
         QCOMPARE(loadingSpy.count(), 0);
     }
 
+    void portalNameFiltersAreRebuildOnlyAndKeepDirectoriesVisible() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        writeFile(QDir(temp.path()).filePath("photo.png"));
+        writeFile(QDir(temp.path()).filePath("notes.txt"));
+        QVERIFY(QDir().mkdir(QDir(temp.path()).filePath("Pictures")));
+
+        DirectoryModel model;
+        model.setPath(temp.path());
+        waitUntilReady(model);
+        QCOMPARE(model.rowCount(), 3);
+
+        QSignalSpy loadingSpy(&model, &DirectoryModel::loadingChanged);
+        QSignalSpy portalFilterSpy(&model, &DirectoryModel::portalNameFiltersChanged);
+        model.setPortalNameFilters({QStringLiteral("*.png")});
+
+        QCOMPARE(model.portalNameFilters(), QStringList({QStringLiteral("*.png")}));
+        QCOMPARE(portalFilterSpy.count(), 1);
+        QCOMPARE(loadingSpy.count(), 0);
+        QCOMPARE(model.rowCount(), 2);
+        QVERIFY(model.indexOfPath(QDir(temp.path()).filePath("photo.png")) >= 0);
+        QVERIFY(model.indexOfPath(QDir(temp.path()).filePath("Pictures")) >= 0);
+        QCOMPARE(model.indexOfPath(QDir(temp.path()).filePath("notes.txt")), -1);
+
+        model.setFilterQuery(QStringLiteral("photo"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(QFileInfo(model.pathAt(0)).fileName(), QStringLiteral("photo.png"));
+        QCOMPARE(loadingSpy.count(), 0);
+
+        model.setFilterQuery(QString());
+        model.setPortalNameFilters({});
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(loadingSpy.count(), 0);
+    }
+
     void refreshPreservesFilterAndAppliesItToNewEntries() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
