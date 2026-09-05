@@ -29,6 +29,8 @@ qt_add_executable(ryofiles
     src/archive/ArchivePathGuard.cpp
     src/archive/ArchiveExtractor.hpp
     src/archive/ArchiveExtractor.cpp
+    src/archive/ArchiveCreator.hpp
+    src/archive/ArchiveCreator.cpp
     src/ryoku/RyokuIntegration.hpp
     src/ryoku/RyokuIntegration.cpp
     src/fs/DirectoryModel.hpp
@@ -603,6 +605,26 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME archive-extractor COMMAND ryofiles_archive_extractor_tests)
+
+    qt_add_executable(ryofiles_archive_creator_tests
+        tests/ArchiveCreatorTest.cpp
+        src/archive/ArchiveCreator.hpp
+        src/archive/ArchiveCreator.cpp
+        src/archive/ArchiveExtractor.hpp
+        src/archive/ArchiveExtractor.cpp
+        src/archive/ArchivePathGuard.hpp
+        src/archive/ArchivePathGuard.cpp
+    )
+
+    target_include_directories(ryofiles_archive_creator_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_archive_creator_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        LibArchive::LibArchive
+    )
+
+    add_test(NAME archive-creator COMMAND ryofiles_archive_creator_tests)
 endif()
 
 install(TARGETS ryofiles
