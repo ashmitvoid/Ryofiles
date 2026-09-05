@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
@@ -141,6 +142,23 @@ void DirectoryModel::setFilterQuery(const QString& query) {
     rebuildFilteredEntries();
 }
 
+void DirectoryModel::setPortalNameFilters(const QStringList& filters) {
+    QStringList normalized;
+    QSet<QString> seen;
+    for (const QString& filter : filters) {
+        if (filter.isEmpty() || seen.contains(filter))
+            continue;
+        seen.insert(filter);
+        normalized.push_back(filter);
+    }
+    if (m_portalNameFilters == normalized)
+        return;
+
+    m_portalNameFilters = std::move(normalized);
+    emit portalNameFiltersChanged();
+    rebuildFilteredEntries();
+}
+
 QString DirectoryModel::standardPath(int location) {
     const QString value =
         QStandardPaths::writableLocation(static_cast<QStandardPaths::StandardLocation>(location));
@@ -226,21 +244,49 @@ void DirectoryModel::watchCurrentDirectory() {
 
 QList<DirectoryModel::Entry> DirectoryModel::filterEntries(
     const QList<Entry>& entries,
-    const QString& query) {
-    if (query.isEmpty())
+    const QString& query,
+    const QStringList& portalNameFilters) {
+    if (query.isEmpty() && portalNameFilters.isEmpty())
         return entries;
+
+    QList<QRegularExpression> portalPatterns;
+    portalPatterns.reserve(portalNameFilters.size());
+    for (const QString& pattern : portalNameFilters) {
+        const QRegularExpression regex(
+            QRegularExpression::wildcardToRegularExpression(pattern));
+        if (regex.isValid())
+            portalPatterns.push_back(regex);
+    }
 
     QList<Entry> filtered;
     filtered.reserve(entries.size());
     for (const Entry& entry : entries) {
-        if (entry.name.contains(query, Qt::CaseInsensitive))
-            filtered.push_back(entry);
+        if (!query.isEmpty()
+            && !entry.name.contains(query, Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        if (!entry.directory && !portalNameFilters.isEmpty()) {
+            bool matches = false;
+            for (const QRegularExpression& regex : portalPatterns) {
+                if (regex.match(entry.name).hasMatch()) {
+                    matches = true;
+                    break;
+                }
+            }
+            if (!matches)
+                continue;
+        }
+        filtered.push_back(entry);
     }
     return filtered;
 }
 
 void DirectoryModel::rebuildFilteredEntries() {
-    QList<Entry> filtered = filterEntries(m_allEntries, m_filterQuery);
+    QList<Entry> filtered = filterEntries(
+        m_allEntries,
+        m_filterQuery,
+        m_portalNameFilters);
 
     beginResetModel();
     m_entries = std::move(filtered);
@@ -267,7 +313,10 @@ void DirectoryModel::scan() {
         if (!m_active || generation != m_generation || scanPath != m_path)
             return;
 
-        QList<Entry> filtered = filterEntries(entries, m_filterQuery);
+        QList<Entry> filtered = filterEntries(
+            entries,
+            m_filterQuery,
+            m_portalNameFilters);
 
         beginResetModel();
         m_allEntries = std::move(entries);
