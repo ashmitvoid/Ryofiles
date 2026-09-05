@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QtTest>
 
 #include <memory>
@@ -215,6 +216,55 @@ private slots:
         QTest::qWait(50);
         QVERIFY(!m_desktop->folderSizeBusy());
         QVERIFY(m_desktop->folderSizeResult().isEmpty());
+    }
+
+    void folderPickerArgumentsKeepLiteralBoundaries() {
+        const QString initial = QStringLiteral("/tmp/start dir; touch NEVER");
+        const QString title = QStringLiteral("Extract; $(touch NEVER2); #");
+        const QString accept = QStringLiteral("EXTRACT NOW");
+
+        QCOMPARE(
+            DesktopIntegration::folderPickerArguments(initial, title, accept),
+            QStringList({
+                QStringLiteral("--picker"),
+                QStringLiteral("folder"),
+                QStringLiteral("--initial-dir"),
+                initial,
+                QStringLiteral("--picker-title"),
+                title,
+                QStringLiteral("--accept-label"),
+                accept,
+            }));
+    }
+
+    void folderPickerOutputAcceptsOnlyOneExistingLocalDirectory() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString selected = QDir(temp.path()).filePath("selected folder");
+        const QString filePath = QDir(temp.path()).filePath("regular.txt");
+        const QString directoryLink = QDir(temp.path()).filePath("selected-link");
+        QVERIFY(QDir().mkpath(selected));
+        writeFile(filePath, "payload");
+
+        const QByteArray target = QFile::encodeName(selected);
+        const QByteArray link = QFile::encodeName(directoryLink);
+        QVERIFY(::symlink(target.constData(), link.constData()) == 0);
+
+        const QByteArray selectedUri =
+            QUrl::fromLocalFile(selected).toEncoded(QUrl::FullyEncoded) + '\n';
+        QCOMPARE(
+            DesktopIntegration::folderFromPickerOutput(selectedUri),
+            QDir::cleanPath(selected));
+
+        QVERIFY(DesktopIntegration::folderFromPickerOutput(
+            QByteArrayLiteral("sftp://example.invalid/folder\n")).isEmpty());
+        QVERIFY(DesktopIntegration::folderFromPickerOutput(
+            QUrl::fromLocalFile(filePath).toEncoded(QUrl::FullyEncoded) + '\n').isEmpty());
+        QVERIFY(DesktopIntegration::folderFromPickerOutput(
+            QUrl::fromLocalFile(directoryLink).toEncoded(QUrl::FullyEncoded) + '\n').isEmpty());
+        QVERIFY(DesktopIntegration::folderFromPickerOutput(
+            selectedUri + QUrl::fromLocalFile(temp.path()).toEncoded(QUrl::FullyEncoded) + '\n').isEmpty());
     }
 
     void ryokuSuffixContractsMatchUpstream() {
