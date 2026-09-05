@@ -3,6 +3,7 @@
 
 #include "locations/LocalPathGuard.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QEventLoopLocker>
@@ -11,7 +12,9 @@
 #include <QLocale>
 #include <QObject>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtConcurrent>
@@ -26,6 +29,8 @@ class DesktopIntegration final : public QObject {
     Q_PROPERTY(bool applicationsReady READ applicationsReady NOTIFY applicationsReadyChanged)
     Q_PROPERTY(bool ryokuActionBusy READ ryokuActionBusy NOTIFY ryokuActionBusyChanged)
     Q_PROPERTY(QString ryokuActionError READ ryokuActionError NOTIFY ryokuActionErrorChanged)
+    Q_PROPERTY(bool folderPickerBusy READ folderPickerBusy NOTIFY folderPickerBusyChanged)
+    Q_PROPERTY(QString folderPickerError READ folderPickerError NOTIFY folderPickerErrorChanged)
     Q_PROPERTY(bool folderSizeBusy READ folderSizeBusy NOTIFY folderSizeBusyChanged)
     Q_PROPERTY(QVariantMap folderSizeResult READ folderSizeResult NOTIFY folderSizeResultChanged)
 
@@ -35,6 +40,8 @@ public:
     bool applicationsReady() const { return m_applicationsReady; }
     bool ryokuActionBusy() const { return m_ryokuActionBusy; }
     QString ryokuActionError() const { return m_ryokuActionError; }
+    bool folderPickerBusy() const { return m_folderPickerBusy; }
+    QString folderPickerError() const { return m_folderPickerError; }
     bool folderSizeBusy() const { return m_folderSizeBusy; }
     QVariantMap folderSizeResult() const { return m_folderSizeResult; }
 
@@ -49,6 +56,12 @@ public:
     Q_INVOKABLE bool installWithRyoku(const QStringList& paths);
     Q_INVOKABLE bool compressWithRyoku(const QStringList& paths);
 
+    Q_INVOKABLE bool pickFolder(
+        const QString& initialDirectory,
+        const QString& title,
+        const QString& acceptLabel);
+    Q_INVOKABLE void cancelFolderPicker();
+
     Q_INVOKABLE bool calculateFolderSize(const QString& path);
     Q_INVOKABLE void cancelFolderSize();
 
@@ -56,6 +69,11 @@ public:
     static bool isRyokuCompressiblePath(const QString& path);
     static QStringList ryokuInstallablePaths(const QStringList& paths);
     static QStringList ryokuCompressiblePaths(const QStringList& paths);
+    static QStringList folderPickerArguments(
+        const QString& initialDirectory,
+        const QString& title,
+        const QString& acceptLabel);
+    static QString folderFromPickerOutput(const QByteArray& output);
 
 signals:
     void applicationsReadyChanged();
@@ -67,6 +85,10 @@ signals:
         int succeeded,
         int failed,
         const QString& error);
+    void folderPickerBusyChanged();
+    void folderPickerErrorChanged();
+    void folderPicked(const QString& path);
+    void folderPickerCancelled();
     void folderSizeBusyChanged();
     void folderSizeResultChanged();
 
@@ -111,6 +133,9 @@ private:
     void startNextRyokuFileAction();
     void finishRyokuFileAction();
     void setRyokuActionError(const QString& error);
+    void ensureFolderPickerConnections();
+    void setFolderPickerBusy(bool busy);
+    void setFolderPickerError(const QString& error);
 
     QList<DesktopApp> m_apps;
     QFutureWatcher<QList<DesktopApp>> m_discoveryWatcher;
@@ -128,11 +153,198 @@ private:
     bool m_ryokuActionBusy = false;
     QString m_ryokuActionError;
 
+    QProcess m_folderPickerProcess;
+    bool m_folderPickerConnected = false;
+    bool m_folderPickerBusy = false;
+    QString m_folderPickerError;
+
     quint64 m_folderSizeGeneration = 0;
     std::shared_ptr<std::atomic_bool> m_folderSizeCancel;
     bool m_folderSizeBusy = false;
     QVariantMap m_folderSizeResult;
 };
+
+inline QStringList DesktopIntegration::folderPickerArguments(
+    const QString& initialDirectory,
+    const QString& title,
+    const QString& acceptLabel) {
+    return {
+        QStringLiteral("--picker"),
+        QStringLiteral("folder"),
+        QStringLiteral("--initial-dir"),
+        initialDirectory,
+        QStringLiteral("--picker-title"),
+        title,
+        QStringLiteral("--accept-label"),
+        acceptLabel,
+    };
+}
+
+inline QString DesktopIntegration::folderFromPickerOutput(const QByteArray& output) {
+    QByteArray selectedLine;
+    const QList<QByteArray> lines = output.split('\n');
+    for (QByteArray line : lines) {
+        if (line.endsWith('\r'))
+            line.chop(1);
+        if (line.isEmpty())
+            continue;
+        if (!selectedLine.isEmpty())
+            return {};
+        selectedLine = line;
+    }
+
+    if (selectedLine.isEmpty())
+        return {};
+
+    const QUrl url = QUrl::fromEncoded(selectedLine, QUrl::StrictMode);
+    if (!url.isValid() || !url.isLocalFile())
+        return {};
+
+    const QString localPath = url.toLocalFile();
+    if (localPath.isEmpty() || LocalPathGuard::isUriLike(localPath))
+        return {};
+
+    const QFileInfo info(localPath);
+    if (!info.exists() || !info.isDir() || info.isSymLink())
+        return {};
+
+    return QDir::cleanPath(info.absoluteFilePath());
+}
+
+inline void DesktopIntegration::setFolderPickerBusy(bool busy) {
+    if (m_folderPickerBusy == busy)
+        return;
+    m_folderPickerBusy = busy;
+    emit folderPickerBusyChanged();
+}
+
+inline void DesktopIntegration::setFolderPickerError(const QString& error) {
+    if (m_folderPickerError == error)
+        return;
+    m_folderPickerError = error;
+    emit folderPickerErrorChanged();
+}
+
+inline void DesktopIntegration::ensureFolderPickerConnections() {
+    if (m_folderPickerConnected)
+        return;
+    m_folderPickerConnected = true;
+
+    connect(
+        &m_folderPickerProcess,
+        qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+        this,
+        [this](int exitCode, QProcess::ExitStatus exitStatus) {
+            if (!m_folderPickerBusy)
+                return;
+
+            const QByteArray output = m_folderPickerProcess.readAllStandardOutput();
+            const QString standardError = QString::fromUtf8(
+                m_folderPickerProcess.readAllStandardError()).trimmed();
+            setFolderPickerBusy(false);
+
+            if (exitStatus != QProcess::NormalExit) {
+                setFolderPickerError(tr("Folder picker terminated unexpectedly"));
+                return;
+            }
+
+            if (exitCode == 1) {
+                setFolderPickerError(QString());
+                emit folderPickerCancelled();
+                return;
+            }
+
+            if (exitCode != 0) {
+                setFolderPickerError(
+                    standardError.isEmpty()
+                        ? tr("Folder picker failed")
+                        : standardError);
+                return;
+            }
+
+            const QString selected = folderFromPickerOutput(output);
+            if (selected.isEmpty()) {
+                setFolderPickerError(tr("Folder picker returned an invalid local folder"));
+                return;
+            }
+
+            setFolderPickerError(QString());
+            emit folderPicked(selected);
+        });
+
+    connect(
+        &m_folderPickerProcess,
+        &QProcess::errorOccurred,
+        this,
+        [this](QProcess::ProcessError error) {
+            if (!m_folderPickerBusy || error != QProcess::FailedToStart)
+                return;
+            setFolderPickerBusy(false);
+            setFolderPickerError(tr("Could not start the Ryofiles folder picker"));
+        });
+}
+
+inline bool DesktopIntegration::pickFolder(
+    const QString& initialDirectory,
+    const QString& title,
+    const QString& acceptLabel) {
+    if (m_folderPickerBusy) {
+        setFolderPickerError(tr("Another folder picker is already open"));
+        return false;
+    }
+
+    if (initialDirectory.trimmed().isEmpty()
+        || LocalPathGuard::isUriLike(initialDirectory)) {
+        setFolderPickerError(tr("Folder picker requires a local starting directory"));
+        return false;
+    }
+
+    const QFileInfo initialInfo(initialDirectory);
+    if (!initialInfo.exists() || !initialInfo.isDir() || initialInfo.isSymLink()) {
+        setFolderPickerError(tr("Folder picker starting directory is unavailable"));
+        return false;
+    }
+
+    QString program = QProcessEnvironment::systemEnvironment().value(
+        QStringLiteral("RYOFILES_PICKER_EXECUTABLE"));
+    if (program.isEmpty())
+        program = QCoreApplication::applicationFilePath();
+    if (program.isEmpty()) {
+        setFolderPickerError(tr("Ryofiles picker executable is unavailable"));
+        return false;
+    }
+
+    const QString cleanInitial = QDir::cleanPath(initialInfo.absoluteFilePath());
+    const QString cleanTitle = title.trimmed().isEmpty()
+        ? tr("Select Folder")
+        : title;
+    const QString cleanAcceptLabel = acceptLabel.trimmed().isEmpty()
+        ? tr("SELECT")
+        : acceptLabel;
+
+    ensureFolderPickerConnections();
+    setFolderPickerError(QString());
+    m_folderPickerProcess.setWorkingDirectory(cleanInitial);
+    m_folderPickerProcess.setProcessEnvironment(QProcessEnvironment::systemEnvironment());
+    m_folderPickerProcess.setProcessChannelMode(QProcess::SeparateChannels);
+    m_folderPickerProcess.setProgram(program);
+    m_folderPickerProcess.setArguments(
+        folderPickerArguments(cleanInitial, cleanTitle, cleanAcceptLabel));
+    setFolderPickerBusy(true);
+    m_folderPickerProcess.start();
+    return true;
+}
+
+inline void DesktopIntegration::cancelFolderPicker() {
+    if (!m_folderPickerBusy)
+        return;
+
+    setFolderPickerBusy(false);
+    setFolderPickerError(QString());
+    if (m_folderPickerProcess.state() != QProcess::NotRunning)
+        m_folderPickerProcess.kill();
+    emit folderPickerCancelled();
+}
 
 inline bool DesktopIntegration::calculateFolderSize(const QString& requestedPath) {
     if (requestedPath.trimmed().isEmpty() || LocalPathGuard::isUriLike(requestedPath))
