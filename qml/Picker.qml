@@ -5,12 +5,15 @@ import Ryofiles.Core
 Window {
     id: root
 
+    property string dialogTitle: ""
+    property string customAcceptLabel: ""
+
     width: 1000
     height: 650
     minimumWidth: 760
     minimumHeight: 500
     visible: true
-    title: "Ryofiles Picker"
+    title: dialogTitle !== "" ? dialogTitle : "Ryofiles Picker"
     color: Ryoku.paper
 
     readonly property real u: Ryoku.uiScaleFor(Screen.name)
@@ -757,13 +760,15 @@ Window {
                     Text {
                         id: acceptLabel
                         anchors.centerIn: parent
-                        text: Picker.saveMode
-                            ? "SAVE"
-                            : (Picker.folderMode
-                                ? "SELECT THIS FOLDER"
-                                : (Picker.multiple && root.session && root.session.selectionCount > 1
-                                    ? "OPEN " + root.session.selectionCount + " FILES"
-                                    : "OPEN"))
+                        text: root.customAcceptLabel !== ""
+                            ? root.customAcceptLabel
+                            : (Picker.saveMode
+                                ? "SAVE"
+                                : (Picker.folderMode
+                                    ? "SELECT THIS FOLDER"
+                                    : (Picker.multiple && root.session && root.session.selectionCount > 1
+                                        ? "OPEN " + root.session.selectionCount + " FILES"
+                                        : "OPEN")))
                         color: acceptButton.enabledState ? Ryoku.inkOnBone : Ryoku.inkMuted
                         font.family: Ryoku.uiFont
                         font.pixelSize: 9 * root.u

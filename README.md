@@ -24,7 +24,7 @@ Ryofiles is Ryoku-first:
 
 The implementation is developed against exact upstream snapshots so behavior does not drift silently:
 
-- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `f340d31d584501e7a58d80f5b953b31ad1e36add` (`0.58.0-beta.21`)
+- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `f340d31d584501e7a58d80f5b953b31ad1e36add` (`0.58.3-beta.19`)
 
 ## Picker
 
@@ -36,13 +36,17 @@ ryofiles --picker save [--initial-dir PATH] [--mime TYPE ...] [--suggest-name NA
 ryofiles --picker folder [--initial-dir PATH]
 ```
 
+Internal portal launches may additionally pass `--picker-title` and `--accept-label` so the picker presents the requesting application's dialog title and accept action without changing selection semantics or the URI result format.
+
 `--mime` may be repeated or comma-separated and supports exact MIME types such as `text/plain` and type wildcards such as `image/*`.
 
 Save mode never treats a second generic Save action as overwrite authorization. Existing files require an explicit **REPLACE** confirmation tied to the exact canonical target path; changing the name or folder invalidates that confirmation. Existing directories are never valid save targets.
 
 ## FileChooser portal backend
 
-Ryofiles contains a QtDBus backend for `org.freedesktop.impl.portal.FileChooser`. The backend uses the lightweight picker process for OpenFile, SaveFile, and SaveFiles requests, validates local filesystem inputs and returned `file://` URIs, and supports per-request cancellation.
+Ryofiles contains a QtDBus backend for `org.freedesktop.impl.portal.FileChooser`. The backend uses the lightweight picker process for OpenFile, SaveFile, and SaveFiles requests, validates local filesystem inputs and returned `file://` URIs, supports per-request cancellation, and forwards the portal dialog title and `accept_label` into the Ryoku-native picker presentation.
+
+Parent-window attachment/modal ownership, interactive portal choices, selected-filter result echo, and broader application compatibility testing remain separate hardening work; they are not claimed as complete by the current backend.
 
 The Arch/CachyOS package installs only neutral backend discovery and D-Bus activation files:
 

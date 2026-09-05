@@ -133,7 +133,7 @@ public:
         }
 
         m_process.setProgram(pickerProgram);
-        m_process.setArguments(m_request.pickerArguments());
+        m_process.setArguments(m_request.pickerProcessArguments());
         m_process.setProcessChannelMode(QProcess::SeparateChannels);
         m_process.start();
         return true;
