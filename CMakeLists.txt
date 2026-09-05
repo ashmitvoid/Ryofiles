@@ -57,6 +57,7 @@ qt_add_executable(ryofiles
     src/operations/RemoteOperationManager.hpp
     src/operations/RemoteOperationManager.cpp
     src/picker/PickerController.hpp
+    src/picker/PortalPickerContext.hpp
     src/portal/PortalPickerRequest.hpp
     src/portal/PortalPickerRequest.cpp
     src/portal/FileChooserPortal.hpp
