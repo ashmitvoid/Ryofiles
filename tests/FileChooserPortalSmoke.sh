@@ -38,6 +38,19 @@ case "${RYOFILES_SMOKE_PICKER_MODE:-}" in
   success)
     printf '%s\n' "${RYOFILES_SMOKE_FILE_URI:?missing smoke URI}"
     ;;
+  structured)
+    context=$(cat)
+    grep -Fq '"version":1' <<<"$context"
+    grep -Fq '"initial_filter":1' <<<"$context"
+    grep -Fq '"name":"Images"' <<<"$context"
+    grep -Fq '"name":"Text"' <<<"$context"
+    grep -Fq '"id":"readonly"' <<<"$context"
+    grep -Fq '"initial":"false"' <<<"$context"
+    grep -Fq '"id":"mode"' <<<"$context"
+    grep -Fq '"initial":"a"' <<<"$context"
+    printf '{"version":1,"uris":["%s"],"filter":0,"choices":{"readonly":"true","mode":"b"}}\n' \
+      "${RYOFILES_SMOKE_FILE_URI:?missing smoke URI}"
+    ;;
   block)
     sleep 30
     ;;
@@ -109,6 +122,7 @@ stop_portal() {
 call_open_file() {
   local handle=$1
   local title=$2
+  local options=${3:-'{}'}
   timeout 8s gdbus call \
     --session \
     --dest "$service" \
@@ -118,7 +132,7 @@ call_open_file() {
     'org.ryoku.RyofilesSmoke' \
     '' \
     "$title" \
-    '{}'
+    "$options"
 }
 
 # Success: exercise the production backend process, its picker subprocess,
@@ -132,6 +146,24 @@ success_handle='/org/freedesktop/portal/desktop/request/ryofiles_smoke/success'
 success_reply=$(call_open_file "$success_handle" 'Open smoke file')
 printf '%s\n' "$success_reply" | grep -Fq 'uint32 0'
 printf '%s\n' "$success_reply" | grep -Fq "$selected_uri"
+name_has_owner
+stop_portal
+
+# Structured metadata: require the production backend to decode portal filters and
+# choices, pass them to the picker over bounded stdin JSON, accept a changed filter
+# and choice state from the picker, and return those selections on D-Bus.
+start_portal structured "$selected_uri"
+structured_handle='/org/freedesktop/portal/desktop/request/ryofiles_smoke/structured'
+structured_options="{'filters': <[('Images', [(uint32 0, '*.png')]), ('Text', [(uint32 0, '*.txt')])]>, 'current_filter': <('Text', [(uint32 0, '*.txt')])>, 'choices': <[('readonly', 'Open read-only', [], 'false'), ('mode', 'Mode', [('a', 'Mode A'), ('b', 'Mode B')], 'a')]>}"
+structured_reply=$(call_open_file "$structured_handle" 'Structured smoke file' "$structured_options")
+printf '%s\n' "$structured_reply" | grep -Fq 'uint32 0'
+printf '%s\n' "$structured_reply" | grep -Fq "$selected_uri"
+printf '%s\n' "$structured_reply" | grep -Fq "'current_filter'"
+printf '%s\n' "$structured_reply" | grep -Fq "'Images'"
+printf '%s\n' "$structured_reply" | grep -Fq "'*.png'"
+printf '%s\n' "$structured_reply" | grep -Fq "'choices'"
+printf '%s\n' "$structured_reply" | grep -Fq "('readonly', 'true')"
+printf '%s\n' "$structured_reply" | grep -Fq "('mode', 'b')"
 name_has_owner
 stop_portal
 
