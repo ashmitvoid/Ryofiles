@@ -218,8 +218,8 @@ private:
             &m_importedInterface,
             m_getVersion(m_importer),
             0,
-            encodedHandle.constData(),
-            nullptr);
+            nullptr,
+            encodedHandle.constData());
         if (!m_imported) {
             resetWayland();
             return false;
