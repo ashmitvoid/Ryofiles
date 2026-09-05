@@ -24,6 +24,8 @@ Item {
     property bool ryokuCompressAvailable: false
     property string ryokuMessage: ""
     property bool archiveExtractAvailable: false
+    property string pendingExtractArchive: ""
+    property string archiveMessage: ""
 
     property bool deleteMode: false
     property var deletePaths: []
@@ -124,6 +126,41 @@ Item {
             && root.operationManager.canExtractArchive(root.targetPath)
     }
 
+    function parentDirectory(path) {
+        if (!path || path === "")
+            return ""
+        var slash = path.lastIndexOf("/")
+        if (slash <= 0)
+            return "/"
+        return path.substring(0, slash)
+    }
+
+    function startExtractTo() {
+        if (!root.archiveExtractAvailable || root.operationManager === null)
+            return
+
+        if (Desktop.folderPickerBusy) {
+            root.archiveMessage = "Another folder picker is already open"
+            return
+        }
+
+        var archive = root.targetPath
+        var initial = root.parentDirectory(archive)
+        if (initial === "") {
+            root.archiveMessage = "Could not determine archive parent folder"
+            return
+        }
+
+        root.pendingExtractArchive = archive
+        root.archiveMessage = "// SELECT EXTRACTION FOLDER…"
+        if (!Desktop.pickFolder(initial, "Extract Archive To", "EXTRACT")) {
+            root.pendingExtractArchive = ""
+            root.archiveMessage = Desktop.folderPickerError !== ""
+                ? Desktop.folderPickerError
+                : "Could not start folder picker"
+        }
+    }
+
     function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
         if (root.deleteBusy)
             return
@@ -138,6 +175,8 @@ Item {
             root.gitMessage = ""
         if (!Desktop.ryokuActionBusy)
             root.ryokuMessage = ""
+        if (!Desktop.folderPickerBusy && root.pendingExtractArchive === "")
+            root.archiveMessage = ""
         root.targetPath = path
         root.targetIsDirectory = isDirectory
         root.selectionCount = selectedCount
@@ -338,6 +377,8 @@ Item {
                     root.cancelPermanentDelete()
                 return
             }
+            if (Desktop.folderPickerBusy)
+                return
             if (root.pendingGitOperation === "")
                 root.visible = false
         }
@@ -378,6 +419,7 @@ Item {
                     { label: "PASTE INTO", action: "pasteinto", enabled: root.clipboardHasFiles, visible: root.targetIsDirectory && root.selectionCount === 1 },
                     { label: "DUPLICATE", action: "duplicate", enabled: root.selectionCount > 0, visible: true },
                     { label: "EXTRACT HERE", action: "extracthere", enabled: root.archiveExtractAvailable, visible: root.archiveExtractAvailable },
+                    { label: "EXTRACT TO…", action: "extractto", enabled: root.archiveExtractAvailable && !Desktop.folderPickerBusy, visible: root.archiveExtractAvailable },
                     { label: "RYOKU · INSTALL", action: "ryokuinstall", enabled: root.ryokuInstallAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuInstallAvailable },
                     { label: "RYOKU · COMPRESS", action: "ryokucompress", enabled: root.ryokuCompressAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuCompressAvailable },
                     { label: "RENAME", action: "rename", enabled: root.selectionCount === 1, visible: true },
@@ -453,6 +495,10 @@ Item {
                                 root.startRyokuAction(false)
                                 return
                             }
+                            if (action === "extractto") {
+                                root.startExtractTo()
+                                return
+                            }
                             if (action === "permadelete") {
                                 root.beginPermanentDelete(root.selectedPaths)
                                 return
@@ -495,6 +541,7 @@ Item {
                 visible: root.pendingGitOperation !== ""
                     || root.gitMessage !== ""
                     || root.ryokuMessage !== ""
+                    || root.archiveMessage !== ""
 
                 Text {
                     id: statusMessage
@@ -502,9 +549,13 @@ Item {
                     anchors.right: parent.right
                     anchors.margins: 8 * root.uiScale
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.ryokuMessage !== "" ? root.ryokuMessage : root.gitMessage
+                    text: root.archiveMessage !== ""
+                        ? root.archiveMessage
+                        : (root.ryokuMessage !== "" ? root.ryokuMessage : root.gitMessage)
                     wrapMode: Text.Wrap
-                    color: root.pendingGitOperation !== "" || Desktop.ryokuActionBusy
+                    color: root.pendingGitOperation !== ""
+                            || Desktop.ryokuActionBusy
+                            || Desktop.folderPickerBusy
                         ? Ryoku.inkMuted
                         : Ryoku.sun
                     font.family: Ryoku.monoFont
@@ -753,6 +804,45 @@ Item {
             root.ryokuMessage = error !== ""
                 ? error
                 : ("Ryoku " + action + " failed for " + failed + " item(s)")
+        }
+
+        function onFolderPicked(path) {
+            if (root.pendingExtractArchive === "")
+                return
+
+            var archive = root.pendingExtractArchive
+            root.pendingExtractArchive = ""
+            root.archiveMessage = ""
+
+            var id = root.operationManager !== null
+                ? root.operationManager.extractArchive(archive, path)
+                : ""
+            if (id === "") {
+                root.archiveMessage = "Could not start archive extraction"
+                root.visible = true
+                return
+            }
+
+            root.visible = false
+        }
+
+        function onFolderPickerCancelled() {
+            if (root.pendingExtractArchive === "")
+                return
+            root.pendingExtractArchive = ""
+            root.archiveMessage = ""
+            root.visible = false
+        }
+
+        function onFolderPickerErrorChanged() {
+            if (root.pendingExtractArchive === ""
+                    || Desktop.folderPickerBusy
+                    || Desktop.folderPickerError === "")
+                return
+
+            root.pendingExtractArchive = ""
+            root.archiveMessage = Desktop.folderPickerError
+            root.visible = true
         }
     }
 }
