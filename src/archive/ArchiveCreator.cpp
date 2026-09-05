@@ -285,17 +285,19 @@ bool writeRegularFile(
     }
 
     struct stat info {};
-    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size < 0) {
+    if (::fstat(fd, &info) != 0) {
         const int savedErrno = errno;
         ::close(fd);
         if (error) {
-            *error = QStringLiteral("Source changed while creating archive: %1%2")
-                         .arg(
-                             sourcePath,
-                             savedErrno != 0
-                                 ? QStringLiteral(": ") + QString::fromLocal8Bit(std::strerror(savedErrno))
-                                 : QString());
+            *error = QStringLiteral("Could not inspect opened source %1: %2")
+                         .arg(sourcePath, QString::fromLocal8Bit(std::strerror(savedErrno)));
         }
+        return false;
+    }
+    if (!S_ISREG(info.st_mode) || info.st_size < 0) {
+        ::close(fd);
+        if (error)
+            *error = QStringLiteral("Source changed while creating archive: %1").arg(sourcePath);
         return false;
     }
 
@@ -304,7 +306,7 @@ bool writeRegularFile(
         return false;
     }
 
-    QByteArray buffer(kReadBufferSize, Qt::Uninitialized);
+    QByteArray buffer(kReadBufferSize, '\0');
     qint64 remaining = static_cast<qint64>(info.st_size);
 
     while (remaining > 0) {
@@ -327,6 +329,7 @@ bool writeRegularFile(
                     ? QStringLiteral("Source shrank while creating archive: %1").arg(sourcePath)
                     : QStringLiteral("Could not read source %1: %2")
                           .arg(sourcePath, QString::fromLocal8Bit(std::strerror(savedErrno)));
+            }
             return false;
         }
 
@@ -593,7 +596,6 @@ ArchiveCreationResult ArchiveCreator::create(
         return failedResult(QStringLiteral("Could not allocate archive writer"));
 
     QString error;
-    bool opened = false;
     if (!configureWriter(writer, format, &error)) {
         archive_write_free(writer);
         return failedResult(error);
@@ -606,7 +608,6 @@ ArchiveCreationResult ArchiveCreator::create(
         QFile::remove(temporaryPath);
         return failedResult(error);
     }
-    opened = true;
 
     CreationContext context {writer, cancelRequested, progress};
     bool success = true;
@@ -621,12 +622,10 @@ ArchiveCreationResult ArchiveCreator::create(
         }
     }
 
-    if (opened) {
-        const int closeStatus = archive_write_close(writer);
-        if (success && !archiveOk(closeStatus)) {
-            success = false;
-            error = archiveError(writer, QStringLiteral("Could not finalize archive stream"));
-        }
+    const int closeStatus = archive_write_close(writer);
+    if (success && !archiveOk(closeStatus)) {
+        success = false;
+        error = archiveError(writer, QStringLiteral("Could not finalize archive stream"));
     }
     archive_write_free(writer);
 
