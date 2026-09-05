@@ -74,13 +74,21 @@ unset XDG_DESKTOP_PORTAL_DIR || true
 open_file="$tmp/open.txt"
 multi_a="$tmp/multi-a.txt"
 multi_b="$tmp/multi-b.txt"
+edge_file="$tmp/-edge 😀 'quote' space.txt"
 printf 'open\n' >"$open_file"
 printf 'multi a\n' >"$multi_a"
 printf 'multi b\n' >"$multi_b"
+printf 'edge\n' >"$edge_file"
 
 open_uri="file://$open_file"
 multi_a_uri="file://$multi_a"
 multi_b_uri="file://$multi_b"
+edge_uri=$(python - "$edge_file" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).resolve().as_uri())
+PY
+)
 folder_uri="file://$tmp/folder"
 save_uri="file://$tmp/save-parent/saved.txt"
 savefiles_folder_uri="file://$tmp/save-files"
@@ -119,7 +127,10 @@ fi
 
 case "$mode" in
   open)
-    if grep -Fq '"name":"Images"' <<<"$context"; then
+    if [[ "$title" == 'Open edge filename' ]]; then
+      printf '{"version":1,"uris":["%s"],"filter":-1,"choices":{}}\n' \
+        "${RYOFILES_MATRIX_EDGE_URI:?}"
+    elif grep -Fq '"name":"Images"' <<<"$context"; then
       grep -Fq '"initial_filter":1' <<<"$context"
       grep -Fq '"id":"readonly"' <<<"$context"
       grep -Fq '"id":"mode"' <<<"$context"
@@ -181,6 +192,7 @@ RYOFILES_PICKER_EXECUTABLE="$fake_picker" \
 RYOFILES_MATRIX_OPEN_URI="$open_uri" \
 RYOFILES_MATRIX_MULTI_A_URI="$multi_a_uri" \
 RYOFILES_MATRIX_MULTI_B_URI="$multi_b_uri" \
+RYOFILES_MATRIX_EDGE_URI="$edge_uri" \
 RYOFILES_MATRIX_FOLDER_URI="$folder_uri" \
 RYOFILES_MATRIX_SAVE_URI="$save_uri" \
 RYOFILES_MATRIX_SAVEFILES_FOLDER_URI="$savefiles_folder_uri" \
@@ -209,6 +221,7 @@ if ! timeout 20s python "$script_dir/FileChooserBrokerMatrixClient.py" \
     "$open_uri" \
     "$multi_a_uri" \
     "$multi_b_uri" \
+    "$edge_uri" \
     "$folder_uri" \
     "$save_uri" \
     "$savefiles_folder_uri" \
