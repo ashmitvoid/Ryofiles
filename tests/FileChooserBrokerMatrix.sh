@@ -98,6 +98,7 @@ set -euo pipefail
 context=$(cat)
 mode=''
 multiple=no
+title=''
 for ((i = 1; i <= $#; ++i)); do
   arg=${!i}
   if [[ "$arg" == '--picker' && $i -lt $# ]]; then
@@ -107,7 +108,14 @@ for ((i = 1; i <= $#; ++i)); do
   if [[ "$arg" == '--multiple' ]]; then
     multiple=yes
   fi
+  if [[ "$arg" == --picker-title=* ]]; then
+    title=${arg#--picker-title=}
+  fi
 done
+
+if [[ "$title" == 'Cancel broker request' ]]; then
+  exit 1
+fi
 
 case "$mode" in
   open)
