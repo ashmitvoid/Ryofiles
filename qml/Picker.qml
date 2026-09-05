@@ -7,6 +7,7 @@ Window {
 
     property string dialogTitle: ""
     property string customAcceptLabel: ""
+    property bool portalOptionsOpen: false
 
     width: 1000
     height: 650
@@ -89,7 +90,9 @@ Window {
         sequence: "Escape"
         enabled: !location.activeFocus && !filter.activeFocus && !saveName.activeFocus
         onActivated: {
-            if (Picker.overwriteConfirmationRequired)
+            if (root.portalOptionsOpen)
+                root.portalOptionsOpen = false
+            else if (Picker.overwriteConfirmationRequired)
                 Picker.clearOverwriteConfirmation()
             else
                 Picker.cancel()
@@ -725,6 +728,38 @@ Window {
                 spacing: 8 * root.u
 
                 Rectangle {
+                    visible: PortalContext.active
+                        && (PortalContext.filters.length > 0 || PortalContext.choices.length > 0)
+                    width: portalOptionsLabel.implicitWidth + 22 * root.u
+                    height: 34 * root.u
+                    radius: 6 * root.u
+                    color: root.portalOptionsOpen ? Ryoku.bone : (portalOptionsHover.hovered ? Ryoku.tint10 : "transparent")
+                    border.width: 1
+                    border.color: root.portalOptionsOpen ? Ryoku.bone : Ryoku.line
+                    opacity: Picker.overwriteConfirmationRequired ? 0.45 : 1.0
+
+                    Text {
+                        id: portalOptionsLabel
+                        anchors.centerIn: parent
+                        text: "FILTERS / OPTIONS"
+                        color: root.portalOptionsOpen ? Ryoku.inkOnBone : Ryoku.inkDim
+                        font.family: Ryoku.uiFont
+                        font.pixelSize: 9 * root.u
+                        font.weight: Font.Medium
+                        font.letterSpacing: 0.8
+                    }
+                    HoverHandler {
+                        id: portalOptionsHover
+                        enabled: !Picker.overwriteConfirmationRequired
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    }
+                    TapHandler {
+                        enabled: !Picker.overwriteConfirmationRequired
+                        onTapped: root.portalOptionsOpen = !root.portalOptionsOpen
+                    }
+                }
+
+                Rectangle {
                     width: cancelLabel.implicitWidth + 22 * root.u
                     height: 34 * root.u
                     radius: 6 * root.u
@@ -784,6 +819,21 @@ Window {
                     }
                 }
             }
+        }
+
+        PortalPickerOptions {
+            id: portalOptionsPanel
+            z: 80
+            visible: root.portalOptionsOpen && portalOptionsPanel.hasPortalOptions
+            anchors.right: parent.right
+            anchors.rightMargin: 18 * root.u
+            anchors.bottom: footer.top
+            anchors.bottomMargin: 8 * root.u
+            width: Math.min(parent.width - 36 * root.u, 420 * root.u)
+            uiScale: root.u
+            files: root.files
+            session: root.session
+            onCloseRequested: root.portalOptionsOpen = false
         }
 
         Rectangle {

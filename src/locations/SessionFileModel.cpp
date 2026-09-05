@@ -102,6 +102,19 @@ void SessionFileModel::setFilterQuery(const QString& query) {
         m_local->setFilterQuery(query);
 }
 
+QStringList SessionFileModel::portalNameFilters() const {
+    if (m_remoteActive)
+        return {};
+    return m_local ? m_local->portalNameFilters() : QStringList{};
+}
+
+void SessionFileModel::setPortalNameFilters(const QStringList& filters) {
+    if (m_remoteActive)
+        return;
+    if (m_local)
+        m_local->setPortalNameFilters(filters);
+}
+
 QString SessionFileModel::standardPath(int location) {
     const QString value =
         QStandardPaths::writableLocation(static_cast<QStandardPaths::StandardLocation>(location));
@@ -163,6 +176,7 @@ void SessionFileModel::setBackend(QAbstractItemModel* model, bool remote) {
     emit loadingChanged();
     emit showHiddenChanged();
     emit filterQueryChanged();
+    emit portalNameFiltersChanged();
     emit countChanged();
 }
 
@@ -186,6 +200,9 @@ void SessionFileModel::connectLocal(DirectoryModel* model) {
     m_backendConnections.push_back(connect(
         model, &DirectoryModel::filterQueryChanged,
         this, &SessionFileModel::filterQueryChanged));
+    m_backendConnections.push_back(connect(
+        model, &DirectoryModel::portalNameFiltersChanged,
+        this, &SessionFileModel::portalNameFiltersChanged));
 }
 
 void SessionFileModel::connectRemote(RemoteDirectoryModel* model) {

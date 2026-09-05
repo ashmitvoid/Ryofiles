@@ -3,6 +3,7 @@
 
 #include <QIdentityProxyModel>
 #include <QMetaObject>
+#include <QStringList>
 #include <QVector>
 
 class DirectoryModel;
@@ -15,6 +16,7 @@ class SessionFileModel final : public QIdentityProxyModel {
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
     Q_PROPERTY(QString filterQuery READ filterQuery WRITE setFilterQuery NOTIFY filterQueryChanged)
+    Q_PROPERTY(QStringList portalNameFilters READ portalNameFilters WRITE setPortalNameFilters NOTIFY portalNameFiltersChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(bool remote READ remote NOTIFY sourceKindChanged)
 
@@ -56,6 +58,9 @@ public:
     QString filterQuery() const;
     void setFilterQuery(const QString& query);
 
+    QStringList portalNameFilters() const;
+    void setPortalNameFilters(const QStringList& filters);
+
     bool remote() const { return m_remoteActive; }
 
     QString home() const;
@@ -76,6 +81,7 @@ signals:
     void loadingChanged();
     void showHiddenChanged();
     void filterQueryChanged();
+    void portalNameFiltersChanged();
     void countChanged();
     void sourceKindChanged();
 

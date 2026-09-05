@@ -57,6 +57,7 @@ qt_add_executable(ryofiles
     src/operations/RemoteOperationManager.hpp
     src/operations/RemoteOperationManager.cpp
     src/picker/PickerController.hpp
+    src/picker/PortalPickerContext.hpp
     src/portal/PortalPickerRequest.hpp
     src/portal/PortalPickerRequest.cpp
     src/portal/FileChooserPortal.hpp
@@ -110,6 +111,7 @@ qt_add_qml_module(ryofiles
         qml/components/OpenWithSheet.qml
         qml/components/PropertiesSheet.qml
         qml/components/PreviewPanel.qml
+        qml/components/PortalPickerOptions.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
@@ -543,6 +545,20 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME portal-picker-request COMMAND ryofiles_portal_picker_tests)
+
+    qt_add_executable(ryofiles_portal_context_tests
+        tests/PortalPickerContextTest.cpp
+        src/picker/PortalPickerContext.hpp
+    )
+
+    target_include_directories(ryofiles_portal_context_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_portal_context_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    add_test(NAME portal-picker-context COMMAND ryofiles_portal_context_tests)
 endif()
 
 install(TARGETS ryofiles

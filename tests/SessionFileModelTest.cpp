@@ -97,6 +97,7 @@ private slots:
         QVERIFY(!model.loading());
         QCOMPARE(model.rowCount(), 0);
         QCOMPARE(model.filterQuery(), QString());
+        QVERIFY(model.portalNameFilters().isEmpty());
         QVERIFY(!model.showHidden());
     }
 
@@ -122,6 +123,28 @@ private slots:
 
         QCOMPARE(local.filterQuery(), QStringLiteral("local"));
         QVERIFY(local.showHidden());
+    }
+
+    void delegatesPortalNameFiltersOnlyToLocalBackend() {
+        DirectoryModel local(false, nullptr);
+        RemoteDirectoryModel remote;
+        SessionFileModel model;
+
+        QSignalSpy portalFilterSpy(&model, &SessionFileModel::portalNameFiltersChanged);
+        model.useLocal(&local);
+        model.setPortalNameFilters({QStringLiteral("*.png"), QStringLiteral("*.jpg")});
+        QCOMPARE(
+            local.portalNameFilters(),
+            QStringList({QStringLiteral("*.png"), QStringLiteral("*.jpg")}));
+        QCOMPARE(model.portalNameFilters(), local.portalNameFilters());
+        QVERIFY(portalFilterSpy.count() >= 1);
+
+        model.useRemote(&remote);
+        QVERIFY(model.portalNameFilters().isEmpty());
+        model.setPortalNameFilters({QStringLiteral("*.txt")});
+        QCOMPARE(
+            local.portalNameFilters(),
+            QStringList({QStringLiteral("*.png"), QStringLiteral("*.jpg")}));
     }
 };
 

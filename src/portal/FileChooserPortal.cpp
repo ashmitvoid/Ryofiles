@@ -4,6 +4,7 @@
 
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QJsonDocument>
 #include <QProcess>
 #include <QStandardPaths>
 
@@ -12,6 +13,7 @@ namespace {
 constexpr quint32 kSuccess = 0;
 constexpr quint32 kCancelled = 1;
 constexpr quint32 kOther = 2;
+constexpr qsizetype kMaximumPortalContextBytes = 1024 * 1024;
 
 class PortalRequestObject final : public QObject {
     Q_OBJECT
@@ -64,6 +66,19 @@ public:
 
         connect(
             &m_process,
+            &QProcess::started,
+            this,
+            [this] {
+                if (m_process.write(m_pickerContext) != m_pickerContext.size()) {
+                    m_process.kill();
+                    complete(kOther, {});
+                    return;
+                }
+                m_process.closeWriteChannel();
+            });
+
+        connect(
+            &m_process,
             &QProcess::finished,
             this,
             [this](int exitCode, QProcess::ExitStatus exitStatus) {
@@ -93,6 +108,29 @@ public:
 
                 QVariantMap results;
                 results.insert(QStringLiteral("uris"), pickerResult.uris);
+
+                if (pickerResult.selectedFilterIndex >= 0
+                    && pickerResult.selectedFilterIndex < m_request.filters.size()) {
+                    results.insert(
+                        QStringLiteral("current_filter"),
+                        QVariant::fromValue(
+                            m_request.filters.at(pickerResult.selectedFilterIndex)));
+                }
+
+                if (!m_request.choices.isEmpty()) {
+                    PortalChoiceSelectionList selections;
+                    selections.values.reserve(m_request.choices.size());
+                    for (const PortalChoice& choice : m_request.choices) {
+                        selections.values.push_back({
+                            choice.id,
+                            pickerResult.choiceSelections.value(choice.id),
+                        });
+                    }
+                    results.insert(
+                        QStringLiteral("choices"),
+                        QVariant::fromValue(selections));
+                }
+
                 complete(kSuccess, results);
             });
 
@@ -110,6 +148,13 @@ public:
 
     bool start() {
         if (!m_request.valid) {
+            complete(kOther, {});
+            return false;
+        }
+
+        m_pickerContext = QJsonDocument(m_request.pickerContextJson())
+                              .toJson(QJsonDocument::Compact);
+        if (m_pickerContext.size() > kMaximumPortalContextBytes) {
             complete(kOther, {});
             return false;
         }
@@ -180,12 +225,14 @@ private:
     PortalPickerRequest m_request;
     PortalRequestObject* m_requestObject = nullptr;
     QProcess m_process;
+    QByteArray m_pickerContext;
     bool m_requestRegistered = false;
     bool m_finished = false;
 };
 
 FileChooserPortal::FileChooserPortal(QObject* parent)
     : QObject(parent) {
+    registerPortalDbusTypes();
 }
 
 void FileChooserPortal::OpenFile(
