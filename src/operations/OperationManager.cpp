@@ -154,6 +154,9 @@ bool OperationManager::validLeafName(const QString& name) {
 bool OperationManager::supportedArchivePath(const QString& path) {
     const QString name = QFileInfo(path).fileName().toLower();
     return name.endsWith(QStringLiteral(".tar.gz"))
+        || name.endsWith(QStringLiteral(".tgz"))
+        || name.endsWith(QStringLiteral(".tar.xz"))
+        || name.endsWith(QStringLiteral(".tar.zst"))
         || name.endsWith(QStringLiteral(".tar"))
         || name.endsWith(QStringLiteral(".zip"))
         || name.endsWith(QStringLiteral(".7z"));

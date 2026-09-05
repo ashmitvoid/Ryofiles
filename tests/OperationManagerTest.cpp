@@ -405,6 +405,41 @@ private slots:
         QVERIFY(!QFileInfo::exists(source));
     }
 
+    void archiveFormatEligibilityMatchesDecoderCoverage() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QStringList supported = {
+            QStringLiteral("sample.tar"),
+            QStringLiteral("sample.tar.gz"),
+            QStringLiteral("sample.tgz"),
+            QStringLiteral("sample.tar.xz"),
+            QStringLiteral("sample.tar.zst"),
+            QStringLiteral("sample.zip"),
+            QStringLiteral("sample.7z"),
+        };
+
+        OperationManager manager;
+        for (const QString& name : supported) {
+            const QString path = temp.filePath(name);
+            writeFile(path, "archive placeholder");
+            QVERIFY2(manager.canExtractArchive(path), qPrintable(name));
+        }
+
+        const QStringList unsupported = {
+            QStringLiteral("sample.rar"),
+            QStringLiteral("sample.tar.bz2"),
+            QStringLiteral("sample.gz"),
+            QStringLiteral("sample.xz"),
+            QStringLiteral("sample.zst"),
+        };
+        for (const QString& name : unsupported) {
+            const QString path = temp.filePath(name);
+            writeFile(path, "not exposed");
+            QVERIFY2(!manager.canExtractArchive(path), qPrintable(name));
+        }
+    }
+
     void archiveExtractionRunsAsIndeterminateOperation() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
