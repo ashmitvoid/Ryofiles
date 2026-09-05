@@ -16,6 +16,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Concurrent
     DBus
 )
+find_package(LibArchive REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 
@@ -26,6 +27,8 @@ qt_add_executable(ryofiles
     src/main.cpp
     src/archive/ArchivePathGuard.hpp
     src/archive/ArchivePathGuard.cpp
+    src/archive/ArchiveExtractor.hpp
+    src/archive/ArchiveExtractor.cpp
     src/ryoku/RyokuIntegration.hpp
     src/ryoku/RyokuIntegration.cpp
     src/fs/DirectoryModel.hpp
@@ -125,6 +128,7 @@ target_link_libraries(ryofiles PRIVATE
     Qt6::Quick
     Qt6::Concurrent
     Qt6::DBus
+    LibArchive::LibArchive
     PkgConfig::GIO
 )
 
@@ -576,6 +580,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME archive-path-guard COMMAND ryofiles_archive_path_tests)
+
+    qt_add_executable(ryofiles_archive_extractor_tests
+        tests/ArchiveExtractorTest.cpp
+        src/archive/ArchiveExtractor.hpp
+        src/archive/ArchiveExtractor.cpp
+        src/archive/ArchivePathGuard.hpp
+        src/archive/ArchivePathGuard.cpp
+    )
+
+    target_include_directories(ryofiles_archive_extractor_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_archive_extractor_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        LibArchive::LibArchive
+    )
+
+    add_test(NAME archive-extractor COMMAND ryofiles_archive_extractor_tests)
 endif()
 
 install(TARGETS ryofiles
