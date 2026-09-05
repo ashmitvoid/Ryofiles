@@ -16,7 +16,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Install build dependencies
-        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja ccache dbus glib2 python-gobject qt6-base qt6-declarative xdg-desktop-portal
+        run: pacman -Syu --noconfirm --needed git base-devel cmake ninja ccache dbus glib2 libarchive python-gobject qt6-base qt6-declarative xdg-desktop-portal
       - uses: actions/checkout@v4
       - name: Restore compiler cache
         uses: actions/cache@v4
