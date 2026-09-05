@@ -8,14 +8,23 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QRegularExpression>
 #include <QSet>
-#include <QStandardPaths>
 #include <QUrl>
 
 namespace {
+
+constexpr qsizetype kMaximumStructuredResultBytes = 1024 * 1024;
+constexpr qsizetype kMaximumFilters = 64;
+constexpr qsizetype kMaximumFilterConditions = 128;
+constexpr qsizetype kMaximumChoices = 32;
+constexpr qsizetype kMaximumChoiceOptions = 64;
+constexpr qsizetype kMaximumExpandedPatterns = 256;
+constexpr qsizetype kMaximumMetadataString = 512;
 
 bool validLeafName(const QString& name) {
     return !name.isEmpty()
@@ -24,6 +33,66 @@ bool validLeafName(const QString& name) {
         && !name.contains(QChar::Null)
         && name != QStringLiteral(".")
         && name != QStringLiteral("..");
+}
+
+bool boundedString(const QString& value, qsizetype maximum = kMaximumMetadataString) {
+    return value.size() <= maximum && !value.contains(QChar::Null);
+}
+
+bool validChoiceId(const QString& value) {
+    return !value.isEmpty() && boundedString(value, 128);
+}
+
+bool validateChoice(PortalChoice* choice, QString* error) {
+    if (!choice
+        || !validChoiceId(choice->id)
+        || choice->label.isEmpty()
+        || !boundedString(choice->label)) {
+        if (error)
+            *error = QStringLiteral("Portal choice metadata is invalid");
+        return false;
+    }
+
+    choice->boolean = choice->options.isEmpty();
+    if (choice->boolean) {
+        if (choice->initialSelection.isEmpty())
+            choice->initialSelection = QStringLiteral("false");
+        if (choice->initialSelection != QStringLiteral("true")
+            && choice->initialSelection != QStringLiteral("false")) {
+            if (error)
+                *error = QStringLiteral("Portal boolean choice initial value is invalid");
+            return false;
+        }
+        return true;
+    }
+
+    if (choice->options.size() > kMaximumChoiceOptions) {
+        if (error)
+            *error = QStringLiteral("Portal choice has too many options");
+        return false;
+    }
+
+    QSet<QString> optionIds;
+    for (const PortalChoiceOption& option : choice->options) {
+        if (!validChoiceId(option.id)
+            || option.label.isEmpty()
+            || !boundedString(option.label)
+            || optionIds.contains(option.id)) {
+            if (error)
+                *error = QStringLiteral("Portal choice option is invalid");
+            return false;
+        }
+        optionIds.insert(option.id);
+    }
+
+    if (choice->initialSelection.isEmpty())
+        choice->initialSelection = choice->options.constFirst().id;
+    if (!optionIds.contains(choice->initialSelection)) {
+        if (error)
+            *error = QStringLiteral("Portal choice initial value is invalid");
+        return false;
+    }
+    return true;
 }
 
 QString existingDirectoryFromOption(
@@ -63,8 +132,9 @@ bool parseFilterOptions(
     const QVariantMap& options,
     QList<PortalFilter>* filters,
     int* initialFilterIndex,
+    bool* filterLocked,
     QString* error) {
-    if (!filters || !initialFilterIndex)
+    if (!filters || !initialFilterIndex || !filterLocked)
         return false;
 
     *filters = PortalPickerParsing::decodeFilters(
@@ -72,6 +142,7 @@ bool parseFilterOptions(
     if (error && !error->isEmpty())
         return false;
 
+    *filterLocked = false;
     *initialFilterIndex = filters->isEmpty() ? -1 : 0;
     if (!options.contains(QStringLiteral("current_filter")))
         return true;
@@ -84,6 +155,7 @@ bool parseFilterOptions(
     if (filters->isEmpty()) {
         filters->push_back(std::move(current));
         *initialFilterIndex = 0;
+        *filterLocked = true;
         return true;
     }
 
@@ -94,6 +166,17 @@ bool parseFilterOptions(
         }
     }
     return true;
+}
+
+bool parseChoicesOption(
+    const QVariantMap& options,
+    QList<PortalChoice>* choices,
+    QString* error) {
+    if (!choices)
+        return false;
+    *choices = PortalPickerParsing::decodeChoices(
+        options.value(QStringLiteral("choices")), error);
+    return !error || error->isEmpty();
 }
 
 bool mimeMatches(const QString& path, const QString& filter) {
@@ -115,6 +198,50 @@ bool globMatches(const QString& fileName, const QString& pattern) {
     const QString expression = QRegularExpression::wildcardToRegularExpression(pattern);
     const QRegularExpression regex(expression);
     return regex.isValid() && regex.match(fileName).hasMatch();
+}
+
+QStringList patternsForFilter(const PortalFilter& filter) {
+    QSet<QString> seen;
+    QStringList patterns;
+    const auto appendPattern = [&seen, &patterns](const QString& pattern) {
+        if (pattern.isEmpty()
+            || seen.contains(pattern)
+            || patterns.size() >= kMaximumExpandedPatterns) {
+            return;
+        }
+        seen.insert(pattern);
+        patterns.push_back(pattern);
+    };
+
+    QMimeDatabase database;
+    for (const PortalFilterCondition& condition : filter.conditions) {
+        if (condition.type == 0) {
+            appendPattern(condition.pattern);
+            continue;
+        }
+
+        const QString mimeName = condition.pattern.trimmed().toLower();
+        if (mimeName.endsWith(QStringLiteral("/*"))) {
+            const QString prefix = mimeName.left(mimeName.size() - 1);
+            const QList<QMimeType> allTypes = database.allMimeTypes();
+            for (const QMimeType& mime : allTypes) {
+                if (!mime.name().toLower().startsWith(prefix))
+                    continue;
+                for (const QString& pattern : mime.globPatterns())
+                    appendPattern(pattern);
+                if (patterns.size() >= kMaximumExpandedPatterns)
+                    break;
+            }
+            continue;
+        }
+
+        const QMimeType mime = database.mimeTypeForName(mimeName);
+        if (!mime.isValid())
+            continue;
+        for (const QString& pattern : mime.globPatterns())
+            appendPattern(pattern);
+    }
+    return patterns;
 }
 
 PortalPickerRequest baseRequest(
@@ -155,13 +282,20 @@ QList<PortalFilterCondition> decodeConditionsFromArgument(
     QList<PortalFilterCondition> conditions;
     argument.beginArray();
     while (!argument.atEnd()) {
+        if (conditions.size() >= kMaximumFilterConditions) {
+            if (error)
+                *error = QStringLiteral("Portal file filter has too many conditions");
+            argument.endArray();
+            return {};
+        }
+
         quint32 type = 0;
         QString pattern;
         argument.beginStructure();
         argument >> type >> pattern;
         argument.endStructure();
 
-        if (type > 1 || pattern.isEmpty()) {
+        if (type > 1 || pattern.isEmpty() || !boundedString(pattern, 1024)) {
             if (error)
                 *error = QStringLiteral("Unsupported or empty portal file-filter condition");
             argument.endArray();
@@ -177,9 +311,67 @@ PortalFilter decodeFilterFromArgument(const QDBusArgument& argument, QString* er
     PortalFilter filter;
     argument.beginStructure();
     argument >> filter.name;
+    if (!boundedString(filter.name)) {
+        if (error)
+            *error = QStringLiteral("Portal file-filter name is invalid");
+        argument.endStructure();
+        return {};
+    }
     filter.conditions = decodeConditionsFromArgument(argument, error);
     argument.endStructure();
     return filter;
+}
+
+QList<PortalChoice> decodeChoicesFromArgument(
+    const QDBusArgument& argument,
+    QString* error) {
+    QList<PortalChoice> choices;
+    QSet<QString> choiceIds;
+
+    argument.beginArray();
+    while (!argument.atEnd()) {
+        if (choices.size() >= kMaximumChoices) {
+            if (error)
+                *error = QStringLiteral("Portal request has too many choices");
+            argument.endArray();
+            return {};
+        }
+
+        PortalChoice choice;
+        argument.beginStructure();
+        argument >> choice.id >> choice.label;
+
+        argument.beginArray();
+        while (!argument.atEnd()) {
+            if (choice.options.size() >= kMaximumChoiceOptions) {
+                if (error)
+                    *error = QStringLiteral("Portal choice has too many options");
+                argument.endArray();
+                argument.endStructure();
+                argument.endArray();
+                return {};
+            }
+            PortalChoiceOption option;
+            argument.beginStructure();
+            argument >> option.id >> option.label;
+            argument.endStructure();
+            choice.options.push_back(std::move(option));
+        }
+        argument.endArray();
+        argument >> choice.initialSelection;
+        argument.endStructure();
+
+        if (choiceIds.contains(choice.id) || !validateChoice(&choice, error)) {
+            if (error && error->isEmpty())
+                *error = QStringLiteral("Portal request contains duplicate choice IDs");
+            argument.endArray();
+            return {};
+        }
+        choiceIds.insert(choice.id);
+        choices.push_back(std::move(choice));
+    }
+    argument.endArray();
+    return choices;
 }
 
 QString collisionStem(const QString& name, QString* suffix) {
@@ -192,6 +384,80 @@ QString collisionStem(const QString& name, QString* suffix) {
     if (suffix)
         suffix->clear();
     return name;
+}
+
+bool validateStructuredSelections(
+    const PortalPickerRequest& request,
+    PortalPickerResult* result,
+    bool structured,
+    QString* error) {
+    if (!result)
+        return false;
+
+    if (request.filters.isEmpty()) {
+        result->selectedFilterIndex = -1;
+    } else if (!structured) {
+        result->selectedFilterIndex = request.initialFilterIndex;
+    } else if (result->selectedFilterIndex < 0
+        || result->selectedFilterIndex >= request.filters.size()) {
+        if (error)
+            *error = QStringLiteral("Picker returned an invalid selected filter");
+        return false;
+    }
+
+    if (request.filterLocked
+        && result->selectedFilterIndex != request.initialFilterIndex) {
+        if (error)
+            *error = QStringLiteral("Picker changed a locked portal file filter");
+        return false;
+    }
+
+    QSet<QString> expectedIds;
+    for (const PortalChoice& choice : request.choices) {
+        expectedIds.insert(choice.id);
+        QString selected;
+        if (structured) {
+            if (!result->choiceSelections.contains(choice.id)) {
+                if (error)
+                    *error = QStringLiteral("Picker omitted a portal choice result");
+                return false;
+            }
+            selected = result->choiceSelections.value(choice.id);
+        } else {
+            selected = choice.initialSelection;
+            result->choiceSelections.insert(choice.id, selected);
+        }
+
+        bool valid = false;
+        if (choice.boolean) {
+            valid = selected == QStringLiteral("true")
+                || selected == QStringLiteral("false");
+        } else {
+            for (const PortalChoiceOption& option : choice.options) {
+                if (option.id == selected) {
+                    valid = true;
+                    break;
+                }
+            }
+        }
+        if (!valid) {
+            if (error)
+                *error = QStringLiteral("Picker returned an invalid portal choice result");
+            return false;
+        }
+    }
+
+    if (structured) {
+        for (auto it = result->choiceSelections.cbegin();
+             it != result->choiceSelections.cend(); ++it) {
+            if (!expectedIds.contains(it.key())) {
+                if (error)
+                    *error = QStringLiteral("Picker returned an unknown portal choice result");
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -220,7 +486,13 @@ PortalPickerRequest PortalPickerRequest::openFile(
             options,
             &request.filters,
             &request.initialFilterIndex,
+            &request.filterLocked,
             &parseError)) {
+        request.error = parseError;
+        return request;
+    }
+
+    if (!parseChoicesOption(options, &request.choices, &parseError)) {
         request.error = parseError;
         return request;
     }
@@ -273,7 +545,13 @@ PortalPickerRequest PortalPickerRequest::saveFile(
             options,
             &request.filters,
             &request.initialFilterIndex,
+            &request.filterLocked,
             &parseError)) {
+        request.error = parseError;
+        return request;
+    }
+
+    if (!parseChoicesOption(options, &request.choices, &parseError)) {
         request.error = parseError;
         return request;
     }
@@ -307,6 +585,11 @@ PortalPickerRequest PortalPickerRequest::saveFiles(
         return request;
     }
 
+    if (!parseChoicesOption(options, &request.choices, &parseError)) {
+        request.error = parseError;
+        return request;
+    }
+
     request.valid = true;
     return request;
 }
@@ -323,6 +606,45 @@ QStringList PortalPickerRequest::pickerArguments() const {
         arguments << QStringLiteral("--suggest-name") << suggestedName;
 
     return arguments;
+}
+
+QJsonObject PortalPickerRequest::pickerContextJson() const {
+    QJsonArray filtersArray;
+    for (const PortalFilter& filter : filters) {
+        QJsonArray patternsArray;
+        for (const QString& pattern : patternsForFilter(filter))
+            patternsArray.push_back(pattern);
+        filtersArray.push_back(QJsonObject{
+            {QStringLiteral("name"), filter.name},
+            {QStringLiteral("patterns"), patternsArray},
+        });
+    }
+
+    QJsonArray choicesArray;
+    for (const PortalChoice& choice : choices) {
+        QJsonArray optionsArray;
+        for (const PortalChoiceOption& option : choice.options) {
+            optionsArray.push_back(QJsonObject{
+                {QStringLiteral("id"), option.id},
+                {QStringLiteral("label"), option.label},
+            });
+        }
+        choicesArray.push_back(QJsonObject{
+            {QStringLiteral("id"), choice.id},
+            {QStringLiteral("label"), choice.label},
+            {QStringLiteral("boolean"), choice.boolean},
+            {QStringLiteral("initial"), choice.initialSelection},
+            {QStringLiteral("options"), optionsArray},
+        });
+    }
+
+    return QJsonObject{
+        {QStringLiteral("version"), 1},
+        {QStringLiteral("filters"), filtersArray},
+        {QStringLiteral("initial_filter"), initialFilterIndex},
+        {QStringLiteral("filter_locked"), filterLocked},
+        {QStringLiteral("choices"), choicesArray},
+    };
 }
 
 bool PortalPickerRequest::pathMatchesFilters(const QString& path) const {
@@ -349,15 +671,64 @@ PortalPickerResult PortalPickerResult::fromPickerStdout(
         result.error = request.error;
         return result;
     }
+    if (standardOutput.size() > kMaximumStructuredResultBytes) {
+        result.error = QStringLiteral("Picker result exceeded the portal result size limit");
+        return result;
+    }
 
     QStringList rawUris;
-    const QList<QByteArray> lines = standardOutput.split('\n');
-    for (QByteArray line : lines) {
-        if (line.endsWith('\r'))
-            line.chop(1);
-        if (line.isEmpty())
-            continue;
-        rawUris.push_back(QString::fromUtf8(line));
+    const QByteArray trimmed = standardOutput.trimmed();
+    const bool structured = trimmed.startsWith('{');
+    if (structured) {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(trimmed, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            result.error = QStringLiteral("Picker returned malformed structured portal output");
+            return result;
+        }
+        const QJsonObject object = document.object();
+        if (object.value(QStringLiteral("version")).toInt() != 1) {
+            result.error = QStringLiteral("Picker returned an unsupported portal result version");
+            return result;
+        }
+
+        const QJsonArray uris = object.value(QStringLiteral("uris")).toArray();
+        for (const QJsonValue& value : uris) {
+            if (!value.isString()) {
+                result.error = QStringLiteral("Picker returned a malformed URI result");
+                return result;
+            }
+            rawUris.push_back(value.toString());
+        }
+        result.selectedFilterIndex = object.value(QStringLiteral("filter")).toInt(-1);
+
+        const QJsonObject choicesObject = object.value(QStringLiteral("choices")).toObject();
+        for (auto it = choicesObject.begin(); it != choicesObject.end(); ++it) {
+            if (!it.value().isString()) {
+                result.error = QStringLiteral("Picker returned a malformed choice result");
+                return result;
+            }
+            result.choiceSelections.insert(it.key(), it.value().toString());
+        }
+    } else {
+        const QList<QByteArray> lines = standardOutput.split('\n');
+        for (QByteArray line : lines) {
+            if (line.endsWith('\r'))
+                line.chop(1);
+            if (line.isEmpty())
+                continue;
+            rawUris.push_back(QString::fromUtf8(line));
+        }
+    }
+
+    QString selectionError;
+    if (!validateStructuredSelections(
+            request,
+            &result,
+            structured,
+            &selectionError)) {
+        result.error = selectionError;
+        return result;
     }
 
     if (request.kind == PortalPickerKind::SaveFiles) {
@@ -396,9 +767,7 @@ PortalPickerResult PortalPickerResult::fromPickerStdout(
         return result;
     }
 
-    const int expectedMinimum = request.multiple ? 1 : 1;
-    if (rawUris.size() < expectedMinimum
-        || (!request.multiple && rawUris.size() != 1)) {
+    if (rawUris.isEmpty() || (!request.multiple && rawUris.size() != 1)) {
         result.error = QStringLiteral("Picker returned an unexpected number of results");
         return result;
     }
@@ -521,6 +890,12 @@ QList<PortalFilter> decodeFilters(const QVariant& value, QString* error) {
         QList<PortalFilter> filters;
         argument.beginArray();
         while (!argument.atEnd()) {
+            if (filters.size() >= kMaximumFilters) {
+                if (error)
+                    *error = QStringLiteral("Portal request has too many file filters");
+                argument.endArray();
+                return {};
+            }
             PortalFilter filter = decodeFilterFromArgument(argument, error);
             if (error && !error->isEmpty()) {
                 argument.endArray();
@@ -533,6 +908,12 @@ QList<PortalFilter> decodeFilters(const QVariant& value, QString* error) {
     }
 
     const QVariantList list = value.toList();
+    if (list.size() > kMaximumFilters) {
+        if (error)
+            *error = QStringLiteral("Portal request has too many file filters");
+        return {};
+    }
+
     QList<PortalFilter> filters;
     for (const QVariant& item : list) {
         PortalFilter filter = decodeFilter(item, error);
@@ -547,19 +928,29 @@ PortalFilter decodeFilter(const QVariant& value, QString* error) {
     if (error)
         error->clear();
 
-    if (value.metaType() == QMetaType::fromType<QDBusArgument>()) {
+    if (value.metaType() == QMetaType::fromType<QDBusArgument>())
         return decodeFilterFromArgument(value.value<QDBusArgument>(), error);
-    }
 
     PortalFilter filter;
     const QVariantMap map = value.toMap();
     filter.name = map.value(QStringLiteral("name")).toString();
+    if (!boundedString(filter.name)) {
+        if (error)
+            *error = QStringLiteral("Portal file-filter name is invalid");
+        return {};
+    }
+
     const QVariantList conditions = map.value(QStringLiteral("conditions")).toList();
+    if (conditions.size() > kMaximumFilterConditions) {
+        if (error)
+            *error = QStringLiteral("Portal file filter has too many conditions");
+        return {};
+    }
     for (const QVariant& item : conditions) {
         const QVariantMap conditionMap = item.toMap();
         const quint32 type = conditionMap.value(QStringLiteral("type")).toUInt();
         const QString pattern = conditionMap.value(QStringLiteral("pattern")).toString();
-        if (type > 1 || pattern.isEmpty()) {
+        if (type > 1 || pattern.isEmpty() || !boundedString(pattern, 1024)) {
             if (error)
                 *error = QStringLiteral("Unsupported or empty portal file-filter condition");
             return {};
@@ -567,6 +958,56 @@ PortalFilter decodeFilter(const QVariant& value, QString* error) {
         filter.conditions.push_back({type, pattern});
     }
     return filter;
+}
+
+QList<PortalChoice> decodeChoices(const QVariant& value, QString* error) {
+    if (error)
+        error->clear();
+    if (!value.isValid())
+        return {};
+
+    if (value.metaType() == QMetaType::fromType<QDBusArgument>())
+        return decodeChoicesFromArgument(value.value<QDBusArgument>(), error);
+
+    const QVariantList list = value.toList();
+    if (list.size() > kMaximumChoices) {
+        if (error)
+            *error = QStringLiteral("Portal request has too many choices");
+        return {};
+    }
+
+    QList<PortalChoice> choices;
+    QSet<QString> choiceIds;
+    for (const QVariant& item : list) {
+        const QVariantMap map = item.toMap();
+        PortalChoice choice;
+        choice.id = map.value(QStringLiteral("id")).toString();
+        choice.label = map.value(QStringLiteral("label")).toString();
+        choice.initialSelection = map.value(QStringLiteral("initial")).toString();
+
+        const QVariantList options = map.value(QStringLiteral("options")).toList();
+        if (options.size() > kMaximumChoiceOptions) {
+            if (error)
+                *error = QStringLiteral("Portal choice has too many options");
+            return {};
+        }
+        for (const QVariant& optionItem : options) {
+            const QVariantMap optionMap = optionItem.toMap();
+            choice.options.push_back({
+                optionMap.value(QStringLiteral("id")).toString(),
+                optionMap.value(QStringLiteral("label")).toString(),
+            });
+        }
+
+        if (choiceIds.contains(choice.id) || !validateChoice(&choice, error)) {
+            if (error && error->isEmpty())
+                *error = QStringLiteral("Portal request contains duplicate choice IDs");
+            return {};
+        }
+        choiceIds.insert(choice.id);
+        choices.push_back(std::move(choice));
+    }
+    return choices;
 }
 
 QStringList decodeFileNames(const QVariant& value, QString* error) {
