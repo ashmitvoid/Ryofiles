@@ -253,11 +253,10 @@ bool finishEntry(
     QString* error) {
     const int status = archive_write_finish_entry(context.writer);
     if (!archiveOk(status)) {
-        if (error) {
+        if (error)
             *error = archiveError(
                 context.writer,
                 QStringLiteral("Could not finish archive entry %1").arg(entryPath));
-        }
         return false;
     }
 
@@ -345,6 +344,7 @@ bool writeRegularFile(
                     *error = archiveError(
                         context.writer,
                         QStringLiteral("Could not write data for %1").arg(entryPath));
+                }
                 return false;
             }
             offset += written;
