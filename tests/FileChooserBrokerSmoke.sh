@@ -48,7 +48,7 @@ trap cleanup EXIT
 
 mkdir -p \
   "$tmp/config/xdg-desktop-portal" \
-  "$tmp/portals"
+  "$tmp/data/xdg-desktop-portal/portals"
 
 cat >"$tmp/config/xdg-desktop-portal/portals.conf" <<'EOF'
 [preferred]
@@ -56,7 +56,7 @@ default=none
 org.freedesktop.impl.portal.FileChooser=ryofiles
 EOF
 
-cat >"$tmp/portals/ryofiles.portal" <<'EOF'
+cat >"$tmp/data/xdg-desktop-portal/portals/ryofiles.portal" <<'EOF'
 [portal]
 DBusName=org.freedesktop.impl.portal.desktop.ryofiles
 Interfaces=org.freedesktop.impl.portal.FileChooser;
@@ -64,7 +64,9 @@ EOF
 
 export XDG_CONFIG_HOME="$tmp/config"
 export XDG_CURRENT_DESKTOP=ryofiles-smoke
-export XDG_DESKTOP_PORTAL_DIR="$tmp/portals"
+export XDG_DATA_HOME="$tmp/data"
+export XDG_DATA_DIRS="$tmp/data:/usr/share"
+unset XDG_DESKTOP_PORTAL_DIR || true
 
 selected="$tmp/selected.txt"
 printf 'broker smoke\n' >"$selected"
@@ -115,7 +117,7 @@ if ! wait_for_owner "$service_backend"; then
   exit 1
 fi
 
-"$frontend" >"$tmp/frontend.out" 2>"$tmp/frontend.err" &
+"$frontend" -v >"$tmp/frontend.out" 2>"$tmp/frontend.err" &
 frontend_pid=$!
 
 if ! wait_for_owner "$service_frontend"; then
