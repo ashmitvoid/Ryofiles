@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "picker/PickerController.hpp"
 #include "portal/PortalPickerRequest.hpp"
 
 #include <QDir>
@@ -147,7 +148,7 @@ private slots:
         QVERIFY(!arguments.contains(QStringLiteral("--version")));
     }
 
-    void mapsDirectoryOpenToFolderPickerWithoutMultiplicity() {
+    void mapsDirectoryOpenToMultipleFolderPicker() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
 
@@ -157,10 +158,102 @@ private slots:
         options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
 
         const PortalPickerRequest request =
-            PortalPickerRequest::openFile(QStringLiteral("Select folder"), options);
+            PortalPickerRequest::openFile(QStringLiteral("Select folders"), options);
         QVERIFY(request.valid);
         QCOMPARE(request.mode, QStringLiteral("folder"));
-        QVERIFY(!request.multiple);
+        QVERIFY(request.multiple);
+        QVERIFY(request.pickerArguments().contains(QStringLiteral("--multiple")));
+    }
+
+    void multipleFolderPickerContractAcceptsOnlySelectedDirectories() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString first = temp.filePath(QStringLiteral("first"));
+        const QString second = temp.filePath(QStringLiteral("second"));
+        const QString file = temp.filePath(QStringLiteral("not-a-folder.txt"));
+        QVERIFY(QDir().mkpath(first));
+        QVERIFY(QDir().mkpath(second));
+        writeFile(file);
+
+        const PickerContract contract = PickerContract::parse(
+            QStringLiteral("folder"),
+            true,
+            temp.path(),
+            {});
+        QVERIFY2(contract.valid, qPrintable(contract.error));
+        QVERIFY(contract.folderMode);
+        QVERIFY(contract.multiple);
+        QVERIFY(contract.canAccept({first, second}, temp.path()));
+        QCOMPARE(
+            contract.acceptedPaths({first, second}, temp.path()),
+            QStringList({QDir::cleanPath(first), QDir::cleanPath(second)}));
+        QVERIFY(!contract.canAccept({}, temp.path()));
+        QVERIFY(!contract.canAccept({first, file}, temp.path()));
+
+        const PickerContract single = PickerContract::parse(
+            QStringLiteral("folder"),
+            false,
+            temp.path(),
+            {});
+        QVERIFY(single.valid);
+        QCOMPARE(
+            single.acceptedPaths({}, temp.path()),
+            QStringList({QDir::cleanPath(temp.path())}));
+
+        const PickerContract saveMultiple = PickerContract::parse(
+            QStringLiteral("save"),
+            true,
+            temp.path(),
+            {});
+        QVERIFY(!saveMultiple.valid);
+    }
+
+    void multipleFolderPickerResultValidatesEveryDirectory() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString first = temp.filePath(QStringLiteral("folder-a"));
+        const QString second = temp.filePath(QStringLiteral("folder-b"));
+        const QString file = temp.filePath(QStringLiteral("file.txt"));
+        QVERIFY(QDir().mkpath(first));
+        QVERIFY(QDir().mkpath(second));
+        writeFile(file);
+
+        QVariantMap options;
+        options.insert(QStringLiteral("multiple"), true);
+        options.insert(QStringLiteral("directory"), true);
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("Select folders"), options);
+        QVERIFY(request.valid);
+        QVERIFY(request.multiple);
+
+        const QJsonObject good{
+            {QStringLiteral("version"), 1},
+            {QStringLiteral("uris"), QJsonArray{
+                QUrl::fromLocalFile(first).toString(QUrl::FullyEncoded),
+                QUrl::fromLocalFile(second).toString(QUrl::FullyEncoded),
+            }},
+            {QStringLiteral("filter"), -1},
+            {QStringLiteral("choices"), QJsonObject{}},
+        };
+        PortalPickerResult result = PortalPickerResult::fromPickerStdout(
+            request,
+            QJsonDocument(good).toJson(QJsonDocument::Compact));
+        QVERIFY2(result.valid, qPrintable(result.error));
+        QCOMPARE(result.uris.size(), 2);
+
+        QJsonObject bad = good;
+        bad.insert(
+            QStringLiteral("uris"),
+            QJsonArray{
+                QUrl::fromLocalFile(first).toString(QUrl::FullyEncoded),
+                QUrl::fromLocalFile(file).toString(QUrl::FullyEncoded),
+            });
+        result = PortalPickerResult::fromPickerStdout(
+            request,
+            QJsonDocument(bad).toJson(QJsonDocument::Compact));
+        QVERIFY(!result.valid);
+        QVERIFY(result.error.contains(QStringLiteral("non-directory"), Qt::CaseInsensitive));
     }
 
     void preservesFilterListAndCurrentSelection() {
