@@ -2,6 +2,8 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDBusArgument>
+#include <QDBusMetaType>
 #include <QJsonObject>
 #include <QList>
 #include <QMap>
@@ -32,6 +34,117 @@ struct PortalChoice {
     QString initialSelection;
     bool boolean = false;
 };
+
+struct PortalChoiceSelection {
+    QString id;
+    QString selection;
+};
+
+struct PortalChoiceSelectionList {
+    QList<PortalChoiceSelection> values;
+};
+
+Q_DECLARE_METATYPE(PortalFilterCondition)
+Q_DECLARE_METATYPE(PortalFilter)
+Q_DECLARE_METATYPE(PortalChoiceSelection)
+Q_DECLARE_METATYPE(PortalChoiceSelectionList)
+
+inline QDBusArgument& operator<<(
+    QDBusArgument& argument,
+    const PortalFilterCondition& condition) {
+    argument.beginStructure();
+    argument << condition.type << condition.pattern;
+    argument.endStructure();
+    return argument;
+}
+
+inline const QDBusArgument& operator>>(
+    const QDBusArgument& argument,
+    PortalFilterCondition& condition) {
+    argument.beginStructure();
+    argument >> condition.type >> condition.pattern;
+    argument.endStructure();
+    return argument;
+}
+
+inline QDBusArgument& operator<<(
+    QDBusArgument& argument,
+    const PortalFilter& filter) {
+    argument.beginStructure();
+    argument << filter.name;
+    argument.beginArray(QMetaType::fromType<PortalFilterCondition>());
+    for (const PortalFilterCondition& condition : filter.conditions)
+        argument << condition;
+    argument.endArray();
+    argument.endStructure();
+    return argument;
+}
+
+inline const QDBusArgument& operator>>(
+    const QDBusArgument& argument,
+    PortalFilter& filter) {
+    argument.beginStructure();
+    argument >> filter.name;
+    argument.beginArray();
+    filter.conditions.clear();
+    while (!argument.atEnd()) {
+        PortalFilterCondition condition;
+        argument >> condition;
+        filter.conditions.push_back(std::move(condition));
+    }
+    argument.endArray();
+    argument.endStructure();
+    return argument;
+}
+
+inline QDBusArgument& operator<<(
+    QDBusArgument& argument,
+    const PortalChoiceSelection& choice) {
+    argument.beginStructure();
+    argument << choice.id << choice.selection;
+    argument.endStructure();
+    return argument;
+}
+
+inline const QDBusArgument& operator>>(
+    const QDBusArgument& argument,
+    PortalChoiceSelection& choice) {
+    argument.beginStructure();
+    argument >> choice.id >> choice.selection;
+    argument.endStructure();
+    return argument;
+}
+
+inline QDBusArgument& operator<<(
+    QDBusArgument& argument,
+    const PortalChoiceSelectionList& choices) {
+    argument.beginArray(QMetaType::fromType<PortalChoiceSelection>());
+    for (const PortalChoiceSelection& choice : choices.values)
+        argument << choice;
+    argument.endArray();
+    return argument;
+}
+
+inline const QDBusArgument& operator>>(
+    const QDBusArgument& argument,
+    PortalChoiceSelectionList& choices) {
+    argument.beginArray();
+    choices.values.clear();
+    while (!argument.atEnd()) {
+        PortalChoiceSelection choice;
+        argument >> choice;
+        choices.values.push_back(std::move(choice));
+    }
+    argument.endArray();
+    return argument;
+}
+
+inline void registerPortalDbusTypes() {
+    qDBusRegisterMetaType<PortalFilterCondition>();
+    qDBusRegisterMetaType<PortalFilter>();
+    qDBusRegisterMetaType<PortalChoiceSelection>();
+    qDBusRegisterMetaType<PortalChoiceSelectionList>();
+}
 
 enum class PortalPickerKind {
     OpenFile,
