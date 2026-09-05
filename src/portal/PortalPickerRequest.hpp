@@ -2,7 +2,9 @@
 #pragma once
 
 #include <QByteArray>
+#include <QJsonObject>
 #include <QList>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <QVariant>
@@ -16,6 +18,19 @@ struct PortalFilterCondition {
 struct PortalFilter {
     QString name;
     QList<PortalFilterCondition> conditions;
+};
+
+struct PortalChoiceOption {
+    QString id;
+    QString label;
+};
+
+struct PortalChoice {
+    QString id;
+    QString label;
+    QList<PortalChoiceOption> options;
+    QString initialSelection;
+    bool boolean = false;
 };
 
 enum class PortalPickerKind {
@@ -37,6 +52,8 @@ struct PortalPickerRequest {
     bool modal = true;
     QList<PortalFilter> filters;
     int initialFilterIndex = -1;
+    bool filterLocked = false;
+    QList<PortalChoice> choices;
     QStringList saveFileNames;
 
     static PortalPickerRequest openFile(
@@ -56,8 +73,10 @@ struct PortalPickerRequest {
             arguments << QStringLiteral("--picker-title=%1").arg(title);
         if (!acceptLabel.isEmpty())
             arguments << QStringLiteral("--accept-label=%1").arg(acceptLabel);
+        arguments << QStringLiteral("--portal-context-stdin");
         return arguments;
     }
+    QJsonObject pickerContextJson() const;
     bool pathMatchesFilters(const QString& path) const;
 };
 
@@ -65,6 +84,8 @@ struct PortalPickerResult {
     bool valid = false;
     QString error;
     QStringList uris;
+    int selectedFilterIndex = -1;
+    QMap<QString, QString> choiceSelections;
 
     static PortalPickerResult fromPickerStdout(
         const PortalPickerRequest& request,
@@ -77,6 +98,7 @@ QString decodeNullTerminatedPath(const QByteArray& bytes, QString* error = nullp
 QString decodeNullTerminatedLeafName(const QByteArray& bytes, QString* error = nullptr);
 QList<PortalFilter> decodeFilters(const QVariant& value, QString* error = nullptr);
 PortalFilter decodeFilter(const QVariant& value, QString* error = nullptr);
+QList<PortalChoice> decodeChoices(const QVariant& value, QString* error = nullptr);
 QStringList decodeFileNames(const QVariant& value, QString* error = nullptr);
 QString uniqueDestinationName(
     const QString& directory,
