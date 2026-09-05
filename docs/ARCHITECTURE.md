@@ -52,7 +52,8 @@ The repository now has the core native vertical slices required for daily file-m
 23. FileChooser dialog title and accept-label forwarding into the lightweight picker presentation;
 24. private-session process smoke covering backend service acquisition, OpenFile URI return, and `org.freedesktop.impl.portal.Request.Close` cancellation;
 25. bounded FileChooser filter/choice context, interactive picker presentation, selected-filter/choice result echo, and process-level structured D-Bus smoke coverage;
-26. validated FileChooser parent-window propagation with X11 transient parenting and Wayland xdg-foreign-v2 native parent attachment plus safe fallback.
+26. validated FileChooser parent-window propagation with X11 transient parenting and Wayland xdg-foreign-v2 native parent attachment plus safe fallback;
+27. libarchive-backed headless archive extraction with dirfd-anchored path traversal, no-overwrite creation, cancellation/rollback, hardlink deferral, special-entry rejection, and bounded entry/expanded-size limits.
 
 ## Hard invariants
 
@@ -141,8 +142,28 @@ The manager obeys these rules:
 
 This makes routing opt-in and reversible without turning packaging into configuration management. Users who enabled the managed route should disable it before uninstalling so the exact previous FileChooser line is restored.
 
+## Archive extraction boundary
+
+`ArchivePathGuard` is the pure lexical policy layer. It rejects rooted/absolute entry paths, traversal-bearing entry/hardlink paths, NUL/oversized metadata, and symlink targets that escape the extraction root when resolved from the symlink entry's parent. Valid Linux filename content such as spaces, quotes, Unicode, colons, and leading dashes remains allowed.
+
+`ArchiveExtractor` is the headless libarchive-backed execution layer. Libarchive is used to decode archive formats and compression filters, but destination writes are performed by Ryofiles itself through a descriptor opened on the extraction root. Parent components are traversed with `openat(..., O_DIRECTORY | O_NOFOLLOW)`, intermediate directories are created with `mkdirat`, files with `O_CREAT | O_EXCL | O_NOFOLLOW`, symlinks with `symlinkat`, and hardlinks with `linkat` between already validated parent directory descriptors. The extractor never changes process-wide working directory and never invokes a shell.
+
+The extraction contract is deliberately conservative for the first v1 slice:
+
+- only regular files, directories, symlinks, and hardlinks are accepted; device nodes, FIFOs, sockets, and other special entries fail the extraction;
+- regular files/links never overwrite an existing destination object;
+- an existing real directory may be used as a container, but a symlink cannot substitute for a traversed directory;
+- hardlinks are deferred and may resolve only to regular files extracted inside the same root, allowing safe forward references without arbitrary host-path linking;
+- failures/cancellation roll back only paths created by the current extraction in reverse order; pre-existing destination content is never removed;
+- progress exposes current entry, completed-entry count, and written bytes; cancellation is checked through an atomic flag at entry/data boundaries;
+- defaults cap one extraction at 1,000,000 entries and 1 TiB of logical expanded file data, with the limits explicit in the core API;
+- archive path/link metadata must round-trip as UTF-8 instead of being lossy-decoded into a different filesystem name.
+
+The production target links `LibArchive::LibArchive`; Arch packaging declares `libarchive` as a runtime dependency, and package CI asserts the installed binary resolves that dependency. UI actions, operation-drawer integration, archive creation/compression, replace/keep-both conflict semantics, archive browsing, and remote archive extraction are intentionally separate later slices.
+
 ## Next engine milestones
 
 - broader Firefox/Chromium/Electron/GTK/Qt/Flatpak FileChooser compatibility testing, including real compositor parent/modal behavior;
-- archive browsing/extract/compress workflows with bounded background work;
+- expose secure archive extraction through the operation queue/context menu with progress/cancel UX;
+- add safe archive creation/compression for zip/tar/tar.gz/tar.xz/tar.zst and evaluate 7z creation separately;
 - broaden lazy preview types only where decoding/resource loading can stay bounded and safe.
