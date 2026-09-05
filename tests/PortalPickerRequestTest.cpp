@@ -139,7 +139,51 @@ private slots:
         QVERIFY(!request.multiple);
     }
 
-    void enforcesPortalMimeAndGlobFiltersOnReturnedPaths() {
+    void preservesFilterListAndCurrentSelection() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QVariant images =
+            filterVariant(QStringLiteral("Images"), {{1, QStringLiteral("image/*")}});
+        const QVariant markdown =
+            filterVariant(QStringLiteral("Markdown"), {{0, QStringLiteral("*.md")}});
+
+        QVariantMap options;
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        options.insert(QStringLiteral("filters"), QVariantList{images, markdown});
+        options.insert(QStringLiteral("current_filter"), markdown);
+
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("Open"), options);
+        QVERIFY(request.valid);
+        QCOMPARE(request.filters.size(), 2);
+        QCOMPARE(request.filters.at(0).name, QStringLiteral("Images"));
+        QCOMPARE(request.filters.at(1).name, QStringLiteral("Markdown"));
+        QCOMPARE(request.initialFilterIndex, 1);
+
+        const QStringList arguments = request.pickerArguments();
+        QVERIFY(!arguments.contains(QStringLiteral("--mime")));
+    }
+
+    void currentFilterWithoutFilterListRemainsUsable() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        QVariantMap options;
+        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
+        options.insert(
+            QStringLiteral("current_filter"),
+            filterVariant(QStringLiteral("Markdown"), {{0, QStringLiteral("*.md")}}));
+
+        const PortalPickerRequest request =
+            PortalPickerRequest::openFile(QStringLiteral("Open"), options);
+        QVERIFY(request.valid);
+        QCOMPARE(request.filters.size(), 1);
+        QCOMPARE(request.filters.constFirst().name, QStringLiteral("Markdown"));
+        QCOMPARE(request.initialFilterIndex, 0);
+    }
+
+    void portalFiltersGuideButDoNotRejectReturnedSelection() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
 
@@ -164,32 +208,14 @@ private slots:
         QVERIFY(request.pathMatchesFilters(markdown));
         QVERIFY(!request.pathMatchesFilters(binary));
 
-        const QStringList arguments = request.pickerArguments();
-        const int mimeIndex = arguments.indexOf(QStringLiteral("--mime"));
-        QVERIFY(mimeIndex >= 0);
-        QCOMPARE(arguments.value(mimeIndex + 1), QStringLiteral("image/*"));
-    }
-
-    void currentFilterNarrowsBackendPostValidation() {
-        QTemporaryDir temp;
-        QVERIFY(temp.isValid());
-
-        const QString image = temp.filePath("photo.png");
-        const QString markdown = temp.filePath("README.md");
-        writeFile(image);
-        writeFile(markdown);
-
-        QVariantMap options;
-        options.insert(QStringLiteral("current_folder"), encodedPath(temp.path()));
-        options.insert(
-            QStringLiteral("current_filter"),
-            filterVariant(QStringLiteral("Markdown"), {{0, QStringLiteral("*.md")}}));
-
-        const PortalPickerRequest request =
-            PortalPickerRequest::openFile(QStringLiteral("Open"), options);
-        QVERIFY(request.valid);
-        QVERIFY(request.pathMatchesFilters(markdown));
-        QVERIFY(!request.pathMatchesFilters(image));
+        const QByteArray output =
+            QUrl::fromLocalFile(binary).toString(QUrl::FullyEncoded).toUtf8() + '\n';
+        const PortalPickerResult result =
+            PortalPickerResult::fromPickerStdout(request, output);
+        QVERIFY2(result.valid, qPrintable(result.error));
+        QCOMPARE(
+            result.uris,
+            QStringList({QUrl::fromLocalFile(binary).toString(QUrl::FullyEncoded)}));
     }
 
     void saveFileMapsCurrentFileAndCurrentNameSafely() {
