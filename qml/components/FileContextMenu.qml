@@ -6,6 +6,7 @@ Item {
     id: root
 
     property real uiScale: 1
+    property var operationManager: null
     property string targetPath: ""
     property bool targetIsDirectory: false
     property int selectionCount: 0
@@ -22,6 +23,7 @@ Item {
     property bool ryokuInstallAvailable: false
     property bool ryokuCompressAvailable: false
     property string ryokuMessage: ""
+    property bool archiveExtractAvailable: false
 
     property bool deleteMode: false
     property var deletePaths: []
@@ -37,6 +39,7 @@ Item {
     signal cutRequested()
     signal pasteIntoRequested()
     signal duplicateRequested()
+    signal extractHereRequested()
     signal renameRequested()
     signal trashRequested()
     signal propertiesRequested()
@@ -113,6 +116,14 @@ Item {
             && Desktop.canRyokuCompress(paths)
     }
 
+    function refreshArchiveCapabilities() {
+        root.archiveExtractAvailable = root.operationManager !== null
+            && root.selectionCount === 1
+            && !root.targetIsDirectory
+            && root.targetPath !== ""
+            && root.operationManager.canExtractArchive(root.targetPath)
+    }
+
     function openAt(sceneX, sceneY, path, isDirectory, selectedCount, hasClipboard) {
         if (root.deleteBusy)
             return
@@ -134,6 +145,7 @@ Item {
         root.clipboardHasFiles = hasClipboard
         root.refreshGitCapabilities()
         root.refreshRyokuCapabilities()
+        root.refreshArchiveCapabilities()
         root.visible = true
 
         Qt.callLater(function() {
@@ -365,6 +377,7 @@ Item {
                     { label: "CUT", action: "cut", enabled: root.selectionCount > 0, visible: true },
                     { label: "PASTE INTO", action: "pasteinto", enabled: root.clipboardHasFiles, visible: root.targetIsDirectory && root.selectionCount === 1 },
                     { label: "DUPLICATE", action: "duplicate", enabled: root.selectionCount > 0, visible: true },
+                    { label: "EXTRACT HERE", action: "extracthere", enabled: root.archiveExtractAvailable, visible: root.archiveExtractAvailable },
                     { label: "RYOKU · INSTALL", action: "ryokuinstall", enabled: root.ryokuInstallAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuInstallAvailable },
                     { label: "RYOKU · COMPRESS", action: "ryokucompress", enabled: root.ryokuCompressAvailable && !Desktop.ryokuActionBusy, visible: root.ryokuCompressAvailable },
                     { label: "RENAME", action: "rename", enabled: root.selectionCount === 1, visible: true },
@@ -466,6 +479,7 @@ Item {
                             case "cut": root.cutRequested(); break
                             case "pasteinto": root.pasteIntoRequested(); break
                             case "duplicate": root.duplicateRequested(); break
+                            case "extracthere": root.extractHereRequested(); break
                             case "rename": root.renameRequested(); break
                             case "trash": root.trashRequested(); break
                             case "properties": root.propertiesRequested(); break

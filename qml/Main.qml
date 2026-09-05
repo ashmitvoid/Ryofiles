@@ -857,6 +857,7 @@ Window {
         FileContextMenu {
             id: contextMenu
             uiScale: root.u
+            operationManager: operations
 
             onOpenRequested: root.openContextTarget()
 
@@ -879,6 +880,18 @@ Window {
             }
 
             onDuplicateRequested: root.duplicateSelection()
+
+            onExtractHereRequested: {
+                if (targetPath === "" || !root.session || root.session.remote)
+                    return
+
+                var id = operations.extractArchiveHere(targetPath)
+                if (id === "") {
+                    root.lastError = "Could not start archive extraction"
+                    errorClear.restart()
+                }
+            }
+
             onRenameRequested: root.beginRename()
             onTrashRequested: root.trashSelection()
 

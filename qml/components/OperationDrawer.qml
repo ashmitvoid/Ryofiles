@@ -8,8 +8,21 @@ Rectangle {
     required property var operations
     property real uiScale: 1
 
+    function formatBytes(bytes) {
+        var value = Number(bytes)
+        if (!isFinite(value) || value <= 0)
+            return "0 B"
+        if (value < 1024)
+            return Math.floor(value) + " B"
+        if (value < 1024 * 1024)
+            return (value / 1024).toFixed(1) + " KiB"
+        if (value < 1024 * 1024 * 1024)
+            return (value / (1024 * 1024)).toFixed(1) + " MiB"
+        return (value / (1024 * 1024 * 1024)).toFixed(1) + " GiB"
+    }
+
     width: 360 * uiScale
-    height: Math.min(320 * uiScale, header.height + list.contentHeight + 18 * uiScale)
+    height: Math.min(360 * uiScale, header.height + list.contentHeight + 18 * uiScale)
     radius: 6 * uiScale
     color: Ryoku.paperLift
     border.width: 1
@@ -81,14 +94,19 @@ Rectangle {
             required property string destination
             required property real progress
             required property string errorText
+            required property string source
+            required property bool progressIndeterminate
+            required property var entriesProcessed
+            required property var bytesProcessed
 
             width: list.width
-            height: 62 * root.uiScale
+            height: (job.kind === "extract" ? 78 : 62) * root.uiScale
 
             readonly property bool conflictState:
                 state === "conflict" || state === "waiting"
             readonly property bool active:
                 state === "queued" || state === "running" || conflictState
+            readonly property bool extraction: kind === "extract"
 
             Text {
                 id: title
@@ -96,7 +114,7 @@ Rectangle {
                 anchors.leftMargin: 14 * root.uiScale
                 anchors.top: parent.top
                 anchors.topMargin: 10 * root.uiScale
-                width: parent.width - 72 * root.uiScale
+                width: parent.width - 88 * root.uiScale
                 text: job.kind.toUpperCase() + "  //  " + job.state.toUpperCase()
                 elide: Text.ElideRight
                 color: job.state === "failed" ? Ryoku.sun : Ryoku.ink
@@ -106,17 +124,39 @@ Rectangle {
             }
 
             Text {
+                id: detail
                 anchors.left: title.left
                 anchors.top: title.bottom
                 anchors.topMargin: 5 * root.uiScale
                 width: title.width
                 text: job.errorText !== ""
                     ? job.errorText
-                    : (job.currentSource !== "" ? job.currentSource : job.destination)
+                    : (job.extraction
+                        ? (job.source !== "" ? job.source : job.destination)
+                        : (job.currentSource !== "" ? job.currentSource : job.destination))
                 elide: Text.ElideMiddle
                 color: job.errorText !== "" ? Ryoku.sun : Ryoku.inkMuted
                 font.family: Ryoku.uiFont
                 font.pixelSize: 10 * root.uiScale
+            }
+
+            Text {
+                anchors.left: title.left
+                anchors.top: detail.bottom
+                anchors.topMargin: 4 * root.uiScale
+                width: title.width
+                visible: job.extraction && job.errorText === ""
+                text: {
+                    var telemetry = Number(job.entriesProcessed) + " entries  //  "
+                        + root.formatBytes(job.bytesProcessed)
+                    if (job.currentSource !== "" && job.currentSource !== job.source)
+                        return job.currentSource + "  //  " + telemetry
+                    return job.destination + "  //  " + telemetry
+                }
+                elide: Text.ElideMiddle
+                color: Ryoku.inkFaint
+                font.family: Ryoku.monoFont
+                font.pixelSize: 8 * root.uiScale
             }
 
             Text {
@@ -153,8 +193,18 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 height: 2 * root.uiScale
                 width: parent.width * Math.max(0, Math.min(1, job.progress))
-                visible: job.active && !job.conflictState
+                visible: job.active && !job.conflictState && !job.progressIndeterminate
                 color: Ryoku.inkDim
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 2 * root.uiScale
+                visible: job.active && !job.conflictState && job.progressIndeterminate
+                color: Ryoku.inkDim
+                opacity: 0.45
             }
         }
     }
