@@ -6,7 +6,7 @@ Ryoku is the product and integration authority. Atlas is a technical upstream/re
 
 Pinned development baselines:
 
-- Ryoku `unstable-dev`: `f340d31d584501e7a58d80f5b953b31ad1e36add` (`0.58.3-beta.19`)
+- Ryoku `unstable-dev`: `0a3ca72be636eb8ff593dd28fc32f7a16a887806` (`0.58.6-beta.19`)
 - Atlas `main`: `f3c8e58336d72d9581be1b598c8af4be751c74e5`
 
 ## Layers
@@ -51,7 +51,8 @@ The repository now has the core native vertical slices required for daily file-m
 22. headless opt-in/reversible Ryoku FileChooser routing control with exact previous-line restoration;
 23. FileChooser dialog title and accept-label forwarding into the lightweight picker presentation;
 24. private-session process smoke covering backend service acquisition, OpenFile URI return, and `org.freedesktop.impl.portal.Request.Close` cancellation;
-25. bounded FileChooser filter/choice context, interactive picker presentation, selected-filter/choice result echo, and process-level structured D-Bus smoke coverage.
+25. bounded FileChooser filter/choice context, interactive picker presentation, selected-filter/choice result echo, and process-level structured D-Bus smoke coverage;
+26. validated FileChooser parent-window propagation with X11 transient parenting and Wayland xdg-foreign-v2 native parent attachment plus safe fallback.
 
 ## Hard invariants
 
@@ -98,14 +99,27 @@ Portal `choices` are decoded as bounded boolean or option-list controls. IDs, la
 
 The portal context/result channel is capped at 1 MiB and applies explicit caps to filters, filter conditions, expanded patterns, choices, options, and metadata strings. The child process is still launched through `QProcess` with argument boundaries and stdin/stdout pipes; no shell interpolation is introduced.
 
-CI launches the built production portal process under `dbus-run-session` with a minimal fake picker. The smoke requires the service to acquire its real session-bus name, complete a delayed OpenFile call with a validated local `file://` URI, transfer filter/choice context to the child, accept changed filter/choice selections from structured child output, return those values through typed D-Bus results, export the per-request Request object, honor `Request.Close` against a blocking picker, complete that backend call with response 2, and remain alive after cancellation. This complements pure request/context/parser tests with the actual D-Bus/QProcess lifecycle.
+### Parent-window boundary
+
+Portal parent identifiers are parsed before the picker child is launched. Empty or malformed identifiers degrade to no native parent instead of rejecting the FileChooser request. The backend explicitly removes inherited `RYOFILES_PORTAL_PARENT_WINDOW` and `RYOFILES_PORTAL_MODAL` values before inserting the sanitized request values, preventing a service-launch environment from spoofing per-request parent metadata.
+
+`PortalParentWindow` accepts only:
+
+- non-zero hexadecimal `x11:<XID>` values, canonicalized before forwarding;
+- bounded, non-empty `wayland:<HANDLE>` strings without control characters.
+
+The picker consumes this metadata only in internal portal-context mode. X11 uses a retained foreign `QWindow` and `setTransientParent`. On Wayland with Qt 6.9 or newer, `PortalWindowParent` obtains the Qt-owned `wl_display` through `QNativeInterface::QWaylandApplication`, obtains the picker `wl_surface` from the modern Qt Wayland window ID representation, binds `zxdg_importer_v2` if advertised, imports the portal handle, and sends `zxdg_imported_v2.set_parent_of` once. The imported/importer objects remain alive for the picker lifetime and are destroyed on teardown. The Wayland client ABI is resolved from `libwayland-client.so.0` at runtime, so unsupported platforms/compositors degrade without introducing a polling loop or normal-file-manager dependency path.
+
+The portal `modal` option is applied as a Qt window-modality hint. The xdg-foreign relationship itself controls native parent/stacking semantics but does not promise that the compositor will suppress all input to the requesting application. That behavioral aspect remains part of the real-application compatibility matrix rather than a universal backend guarantee.
+
+CI launches the built production portal process under `dbus-run-session` with a minimal fake picker. The smoke requires the service to acquire its real session-bus name, complete a delayed OpenFile call with a validated local `file://` URI, transfer filter/choice context to the child, accept changed filter/choice selections from structured child output, return those values through typed D-Bus results, forward a valid Wayland parent and `modal=false`, discard malformed parent IDs and inherited spoofed parent environment, export the per-request Request object, honor `Request.Close` against a blocking picker, complete that backend call with response 2, and remain alive after cancellation. This complements pure request/context/parser tests with the actual D-Bus/QProcess lifecycle.
 
 The Arch/CachyOS package registers the backend using only:
 
 - `usr/share/xdg-desktop-portal/portals/ryofiles.portal`;
 - `usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service`.
 
-Registration is deliberately not routing. The `.portal` descriptor has no legacy `UseIn=` selector, packaging does not install `portals.conf` or another `.conf`, and installation does not invoke `xdg-settings`/`xdg-mime` defaults. Ryoku `0.58.3-beta.19` keeps ScreenCast/Screenshot on the Hyprland backend and explicitly routes FileChooser to GTK.
+Registration is deliberately not routing. The `.portal` descriptor has no legacy `UseIn=` selector, packaging does not install `portals.conf` or another `.conf`, and installation does not invoke `xdg-settings`/`xdg-mime` defaults. Ryoku `0.58.6-beta.19` keeps ScreenCast/Screenshot on the Hyprland backend and explicitly routes FileChooser to GTK.
 
 ### Reversible Ryoku routing
 
@@ -129,7 +143,6 @@ This makes routing opt-in and reversible without turning packaging into configur
 
 ## Next engine milestones
 
-- Wayland parent-window/modal attachment using the portal's xdg-foreign parent handle rather than simulated modality;
-- broader Firefox/Chromium/Electron/GTK/Qt/Flatpak compatibility testing;
+- broader Firefox/Chromium/Electron/GTK/Qt/Flatpak FileChooser compatibility testing, including real compositor parent/modal behavior;
 - archive browsing/extract/compress workflows with bounded background work;
 - broaden lazy preview types only where decoding/resource loading can stay bounded and safe.

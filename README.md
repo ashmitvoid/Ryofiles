@@ -2,7 +2,7 @@
 
 Ryofiles is a native C++20 / Qt 6 / QML file manager built specifically for the Ryoku desktop and Hyprland.
 
-> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, and the FileChooser portal backend with filter/choice handling are implemented; parent-window compatibility hardening and archive workflows remain in progress.
+> **Status:** active development. Core navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search, previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, and the FileChooser portal backend with filter/choice handling and parent-window integration are implemented; broader application compatibility hardening and archive workflows remain in progress.
 
 ## Project direction
 
@@ -24,7 +24,7 @@ Ryofiles is Ryoku-first:
 
 The implementation is developed against exact upstream snapshots so behavior does not drift silently:
 
-- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `f340d31d584501e7a58d80f5b953b31ad1e36add` (`0.58.3-beta.19`)
+- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `0a3ca72be636eb8ff593dd28fc32f7a16a887806` (`0.58.6-beta.19`)
 
 ## Picker
 
@@ -50,7 +50,15 @@ Portal file filters are presented as **selection guidance**, not an authorizatio
 
 The portal-only picker protocol is bounded to 1 MiB and validates filter counts, filter conditions, expanded filename patterns, choice counts/options, selected filter indices, and returned choice IDs/values. MIME filters are expanded to filename globs once in the backend process; changing the active filter only rebuilds the existing in-memory directory model and does not trigger another filesystem scan. Normal Ryofiles browsing has no active portal filename filter.
 
-Parent-window attachment/modal ownership and broader application compatibility testing remain separate hardening work; they are not claimed as complete by the current backend.
+### Parent-window handling
+
+The backend validates portal parent identifiers before launching the picker. Empty or malformed identifiers degrade to an unparented picker instead of causing a FileChooser failure, and inherited `RYOFILES_PORTAL_*` environment values are scrubbed so they cannot spoof request metadata.
+
+- `x11:<XID>` parents are accepted only as non-zero hexadecimal XIDs and are attached using a retained foreign `QWindow` transient parent when the picker runs on XCB.
+- `wayland:<HANDLE>` parents are bounded and control-character checked. On Qt 6.9+ Wayland sessions, Ryofiles imports the handle through `zxdg_importer_v2` and applies `set_parent_of` to the picker `wl_surface` when the compositor advertises xdg-foreign v2.
+- If the Wayland protocol is unavailable, the Qt version is too old for the public surface-handle path used here, or the platform does not match the parent type, Ryofiles safely continues without the native parent relationship.
+
+The portal `modal` option is also propagated to the picker as a Qt window-modality hint. xdg-foreign establishes the cross-process parent relationship but does not itself guarantee input blocking of the requesting application; compositor/application behavior is therefore verified separately in the compatibility matrix rather than claimed universally.
 
 The Arch/CachyOS package installs only neutral backend discovery and D-Bus activation files:
 
@@ -87,7 +95,7 @@ Before uninstalling Ryofiles after using the managed route, run `ryofiles-portal
 
 ## Build
 
-Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, builds/tests the headless portal-routing helper independently, runs the full test suite, exercises FileChooser success/cancellation plus structured filter/choice propagation on a private session D-Bus, and smoke-tests staged installs on Linux. Arch package CI is triggered by all shipped C++/QML changes and separately verifies package payload, portal registration neutrality, routing-helper tests, exact source SHA, installation, and runtime linkage.
+Ryofiles is built with CMake and Qt 6. The CI configuration builds the application and test targets, builds/tests the headless portal-routing helper independently, runs the full test suite, exercises FileChooser success/cancellation plus structured filter/choice and parent-metadata propagation on a private session D-Bus, and smoke-tests staged installs on Linux. Arch package CI is triggered by all shipped C++/QML changes and separately verifies package payload, portal registration neutrality, routing-helper tests, exact source SHA, installation, and runtime linkage.
 
 ## License
 

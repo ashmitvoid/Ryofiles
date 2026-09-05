@@ -38,7 +38,14 @@ case "${RYOFILES_SMOKE_PICKER_MODE:-}" in
   success)
     printf '%s\n' "${RYOFILES_SMOKE_FILE_URI:?missing smoke URI}"
     ;;
+  parentless)
+    [[ -z "${RYOFILES_PORTAL_PARENT_WINDOW:-}" ]]
+    [[ "${RYOFILES_PORTAL_MODAL:-}" == '1' ]]
+    printf '%s\n' "${RYOFILES_SMOKE_FILE_URI:?missing smoke URI}"
+    ;;
   structured)
+    [[ "${RYOFILES_PORTAL_PARENT_WINDOW:-}" == 'wayland:ryofiles-smoke-parent' ]]
+    [[ "${RYOFILES_PORTAL_MODAL:-}" == '0' ]]
     context=$(cat)
     grep -Fq '"version":1' <<<"$context"
     grep -Fq '"initial_filter":1' <<<"$context"
@@ -95,6 +102,8 @@ start_portal() {
   RYOFILES_PICKER_EXECUTABLE="$fake_picker" \
   RYOFILES_SMOKE_PICKER_MODE="$mode" \
   RYOFILES_SMOKE_FILE_URI="$uri" \
+  RYOFILES_PORTAL_PARENT_WINDOW='wayland:must-be-scrubbed' \
+  RYOFILES_PORTAL_MODAL='must-be-scrubbed' \
   QT_QPA_PLATFORM=offscreen \
     "$portal_bin" --filechooser-portal \
       >"$tmp/portal.out" 2>"$tmp/portal.err" &
@@ -123,6 +132,7 @@ call_open_file() {
   local handle=$1
   local title=$2
   local options=${3:-'{}'}
+  local parent_window=${4:-''}
   timeout 8s gdbus call \
     --session \
     --dest "$service" \
@@ -130,7 +140,7 @@ call_open_file() {
     --method "$portal_iface.OpenFile" \
     "$handle" \
     'org.ryoku.RyofilesSmoke' \
-    '' \
+    "$parent_window" \
     "$title" \
     "$options"
 }
@@ -149,13 +159,23 @@ printf '%s\n' "$success_reply" | grep -Fq "$selected_uri"
 name_has_owner
 stop_portal
 
+# Parent metadata: malformed portal parent identifiers must degrade to no parent,
+# and inherited environment variables must never be allowed to spoof that state.
+start_portal parentless "$selected_uri"
+parentless_handle='/org/freedesktop/portal/desktop/request/ryofiles_smoke/parentless'
+parentless_reply=$(call_open_file "$parentless_handle" 'Malformed parent smoke' '{}' 'x11:0')
+printf '%s\n' "$parentless_reply" | grep -Fq 'uint32 0'
+printf '%s\n' "$parentless_reply" | grep -Fq "$selected_uri"
+name_has_owner
+stop_portal
+
 # Structured metadata: require the production backend to decode portal filters and
-# choices, pass them to the picker over bounded stdin JSON, accept a changed filter
-# and choice state from the picker, and return those selections on D-Bus.
+# choices, pass them to the picker over bounded stdin JSON, forward a validated
+# Wayland parent and modal=false, accept changed filter/choice state, and return it.
 start_portal structured "$selected_uri"
 structured_handle='/org/freedesktop/portal/desktop/request/ryofiles_smoke/structured'
-structured_options="{'filters': <[('Images', [(uint32 0, '*.png')]), ('Text', [(uint32 0, '*.txt')])]>, 'current_filter': <('Text', [(uint32 0, '*.txt')])>, 'choices': <[('readonly', 'Open read-only', [], 'false'), ('mode', 'Mode', [('a', 'Mode A'), ('b', 'Mode B')], 'a')]>}"
-structured_reply=$(call_open_file "$structured_handle" 'Structured smoke file' "$structured_options")
+structured_options="{'modal': <false>, 'filters': <[('Images', [(uint32 0, '*.png')]), ('Text', [(uint32 0, '*.txt')])]>, 'current_filter': <('Text', [(uint32 0, '*.txt')])>, 'choices': <[('readonly', 'Open read-only', [], 'false'), ('mode', 'Mode', [('a', 'Mode A'), ('b', 'Mode B')], 'a')]>}"
+structured_reply=$(call_open_file "$structured_handle" 'Structured smoke file' "$structured_options" 'wayland:ryofiles-smoke-parent')
 printf '%s\n' "$structured_reply" | grep -Fq 'uint32 0'
 printf '%s\n' "$structured_reply" | grep -Fq "$selected_uri"
 printf '%s\n' "$structured_reply" | grep -Fq "'current_filter'"

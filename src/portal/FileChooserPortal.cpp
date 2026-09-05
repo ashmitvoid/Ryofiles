@@ -6,6 +6,7 @@
 #include <QDBusMessage>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QStandardPaths>
 
 namespace {
@@ -177,8 +178,22 @@ public:
             return false;
         }
 
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        environment.remove(QStringLiteral("RYOFILES_PORTAL_PARENT_WINDOW"));
+        environment.remove(QStringLiteral("RYOFILES_PORTAL_MODAL"));
+        const QString parentIdentifier = m_request.parentWindow.identifier();
+        if (!parentIdentifier.isEmpty()) {
+            environment.insert(
+                QStringLiteral("RYOFILES_PORTAL_PARENT_WINDOW"),
+                parentIdentifier);
+        }
+        environment.insert(
+            QStringLiteral("RYOFILES_PORTAL_MODAL"),
+            m_request.modal ? QStringLiteral("1") : QStringLiteral("0"));
+
         m_process.setProgram(pickerProgram);
         m_process.setArguments(m_request.pickerProcessArguments());
+        m_process.setProcessEnvironment(environment);
         m_process.setProcessChannelMode(QProcess::SeparateChannels);
         m_process.start();
         return true;
@@ -242,8 +257,9 @@ void FileChooserPortal::OpenFile(
     const QString& title,
     const QVariantMap& options) {
     Q_UNUSED(appId)
-    Q_UNUSED(parentWindow)
-    startRequest(handle, PortalPickerRequest::openFile(title, options));
+    PortalPickerRequest request = PortalPickerRequest::openFile(title, options);
+    request.setParentWindow(parentWindow);
+    startRequest(handle, std::move(request));
 }
 
 void FileChooserPortal::SaveFile(
@@ -253,8 +269,9 @@ void FileChooserPortal::SaveFile(
     const QString& title,
     const QVariantMap& options) {
     Q_UNUSED(appId)
-    Q_UNUSED(parentWindow)
-    startRequest(handle, PortalPickerRequest::saveFile(title, options));
+    PortalPickerRequest request = PortalPickerRequest::saveFile(title, options);
+    request.setParentWindow(parentWindow);
+    startRequest(handle, std::move(request));
 }
 
 void FileChooserPortal::SaveFiles(
@@ -264,8 +281,9 @@ void FileChooserPortal::SaveFiles(
     const QString& title,
     const QVariantMap& options) {
     Q_UNUSED(appId)
-    Q_UNUSED(parentWindow)
-    startRequest(handle, PortalPickerRequest::saveFiles(title, options));
+    PortalPickerRequest request = PortalPickerRequest::saveFiles(title, options);
+    request.setParentWindow(parentWindow);
+    startRequest(handle, std::move(request));
 }
 
 void FileChooserPortal::startRequest(

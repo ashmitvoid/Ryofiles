@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "portal/PortalParentWindow.hpp"
+
 #include <QByteArray>
 #include <QDBusArgument>
 #include <QDBusMetaType>
@@ -163,6 +165,7 @@ struct PortalPickerRequest {
     QString acceptLabel;
     QString title;
     bool modal = true;
+    PortalParentWindow parentWindow;
     QList<PortalFilter> filters;
     int initialFilterIndex = -1;
     bool filterLocked = false;
@@ -178,6 +181,10 @@ struct PortalPickerRequest {
     static PortalPickerRequest saveFiles(
         const QString& title,
         const QVariantMap& options);
+
+    void setParentWindow(const QString& identifier) {
+        parentWindow = PortalParentWindow::parse(identifier);
+    }
 
     QStringList pickerArguments() const;
     QStringList pickerProcessArguments() const {

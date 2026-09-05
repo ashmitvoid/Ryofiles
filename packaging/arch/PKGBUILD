@@ -11,6 +11,7 @@ depends=(
   'gvfs'
   'qt6-base'
   'qt6-declarative'
+  'wayland'
 )
 makedepends=(
   'cmake'
