@@ -9,6 +9,7 @@ license=('GPL-3.0-only')
 depends=(
   'glib2'
   'gvfs'
+  'libarchive'
   'qt6-base'
   'qt6-declarative'
   'wayland'
