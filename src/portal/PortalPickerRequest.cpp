@@ -47,26 +47,53 @@ QString existingDirectoryFromOption(
     return QDir::cleanPath(info.absoluteFilePath());
 }
 
+bool filtersEqual(const PortalFilter& left, const PortalFilter& right) {
+    if (left.name != right.name || left.conditions.size() != right.conditions.size())
+        return false;
+    for (qsizetype i = 0; i < left.conditions.size(); ++i) {
+        const PortalFilterCondition& a = left.conditions.at(i);
+        const PortalFilterCondition& b = right.conditions.at(i);
+        if (a.type != b.type || a.pattern != b.pattern)
+            return false;
+    }
+    return true;
+}
+
 bool parseFilterOptions(
     const QVariantMap& options,
     QList<PortalFilter>* filters,
+    int* initialFilterIndex,
     QString* error) {
-    if (!filters)
+    if (!filters || !initialFilterIndex)
         return false;
-
-    if (options.contains(QStringLiteral("current_filter"))) {
-        PortalFilter current = PortalPickerParsing::decodeFilter(
-            options.value(QStringLiteral("current_filter")), error);
-        if (error && !error->isEmpty())
-            return false;
-        if (!current.conditions.isEmpty())
-            filters->push_back(std::move(current));
-        return true;
-    }
 
     *filters = PortalPickerParsing::decodeFilters(
         options.value(QStringLiteral("filters")), error);
-    return !error || error->isEmpty();
+    if (error && !error->isEmpty())
+        return false;
+
+    *initialFilterIndex = filters->isEmpty() ? -1 : 0;
+    if (!options.contains(QStringLiteral("current_filter")))
+        return true;
+
+    PortalFilter current = PortalPickerParsing::decodeFilter(
+        options.value(QStringLiteral("current_filter")), error);
+    if (error && !error->isEmpty())
+        return false;
+
+    if (filters->isEmpty()) {
+        filters->push_back(std::move(current));
+        *initialFilterIndex = 0;
+        return true;
+    }
+
+    for (qsizetype i = 0; i < filters->size(); ++i) {
+        if (filtersEqual(filters->at(i), current)) {
+            *initialFilterIndex = static_cast<int>(i);
+            break;
+        }
+    }
+    return true;
 }
 
 bool mimeMatches(const QString& path, const QString& filter) {
@@ -189,7 +216,11 @@ PortalPickerRequest PortalPickerRequest::openFile(
     }
 
     if (!directory
-        && !parseFilterOptions(options, &request.filters, &parseError)) {
+        && !parseFilterOptions(
+            options,
+            &request.filters,
+            &request.initialFilterIndex,
+            &parseError)) {
         request.error = parseError;
         return request;
     }
@@ -238,7 +269,11 @@ PortalPickerRequest PortalPickerRequest::saveFile(
         return request;
     }
 
-    if (!parseFilterOptions(options, &request.filters, &parseError)) {
+    if (!parseFilterOptions(
+            options,
+            &request.filters,
+            &request.initialFilterIndex,
+            &parseError)) {
         request.error = parseError;
         return request;
     }
@@ -287,18 +322,6 @@ QStringList PortalPickerRequest::pickerArguments() const {
     if (!suggestedName.isEmpty())
         arguments << QStringLiteral("--suggest-name") << suggestedName;
 
-    QSet<QString> seenMimeTypes;
-    for (const PortalFilter& filter : filters) {
-        for (const PortalFilterCondition& condition : filter.conditions) {
-            if (condition.type != 1)
-                continue;
-            const QString normalized = condition.pattern.trimmed().toLower();
-            if (normalized.isEmpty() || seenMimeTypes.contains(normalized))
-                continue;
-            seenMimeTypes.insert(normalized);
-            arguments << QStringLiteral("--mime") << normalized;
-        }
-    }
     return arguments;
 }
 
@@ -399,15 +422,9 @@ PortalPickerResult PortalPickerResult::fromPickerStdout(
                     result.error = QStringLiteral("Folder picker returned a non-directory");
                     return result;
                 }
-            } else {
-                if (!info.exists() || !info.isFile()) {
-                    result.error = QStringLiteral("Open picker returned a non-file");
-                    return result;
-                }
-                if (!request.pathMatchesFilters(localPath)) {
-                    result.error = QStringLiteral("Picker result does not match the portal file filter");
-                    return result;
-                }
+            } else if (!info.exists() || !info.isFile()) {
+                result.error = QStringLiteral("Open picker returned a non-file");
+                return result;
             }
         } else if (request.kind == PortalPickerKind::SaveFile) {
             if (info.isDir()) {
@@ -417,10 +434,6 @@ PortalPickerResult PortalPickerResult::fromPickerStdout(
             const QFileInfo parent(info.absolutePath());
             if (!parent.exists() || !parent.isDir()) {
                 result.error = QStringLiteral("Save picker returned a path without an existing parent");
-                return result;
-            }
-            if (!request.pathMatchesFilters(localPath)) {
-                result.error = QStringLiteral("Save picker result does not match the portal file filter");
                 return result;
             }
         }
