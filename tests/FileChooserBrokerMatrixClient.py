@@ -133,9 +133,9 @@ def require_uris(results, expected, label):
 
 
 def main() -> int:
-    if len(sys.argv) != 9:
+    if len(sys.argv) != 10:
         print(
-            f"usage: {sys.argv[0]} OPEN_URI MULTI_A_URI MULTI_B_URI FOLDER_URI "
+            f"usage: {sys.argv[0]} OPEN_URI MULTI_A_URI MULTI_B_URI EDGE_URI FOLDER_URI "
             "SAVE_URI SAVEFILES_FOLDER_URI SAVEFILES_A_URI SAVEFILES_B_URI",
             file=sys.stderr,
         )
@@ -145,6 +145,7 @@ def main() -> int:
         open_uri,
         multi_a_uri,
         multi_b_uri,
+        edge_uri,
         folder_uri,
         save_uri,
         savefiles_folder_uri,
@@ -169,6 +170,14 @@ def main() -> int:
         {"multiple": GLib.Variant("b", True)},
     )
     require_uris(results, [multi_a_uri, multi_b_uri], "multi OpenFile")
+
+    results = client.call(
+        "OpenFile",
+        "matrix_edge_path",
+        "Open edge filename",
+        {},
+    )
+    require_uris(results, [edge_uri], "edge-path OpenFile")
 
     filters = [
         ("Images", [(0, "*.png")]),
@@ -242,8 +251,9 @@ def main() -> int:
         {},
         expected_response=1,
     )
-    if cancel_results:
-        fail(f"cancelled OpenFile returned unexpected results {cancel_results!r}")
+    cancel_uris = list(unpack(cancel_results.get("uris", [])))
+    if cancel_uris:
+        fail(f"cancelled OpenFile returned unexpected URIs {cancel_uris!r}")
 
     print("FileChooser public broker request matrix passed")
     return 0
