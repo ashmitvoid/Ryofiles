@@ -50,7 +50,8 @@ The repository now has the core native vertical slices required for daily file-m
 21. package-level neutral backend discovery and D-Bus activation registration;
 22. headless opt-in/reversible Ryoku FileChooser routing control with exact previous-line restoration;
 23. FileChooser dialog title and accept-label forwarding into the lightweight picker presentation;
-24. private-session process smoke covering backend service acquisition, OpenFile URI return, and `org.freedesktop.impl.portal.Request.Close` cancellation.
+24. private-session process smoke covering backend service acquisition, OpenFile URI return, and `org.freedesktop.impl.portal.Request.Close` cancellation;
+25. bounded FileChooser filter/choice context, interactive picker presentation, selected-filter/choice result echo, and process-level structured D-Bus smoke coverage.
 
 ## Hard invariants
 
@@ -67,27 +68,37 @@ The repository now has the core native vertical slices required for daily file-m
 
 Picker mode is intentionally a separate lightweight bootstrap path. `--picker` does not initialize the main window's Git, drive, network-management, Trash, clipboard-operation, or preview services. It reuses the same `DirectorySession`/`SessionFileModel` engine so picker behavior does not fork filesystem semantics.
 
-The picker contract supports:
+The public picker contract supports:
 
 - `--picker open`;
 - optional open-file multi-selection;
 - `--picker save`;
 - optional save suggested name;
-- exact and wildcard MIME filters for open/save;
+- exact and wildcard MIME filters for direct picker use;
 - `--picker folder` selecting the current local directory;
 - local initial directory;
 - percent-encoded `file://` URI results on stdout;
 - distinct `Ryofiles Picker` / `ryofiles-picker` window identity.
 
-Portal-launched picker processes may also receive presentation-only `--picker-title` and `--accept-label` options. These are kept outside `PickerContract` so application-provided presentation cannot alter filesystem validation or overwrite semantics. The portal passes them as individual `QProcess` arguments using `--option=value` boundaries, so strings beginning with option-like text cannot become new picker options. Normal picker stdout remains URI-only.
+Portal-launched picker processes may also receive presentation-only `--picker-title` and `--accept-label` options. These are kept outside `PickerContract` so application-provided presentation cannot alter filesystem validation or overwrite semantics. The portal passes them as individual `QProcess` arguments using `--option=value` boundaries, so strings beginning with option-like text cannot become new picker options.
+
+Portal-only interactive metadata uses an internal `--portal-context-stdin` mode. The backend writes a bounded versioned JSON object to the picker child on stdin containing pre-expanded filename filter patterns, the initial/locked filter state, and bounded choices. The picker returns a bounded versioned JSON result containing the URI list, selected filter index, and choice selections. Direct `--picker` callers do not use this channel and retain the URI-line stdout contract.
+
+`PortalPickerContext` is the picker-side state machine for this internal metadata. `DirectoryModel::portalNameFilters` is a rebuild-only filter layer: active portal globs are applied to the already-scanned entry list, directories remain visible for navigation, and changing a portal filter never initiates a filesystem scan. `SessionFileModel` exposes that filter only to the local backend; remote sessions ignore it. Normal Ryofiles browsing keeps the property empty.
 
 Save mode uses a pure `PickerSaveState` shared-capable state machine rather than encoding overwrite semantics in QML. Existing files require an explicit confirmation tied to the exact canonical target path. A repeated generic Save action remains a confirmation request rather than becoming implicit authorization, and changing the filename or current directory invalidates the pending confirmation. Existing directories are rejected as save targets and symlink entries are treated as occupied targets rather than silently followed as new names.
 
 ## FileChooser portal architecture
 
-`--filechooser-portal` is a dedicated service bootstrap for `org.freedesktop.impl.portal.desktop.ryofiles`. It exposes `org.freedesktop.impl.portal.FileChooser` and uses a per-handle `org.freedesktop.impl.portal.Request` lifecycle. OpenFile, SaveFile, and SaveFiles requests are translated into the same lightweight picker contract; returned values are normalized and revalidated as local percent-encoded `file://` URIs before a portal response is emitted. The backend forwards the request title and `accept_label` to the picker UI without changing the selection/result contract.
+`--filechooser-portal` is a dedicated service bootstrap for `org.freedesktop.impl.portal.desktop.ryofiles`. It exposes `org.freedesktop.impl.portal.FileChooser` and uses a per-handle `org.freedesktop.impl.portal.Request` lifecycle. OpenFile, SaveFile, and SaveFiles requests are translated into the same lightweight picker contract; returned values are normalized and revalidated as local percent-encoded `file://` URIs before a portal response is emitted. The backend forwards the request title and `accept_label` to the picker UI without changing filesystem or overwrite validation.
 
-CI also launches the built production portal process under `dbus-run-session` with a minimal fake picker. The smoke requires the service to acquire its real session-bus name, complete a delayed OpenFile call with a validated local `file://` URI, export the per-request Request object, honor `Request.Close` against a blocking picker, complete that backend call with response 2, and remain alive after cancellation. This complements pure request/parser tests with the actual D-Bus/QProcess lifecycle.
+FileChooser filters are guidance, not an authorization boundary. The backend preserves the full application-provided filter list and `current_filter` independently, expands MIME conditions to bounded filename globs once before launching the picker, and lets the picker switch among supplied filters. A direct user selection is not rejected solely for falling outside the displayed filter. A `current_filter` supplied without `filters` becomes a locked single filter because there is no application-provided alternative to switch to.
+
+Portal `choices` are decoded as bounded boolean or option-list controls. IDs, labels, option IDs, initial values, result IDs, and result values are validated. On successful completion, `current_filter` is returned using its typed `(sa(us))` D-Bus structure and `choices` are returned as typed `a(ss)` selections. Structured picker output cannot introduce an unknown choice, omit an expected choice, change a locked filter, or return a filter index outside the original request.
+
+The portal context/result channel is capped at 1 MiB and applies explicit caps to filters, filter conditions, expanded patterns, choices, options, and metadata strings. The child process is still launched through `QProcess` with argument boundaries and stdin/stdout pipes; no shell interpolation is introduced.
+
+CI launches the built production portal process under `dbus-run-session` with a minimal fake picker. The smoke requires the service to acquire its real session-bus name, complete a delayed OpenFile call with a validated local `file://` URI, transfer filter/choice context to the child, accept changed filter/choice selections from structured child output, return those values through typed D-Bus results, export the per-request Request object, honor `Request.Close` against a blocking picker, complete that backend call with response 2, and remain alive after cancellation. This complements pure request/context/parser tests with the actual D-Bus/QProcess lifecycle.
 
 The Arch/CachyOS package registers the backend using only:
 
@@ -118,7 +129,6 @@ This makes routing opt-in and reversible without turning packaging into configur
 
 ## Next engine milestones
 
-- FileChooser interactive filter selection and portal choices with explicit result echo;
 - Wayland parent-window/modal attachment using the portal's xdg-foreign parent handle rather than simulated modality;
 - broader Firefox/Chromium/Electron/GTK/Qt/Flatpak compatibility testing;
 - archive browsing/extract/compress workflows with bounded background work;
