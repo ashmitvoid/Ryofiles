@@ -545,6 +545,20 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME portal-picker-request COMMAND ryofiles_portal_picker_tests)
+
+    qt_add_executable(ryofiles_portal_context_tests
+        tests/PortalPickerContextTest.cpp
+        src/picker/PortalPickerContext.hpp
+    )
+
+    target_include_directories(ryofiles_portal_context_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_portal_context_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+
+    add_test(NAME portal-picker-context COMMAND ryofiles_portal_context_tests)
 endif()
 
 install(TARGETS ryofiles
