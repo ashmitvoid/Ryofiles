@@ -111,6 +111,7 @@ qt_add_qml_module(ryofiles
         qml/components/OperationDrawer.qml
         qml/components/ConflictSheet.qml
         qml/components/RenameSheet.qml
+        qml/components/ArchiveCreateSheet.qml
         qml/components/TrashView.qml
         qml/components/FileContextMenu.qml
         qml/components/RemoteFileContextMenu.qml
@@ -144,6 +145,8 @@ if(RYOFILES_BUILD_TESTS)
         tests/OperationManagerTest.cpp
         src/operations/OperationManager.hpp
         src/operations/OperationManager.cpp
+        src/archive/ArchiveCreator.hpp
+        src/archive/ArchiveCreator.cpp
         src/archive/ArchiveExtractor.hpp
         src/archive/ArchiveExtractor.cpp
         src/archive/ArchivePathGuard.hpp
@@ -160,6 +163,29 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME operation-manager COMMAND ryofiles_operation_tests)
+
+    qt_add_executable(ryofiles_archive_operation_tests
+        tests/ArchiveOperationManagerTest.cpp
+        src/operations/OperationManager.hpp
+        src/operations/OperationManager.cpp
+        src/archive/ArchiveCreator.hpp
+        src/archive/ArchiveCreator.cpp
+        src/archive/ArchiveExtractor.hpp
+        src/archive/ArchiveExtractor.cpp
+        src/archive/ArchivePathGuard.hpp
+        src/archive/ArchivePathGuard.cpp
+    )
+
+    target_include_directories(ryofiles_archive_operation_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_archive_operation_tests PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Test
+        LibArchive::LibArchive
+    )
+
+    add_test(NAME archive-operation-manager COMMAND ryofiles_archive_operation_tests)
 
     qt_add_executable(ryofiles_remote_operation_tests
         tests/RemoteOperationManagerTest.cpp

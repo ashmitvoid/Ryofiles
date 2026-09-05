@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "OperationManager.hpp"
+#include "archive/ArchiveCreator.hpp"
 #include "archive/ArchiveExtractor.hpp"
 #include "locations/LocalPathGuard.hpp"
 
@@ -8,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QSet>
 #include <QUuid>
 #include <QtConcurrent>
 
@@ -36,6 +38,7 @@ QString kindText(OperationManager::OperationKind kind) {
     case OperationManager::CreateFolderOperation: return QStringLiteral("new folder");
     case OperationManager::DeleteOperation: return QStringLiteral("delete");
     case OperationManager::ExtractOperation: return QStringLiteral("extract");
+    case OperationManager::CreateArchiveOperation: return QStringLiteral("create archive");
     }
     return QStringLiteral("unknown");
 }
@@ -202,6 +205,77 @@ QString OperationManager::extractArchiveHere(const QString& archivePath) {
     return extractArchive(info.absoluteFilePath(), info.absolutePath());
 }
 
+bool OperationManager::canCreateArchive(
+    const QStringList& requestedSources,
+    const QString& archivePath) const {
+    if (requestedSources.isEmpty()
+        || !LocalPathGuard::allLocalPaths(requestedSources)
+        || archivePath.trimmed().isEmpty()
+        || LocalPathGuard::isUriLike(archivePath)
+        || !supportedArchivePath(archivePath)) {
+        return false;
+    }
+
+    const QFileInfo archiveInfo(QFileInfo(archivePath).absoluteFilePath());
+    const QFileInfo parentInfo(archiveInfo.absolutePath());
+    if (archiveInfo.fileName().isEmpty()
+        || !parentInfo.exists()
+        || !parentInfo.isDir()
+        || parentInfo.isSymLink()
+        || archiveInfo.exists()
+        || archiveInfo.isSymLink()) {
+        return false;
+    }
+
+    QSet<QString> topLevelNames;
+    for (const QString& requested : requestedSources) {
+        if (requested.trimmed().isEmpty())
+            return false;
+
+        const QFileInfo sourceInfo(requested);
+        if ((!sourceInfo.exists() && !sourceInfo.isSymLink())
+            || (!sourceInfo.isFile() && !sourceInfo.isDir() && !sourceInfo.isSymLink())) {
+            return false;
+        }
+
+        const QString source = QDir::cleanPath(sourceInfo.absoluteFilePath());
+        const QString leaf = QFileInfo(source).fileName();
+        if (source.isEmpty()
+            || source == QStringLiteral("/")
+            || leaf.isEmpty()
+            || leaf == QStringLiteral(".")
+            || leaf == QStringLiteral("..")
+            || topLevelNames.contains(leaf)) {
+            return false;
+        }
+        topLevelNames.insert(leaf);
+
+        if (sourceInfo.isDir()
+            && !sourceInfo.isSymLink()
+            && destinationInsideSource(source, archiveInfo.absoluteFilePath())) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+QString OperationManager::createArchive(
+    const QStringList& requestedSources,
+    const QString& archivePath) {
+    if (!canCreateArchive(requestedSources, archivePath))
+        return {};
+
+    QStringList sources;
+    sources.reserve(requestedSources.size());
+    for (const QString& requested : requestedSources)
+        sources.push_back(QDir::cleanPath(QFileInfo(requested).absoluteFilePath()));
+
+    return startArchiveCreationJob(
+        sources,
+        QFileInfo(archivePath).absoluteFilePath());
+}
+
 QString OperationManager::rename(const QString& source, const QString& newName) {
     if (source.trimmed().isEmpty()
         || newName.trimmed().isEmpty()
@@ -346,6 +420,66 @@ QString OperationManager::startExtractionJob(
             finishJob(job, Cancelled);
             break;
         case ArchiveExtractionStatus::Failed:
+            finishJob(job, Failed, result.error);
+            break;
+        }
+    });
+
+    return job->id;
+}
+
+QString OperationManager::startArchiveCreationJob(
+    const QStringList& sources,
+    const QString& archivePath) {
+    pruneFinishedJobs();
+
+    auto job = std::make_shared<Job>();
+    job->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    job->kind = CreateArchiveOperation;
+    job->sources = sources;
+    job->destinationDirectory = archivePath;
+    job->currentSource = sources.value(0);
+    job->progressIndeterminate = true;
+
+    const int row = m_jobs.size();
+    beginInsertRows({}, row, row);
+    m_jobs.push_back(job);
+    endInsertRows();
+    emit countChanged();
+    emit activeCountChanged();
+
+    job->future = QtConcurrent::run([this, job, sources, archivePath] {
+        updateJob(job, [](Job& mutableJob) {
+            mutableJob.state = Running;
+        });
+
+        const ArchiveCreationResult result = ArchiveCreator::create(
+            sources,
+            archivePath,
+            job->cancelRequested,
+            [this, job](const ArchiveCreationProgress& progress) {
+                updateJob(job, [progress](Job& mutableJob) {
+                    mutableJob.currentSource = progress.sourcePath.isEmpty()
+                        ? progress.entryPath
+                        : progress.sourcePath;
+                    mutableJob.entriesProcessed = progress.entriesProcessed;
+                    mutableJob.bytesProcessed = progress.bytesRead;
+                });
+            });
+
+        updateJob(job, [result](Job& mutableJob) {
+            mutableJob.entriesProcessed = result.entriesWritten;
+            mutableJob.bytesProcessed = result.bytesRead;
+        });
+
+        switch (result.status) {
+        case ArchiveCreationStatus::Success:
+            finishJob(job, Completed);
+            break;
+        case ArchiveCreationStatus::Cancelled:
+            finishJob(job, Cancelled);
+            break;
+        case ArchiveCreationStatus::Failed:
             finishJob(job, Failed, result.error);
             break;
         }
