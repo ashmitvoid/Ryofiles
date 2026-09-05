@@ -17,6 +17,7 @@
 #include "operations/RemoteOperationManager.hpp"
 #include "picker/PickerController.hpp"
 #include "picker/PortalPickerContext.hpp"
+#include "picker/PortalWindowParent.hpp"
 #include "portal/FileChooserPortal.hpp"
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
@@ -36,6 +37,7 @@
 #include <QQmlApplicationEngine>
 #include <QTextStream>
 #include <QUrl>
+#include <QWindow>
 #include <QtQml>
 
 namespace {
@@ -176,6 +178,21 @@ int runPicker(
         [&app] { app.exit(1); });
 
     engine.loadFromModule("Ryofiles", "Picker");
+
+    PortalWindowParent portalWindowParent;
+    if (structuredPortalResult && !engine.rootObjects().isEmpty()) {
+        QWindow* pickerWindow = qobject_cast<QWindow*>(engine.rootObjects().constFirst());
+        if (pickerWindow) {
+            const bool modal = qEnvironmentVariable("RYOFILES_PORTAL_MODAL") != QStringLiteral("0");
+            pickerWindow->setModality(modal ? Qt::WindowModal : Qt::NonModal);
+
+            const PortalParentWindow parent = PortalParentWindow::parse(
+                qEnvironmentVariable("RYOFILES_PORTAL_PARENT_WINDOW"));
+            if (!parent.isEmpty())
+                portalWindowParent.attach(pickerWindow, parent, modal);
+        }
+    }
+
     return app.exec();
 }
 
