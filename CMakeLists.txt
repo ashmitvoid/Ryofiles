@@ -111,6 +111,7 @@ qt_add_qml_module(ryofiles
         qml/components/OpenWithSheet.qml
         qml/components/PropertiesSheet.qml
         qml/components/PreviewPanel.qml
+        qml/components/PortalPickerOptions.qml
 )
 
 target_include_directories(ryofiles PRIVATE src)
