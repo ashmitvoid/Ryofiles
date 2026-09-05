@@ -27,6 +27,14 @@ SFTP and FTP. Additional protocol packages are optional:
 
 Ryofiles never installs or enables these optional protocol packages itself.
 
+## Archive support
+
+`libarchive` is a required runtime dependency for the native archive extraction
+core. Ryofiles links it directly and does not shell out to `tar`, `unzip`, or
+`7z` for extraction. The current package ships the secure headless extraction
+engine in the main binary while archive UI and compression workflows remain
+under development.
+
 ## Defaults and portal integration
 
 Installing Ryofiles does **not** make it the default file manager and does not
