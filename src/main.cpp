@@ -16,6 +16,7 @@
 #include "operations/OperationManager.hpp"
 #include "operations/RemoteOperationManager.hpp"
 #include "picker/PickerController.hpp"
+#include "picker/PortalPickerContext.hpp"
 #include "portal/FileChooserPortal.hpp"
 #include "preview/TextPreviewLoader.hpp"
 #include "ryoku/RyokuIntegration.hpp"
@@ -28,7 +29,10 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QDBusConnection>
+#include <QFile>
 #include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QTextStream>
 #include <QUrl>
@@ -38,6 +42,7 @@ namespace {
 
 constexpr auto kPortalService = "org.freedesktop.impl.portal.desktop.ryofiles";
 constexpr auto kPortalObjectPath = "/org/freedesktop/portal/desktop";
+constexpr qsizetype kMaximumPortalContextBytes = 1024 * 1024;
 
 void registerNavigationTypes() {
     qmlRegisterUncreatableType<DirectorySession>(
@@ -52,6 +57,38 @@ void registerNavigationTypes() {
     qmlRegisterType<TabManager>("Ryofiles.Core", 1, 0, "TabManager");
 }
 
+bool readPortalPickerContext(QJsonObject* context, QString* error) {
+    if (error)
+        error->clear();
+    if (!context)
+        return false;
+
+    QFile input;
+    if (!input.open(stdin, QIODevice::ReadOnly)) {
+        if (error)
+            *error = QStringLiteral("Could not read portal picker context from stdin");
+        return false;
+    }
+
+    const QByteArray bytes = input.read(kMaximumPortalContextBytes + 1);
+    if (bytes.size() > kMaximumPortalContextBytes) {
+        if (error)
+            *error = QStringLiteral("Portal picker context exceeded the size limit");
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        if (error)
+            *error = QStringLiteral("Portal picker context is malformed JSON");
+        return false;
+    }
+
+    *context = document.object();
+    return true;
+}
+
 int runPicker(
     QGuiApplication& app,
     const QString& mode,
@@ -60,7 +97,9 @@ int runPicker(
     const QStringList& mimeTypes,
     const QString& suggestedName,
     const QString& dialogTitle,
-    const QString& acceptLabel) {
+    const QString& acceptLabel,
+    const QJsonObject& portalContextObject,
+    bool structuredPortalResult) {
     PickerController picker;
     QString configurationError;
     if (!picker.configure(
@@ -75,6 +114,14 @@ int runPicker(
         return 2;
     }
 
+    PortalPickerContext portalContext;
+    if (structuredPortalResult
+        && !portalContext.configure(portalContextObject, &configurationError)) {
+        QTextStream(stderr)
+            << "ryofiles: " << configurationError << Qt::endl;
+        return 2;
+    }
+
     QGuiApplication::setApplicationName(QStringLiteral("Ryofiles Picker"));
     QGuiApplication::setDesktopFileName(QStringLiteral("ryofiles-picker"));
 
@@ -82,6 +129,7 @@ int runPicker(
 
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Ryoku", &ryoku);
     qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "Picker", &picker);
+    qmlRegisterSingletonInstance("Ryofiles.Core", 1, 0, "PortalContext", &portalContext);
     registerNavigationTypes();
 
     QQmlApplicationEngine engine;
@@ -100,11 +148,23 @@ int runPicker(
         &picker,
         &PickerController::acceptedPaths,
         &app,
-        [&app](const QStringList& paths) {
-            QTextStream output(stdout);
+        [&app, &portalContext, structuredPortalResult](const QStringList& paths) {
+            QStringList uris;
+            uris.reserve(paths.size());
             for (const QString& path : paths) {
-                output << QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded)
+                uris.push_back(
+                    QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded));
+            }
+
+            QTextStream output(stdout);
+            if (structuredPortalResult) {
+                output << QString::fromUtf8(
+                    QJsonDocument(portalContext.resultObject(uris))
+                        .toJson(QJsonDocument::Compact))
                        << Qt::endl;
+            } else {
+                for (const QString& uri : uris)
+                    output << uri << Qt::endl;
             }
             output.flush();
             app.exit(EXIT_SUCCESS);
@@ -189,6 +249,9 @@ int main(int argc, char* argv[]) {
         QStringList{QStringLiteral("accept-label")},
         QStringLiteral("Custom accept-button label for picker mode."),
         QStringLiteral("label"));
+    const QCommandLineOption portalContextStdinOption(
+        QStringList{QStringLiteral("portal-context-stdin")},
+        QStringLiteral("Read internal FileChooser picker context from stdin."));
     const QCommandLineOption fileChooserPortalOption(
         QStringList{QStringLiteral("filechooser-portal")},
         QStringLiteral("Run the XDG FileChooser portal backend service."));
@@ -200,6 +263,7 @@ int main(int argc, char* argv[]) {
     parser.addOption(suggestedNameOption);
     parser.addOption(pickerTitleOption);
     parser.addOption(acceptLabelOption);
+    parser.addOption(portalContextStdinOption);
     parser.addOption(fileChooserPortalOption);
     parser.process(app);
 
@@ -210,7 +274,8 @@ int main(int argc, char* argv[]) {
             || parser.isSet(mimeOption)
             || parser.isSet(suggestedNameOption)
             || parser.isSet(pickerTitleOption)
-            || parser.isSet(acceptLabelOption)) {
+            || parser.isSet(acceptLabelOption)
+            || parser.isSet(portalContextStdinOption)) {
             QTextStream(stderr)
                 << "ryofiles: --filechooser-portal cannot be combined with picker options\n";
             return 2;
@@ -219,6 +284,17 @@ int main(int argc, char* argv[]) {
     }
 
     if (parser.isSet(pickerOption)) {
+        QJsonObject portalContext;
+        const bool structuredPortalResult = parser.isSet(portalContextStdinOption);
+        if (structuredPortalResult) {
+            QString contextError;
+            if (!readPortalPickerContext(&portalContext, &contextError)) {
+                QTextStream(stderr)
+                    << "ryofiles: " << contextError << Qt::endl;
+                return 2;
+            }
+        }
+
         return runPicker(
             app,
             parser.value(pickerOption),
@@ -227,7 +303,9 @@ int main(int argc, char* argv[]) {
             parser.values(mimeOption),
             parser.value(suggestedNameOption),
             parser.value(pickerTitleOption),
-            parser.value(acceptLabelOption));
+            parser.value(acceptLabelOption),
+            portalContext,
+            structuredPortalResult);
     }
 
     if (parser.isSet(multipleOption)
@@ -235,7 +313,8 @@ int main(int argc, char* argv[]) {
         || parser.isSet(mimeOption)
         || parser.isSet(suggestedNameOption)
         || parser.isSet(pickerTitleOption)
-        || parser.isSet(acceptLabelOption)) {
+        || parser.isSet(acceptLabelOption)
+        || parser.isSet(portalContextStdinOption)) {
         QTextStream(stderr)
             << "ryofiles: picker-only options require --picker"
             << Qt::endl;
