@@ -142,6 +142,10 @@ if(RYOFILES_BUILD_TESTS)
         tests/OperationManagerTest.cpp
         src/operations/OperationManager.hpp
         src/operations/OperationManager.cpp
+        src/archive/ArchiveExtractor.hpp
+        src/archive/ArchiveExtractor.cpp
+        src/archive/ArchivePathGuard.hpp
+        src/archive/ArchivePathGuard.cpp
     )
 
     target_include_directories(ryofiles_operation_tests PRIVATE src)
@@ -150,6 +154,7 @@ if(RYOFILES_BUILD_TESTS)
         Qt6::Core
         Qt6::Concurrent
         Qt6::Test
+        LibArchive::LibArchive
     )
 
     add_test(NAME operation-manager COMMAND ryofiles_operation_tests)

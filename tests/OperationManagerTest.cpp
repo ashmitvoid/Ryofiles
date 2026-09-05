@@ -2,6 +2,9 @@
 
 #include "operations/OperationManager.hpp"
 
+#include <archive.h>
+#include <archive_entry.h>
+
 #include <QDir>
 #include <QFile>
 #include <QSignalSpy>
@@ -42,6 +45,40 @@ private:
             }
             buffer.resize(buffer.size() * 2);
         }
+    }
+
+    static void writeTarArchive(
+        const QString& path,
+        const QVector<QPair<QString, QByteArray>>& entries) {
+        struct archive* writer = archive_write_new();
+        QVERIFY(writer != nullptr);
+        QVERIFY(archive_write_set_format_pax_restricted(writer) >= ARCHIVE_OK);
+        QVERIFY(archive_write_add_filter_none(writer) >= ARCHIVE_OK);
+
+        const QByteArray encodedPath = QFile::encodeName(path);
+        QVERIFY2(
+            archive_write_open_filename(writer, encodedPath.constData()) >= ARCHIVE_OK,
+            archive_error_string(writer));
+
+        for (const auto& [name, data] : entries) {
+            struct archive_entry* entry = archive_entry_new();
+            QVERIFY(entry != nullptr);
+            const QByteArray encodedName = name.toUtf8();
+            archive_entry_set_pathname(entry, encodedName.constData());
+            archive_entry_set_filetype(entry, AE_IFREG);
+            archive_entry_set_perm(entry, 0644);
+            archive_entry_set_size(entry, data.size());
+            QVERIFY2(
+                archive_write_header(writer, entry) >= ARCHIVE_OK,
+                archive_error_string(writer));
+            if (!data.isEmpty())
+                QCOMPARE(archive_write_data(writer, data.constData(), data.size()), la_ssize_t(data.size()));
+            QVERIFY(archive_write_finish_entry(writer) >= ARCHIVE_OK);
+            archive_entry_free(entry);
+        }
+
+        QVERIFY(archive_write_close(writer) >= ARCHIVE_OK);
+        QVERIFY(archive_write_free(writer) >= ARCHIVE_OK);
     }
 
 private slots:
@@ -366,6 +403,126 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
         QVERIFY(finishedSpy.takeFirst().at(1).toBool());
         QVERIFY(!QFileInfo::exists(source));
+    }
+
+    void archiveFormatEligibilityMatchesDecoderCoverage() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QStringList supported = {
+            QStringLiteral("sample.tar"),
+            QStringLiteral("sample.tar.gz"),
+            QStringLiteral("sample.tgz"),
+            QStringLiteral("sample.tar.xz"),
+            QStringLiteral("sample.tar.zst"),
+            QStringLiteral("sample.zip"),
+            QStringLiteral("sample.7z"),
+        };
+
+        OperationManager manager;
+        for (const QString& name : supported) {
+            const QString path = temp.filePath(name);
+            writeFile(path, "archive placeholder");
+            QVERIFY2(manager.canExtractArchive(path), qPrintable(name));
+        }
+
+        const QStringList unsupported = {
+            QStringLiteral("sample.rar"),
+            QStringLiteral("sample.tar.bz2"),
+            QStringLiteral("sample.gz"),
+            QStringLiteral("sample.xz"),
+            QStringLiteral("sample.zst"),
+        };
+        for (const QString& name : unsupported) {
+            const QString path = temp.filePath(name);
+            writeFile(path, "not exposed");
+            QVERIFY2(!manager.canExtractArchive(path), qPrintable(name));
+        }
+    }
+
+    void archiveExtractionRunsAsIndeterminateOperation() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString archivePath = temp.filePath("sample.tar");
+        const QString destination = temp.filePath("output");
+        QVERIFY(QDir().mkpath(destination));
+        writeTarArchive(
+            archivePath,
+            {{QStringLiteral("folder/hello.txt"), QByteArray("hello archive")}});
+
+        OperationManager manager;
+        QVERIFY(manager.canExtractArchive(archivePath));
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.extractArchive(archivePath, destination);
+        QVERIFY(!id.isEmpty());
+        QCOMPARE(manager.rowCount(), 1);
+        const QModelIndex jobIndex = manager.index(0, 0);
+        QCOMPARE(manager.data(jobIndex, OperationManager::KindRole).toString(), QStringLiteral("extract"));
+        QCOMPARE(manager.data(jobIndex, OperationManager::SourceRole).toString(), QFileInfo(archivePath).absoluteFilePath());
+        QCOMPARE(manager.data(jobIndex, OperationManager::DestinationRole).toString(), QFileInfo(destination).absoluteFilePath());
+        QVERIFY(manager.data(jobIndex, OperationManager::ProgressIndeterminateRole).toBool());
+
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QCOMPARE(finishedSpy.at(0).at(0).toString(), id);
+        QVERIFY(finishedSpy.at(0).at(1).toBool());
+        QCOMPARE(readFile(QDir(destination).filePath("folder/hello.txt")), QByteArray("hello archive"));
+        QCOMPARE(manager.data(jobIndex, OperationManager::EntriesProcessedRole).toULongLong(), quint64(1));
+        QCOMPARE(manager.data(jobIndex, OperationManager::BytesProcessedRole).toULongLong(), quint64(13));
+    }
+
+    void archiveExtractionNeverOverwritesAndRollsBack() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString archivePath = temp.filePath("conflict.tar");
+        const QString destination = temp.filePath("output");
+        QVERIFY(QDir().mkpath(destination));
+        writeTarArchive(
+            archivePath,
+            {
+                {QStringLiteral("new.txt"), QByteArray("new")},
+                {QStringLiteral("same.txt"), QByteArray("replacement")},
+            });
+        writeFile(QDir(destination).filePath("same.txt"), "original");
+
+        OperationManager manager;
+        QSignalSpy finishedSpy(&manager, &OperationManager::jobFinished);
+
+        const QString id = manager.extractArchive(archivePath, destination);
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 5000);
+        QVERIFY(!finishedSpy.at(0).at(1).toBool());
+        QVERIFY(!manager.errorFor(id).isEmpty());
+        QCOMPARE(readFile(QDir(destination).filePath("same.txt")), QByteArray("original"));
+        QVERIFY(!QFileInfo::exists(QDir(destination).filePath("new.txt")));
+    }
+
+    void archiveExtractionRejectsRemoteUnsupportedAndSymlinkInputs() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString archivePath = temp.filePath("sample.tar");
+        const QString unsupported = temp.filePath("sample.rar");
+        const QString destination = temp.filePath("output");
+        QVERIFY(QDir().mkpath(destination));
+        writeTarArchive(archivePath, {{QStringLiteral("file.txt"), QByteArray("x")}});
+        writeFile(unsupported, "not an archive");
+
+        const QString archiveLink = temp.filePath("linked.tar");
+        const QByteArray archiveBytes = QFile::encodeName(archivePath);
+        const QByteArray linkBytes = QFile::encodeName(archiveLink);
+        QVERIFY(::symlink(archiveBytes.constData(), linkBytes.constData()) == 0);
+
+        OperationManager manager;
+        QVERIFY(!manager.canExtractArchive(QStringLiteral("sftp://example.invalid/sample.tar")));
+        QVERIFY(!manager.canExtractArchive(unsupported));
+        QVERIFY(!manager.canExtractArchive(archiveLink));
+        QVERIFY(manager.extractArchive(archivePath, QStringLiteral("sftp://example.invalid/output")).isEmpty());
+        QVERIFY(manager.extractArchive(unsupported, destination).isEmpty());
+        QVERIFY(manager.extractArchive(archiveLink, destination).isEmpty());
+        QCOMPARE(manager.rowCount(), 0);
     }
 };
 

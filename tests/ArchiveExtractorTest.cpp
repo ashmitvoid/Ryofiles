@@ -20,6 +20,8 @@ namespace {
 enum class TestArchiveFormat {
     Tar,
     TarGzip,
+    TarXz,
+    TarZstd,
     Zip,
     SevenZip,
 };
@@ -60,6 +62,16 @@ bool writeArchive(
         status = archive_write_set_format_pax_restricted(writer);
         if (archiveOk(status))
             status = archive_write_add_filter_gzip(writer);
+        break;
+    case TestArchiveFormat::TarXz:
+        status = archive_write_set_format_pax_restricted(writer);
+        if (archiveOk(status))
+            status = archive_write_add_filter_xz(writer);
+        break;
+    case TestArchiveFormat::TarZstd:
+        status = archive_write_set_format_pax_restricted(writer);
+        if (archiveOk(status))
+            status = archive_write_add_filter_zstd(writer);
         break;
     case TestArchiveFormat::Zip:
         status = archive_write_set_format_zip(writer);
@@ -191,6 +203,9 @@ void ArchiveExtractorTest::extractsSupportedFormats_data() {
 
     QTest::newRow("tar") << static_cast<int>(TestArchiveFormat::Tar) << QStringLiteral(".tar");
     QTest::newRow("tar-gzip") << static_cast<int>(TestArchiveFormat::TarGzip) << QStringLiteral(".tar.gz");
+    QTest::newRow("tgz") << static_cast<int>(TestArchiveFormat::TarGzip) << QStringLiteral(".tgz");
+    QTest::newRow("tar-xz") << static_cast<int>(TestArchiveFormat::TarXz) << QStringLiteral(".tar.xz");
+    QTest::newRow("tar-zstd") << static_cast<int>(TestArchiveFormat::TarZstd) << QStringLiteral(".tar.zst");
     QTest::newRow("zip") << static_cast<int>(TestArchiveFormat::Zip) << QStringLiteral(".zip");
     QTest::newRow("7zip") << static_cast<int>(TestArchiveFormat::SevenZip) << QStringLiteral(".7z");
 }
