@@ -234,6 +234,38 @@ private slots:
         QVERIFY(png.startsWith("\x89PNG\r\n\x1a\n"));
     }
 
+    void readsPdfMetadataWithoutRenderingPage() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("metadata.pdf"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray bytes = onePagePdf();
+        QCOMPARE(file.write(bytes), bytes.size());
+        file.close();
+
+        PreviewScheduler scheduler(helperPath());
+        QObject owner;
+        const PreviewResult result = execute(
+            scheduler,
+            owner,
+            QJsonObject {
+                {QStringLiteral("op"), QStringLiteral("pdf-page")},
+                {QStringLiteral("path"), path},
+                {QStringLiteral("page"), 0},
+                {QStringLiteral("renderPage"), false},
+            });
+
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QCOMPARE(result.payload.value(QStringLiteral("page")).toInt(), 0);
+        QCOMPARE(result.payload.value(QStringLiteral("pageCount")).toInt(), 1);
+        QVERIFY(!result.payload.value(QStringLiteral("fileSize")).toString().isEmpty());
+        QVERIFY(!result.payload.contains(QStringLiteral("pixelWidth")));
+        QVERIFY(!result.payload.contains(QStringLiteral("pixelHeight")));
+        QVERIFY(!result.payload.contains(QStringLiteral("imageFormat")));
+        QVERIFY(!result.payload.contains(QStringLiteral("imageBase64")));
+    }
+
     void pdfRenderRejectsSymlinkInput() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());

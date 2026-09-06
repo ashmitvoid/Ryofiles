@@ -323,6 +323,14 @@ void PdfPreviewLoader::setActive(bool active) {
     scheduleLoad();
 }
 
+void PdfPreviewLoader::setMetadataOnly(bool metadataOnly) {
+    if (m_metadataOnly == metadataOnly)
+        return;
+    m_metadataOnly = metadataOnly;
+    emit metadataOnlyChanged();
+    scheduleLoad();
+}
+
 void PdfPreviewLoader::setPage(int page) {
     int bounded = std::max(0, page);
     if (m_pageCount > 0)
@@ -393,6 +401,7 @@ void PdfPreviewLoader::startLoad() {
     request.insert(QStringLiteral("op"), QStringLiteral("pdf-page"));
     request.insert(QStringLiteral("path"), loadPath);
     request.insert(QStringLiteral("page"), requestedPage);
+    request.insert(QStringLiteral("renderPage"), !m_metadataOnly);
     request.insert(QStringLiteral("maxWidth"), 1200);
     request.insert(QStringLiteral("maxHeight"), 1600);
 
@@ -420,17 +429,21 @@ void PdfPreviewLoader::startLoad() {
             const QJsonObject payload = result.payload;
             const QString base64 = payload.value(QStringLiteral("imageBase64")).toString();
             const int pageCount = payload.value(QStringLiteral("pageCount")).toInt(0);
-            if (base64.isEmpty() || pageCount <= 0) {
+            if (pageCount <= 0 || (!m_metadataOnly && base64.isEmpty())) {
                 m_supported = false;
                 m_imageSource.clear();
-                m_error = QStringLiteral("PDF preview returned no image");
+                m_error = m_metadataOnly
+                    ? QStringLiteral("PDF metadata unavailable")
+                    : QStringLiteral("PDF preview returned no image");
                 emit resultChanged();
                 return;
             }
 
             m_supported = true;
             m_pageCount = pageCount;
-            m_imageSource = QStringLiteral("data:image/png;base64,") + base64;
+            m_imageSource = base64.isEmpty()
+                ? QString{}
+                : QStringLiteral("data:image/png;base64,") + base64;
             m_title = payload.value(QStringLiteral("title")).toString();
             m_author = payload.value(QStringLiteral("author")).toString();
             m_subject = payload.value(QStringLiteral("subject")).toString();
@@ -472,6 +485,14 @@ void FontPreviewLoader::setActive(bool active) {
         return;
     m_active = active;
     emit activeChanged();
+    scheduleLoad();
+}
+
+void FontPreviewLoader::setMetadataOnly(bool metadataOnly) {
+    if (m_metadataOnly == metadataOnly)
+        return;
+    m_metadataOnly = metadataOnly;
+    emit metadataOnlyChanged();
     scheduleLoad();
 }
 
@@ -530,6 +551,7 @@ void FontPreviewLoader::startLoad() {
     QJsonObject request;
     request.insert(QStringLiteral("op"), QStringLiteral("font-preview"));
     request.insert(QStringLiteral("path"), loadPath);
+    request.insert(QStringLiteral("renderSample"), !m_metadataOnly);
     request.insert(QStringLiteral("maxWidth"), 1000);
     request.insert(QStringLiteral("maxHeight"), 520);
     request.insert(QStringLiteral("pixelSize"), 64);
@@ -574,7 +596,7 @@ void FontPreviewLoader::startLoad() {
             m_sampleSource = sampleBase64.isEmpty()
                 ? QString{}
                 : QStringLiteral("data:image/png;base64,") + sampleBase64;
-            m_supported = !m_sampleSource.isEmpty();
+            m_supported = m_metadataOnly || !m_sampleSource.isEmpty();
             m_error = m_supported
                 ? QString{}
                 : QStringLiteral("Font preview returned no sample image");
