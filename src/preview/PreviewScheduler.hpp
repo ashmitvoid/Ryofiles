@@ -19,8 +19,6 @@ struct PreviewResult {
 };
 
 class PreviewScheduler final : public QObject {
-    Q_OBJECT
-
 public:
     enum class Lane {
         InteractivePreview,
@@ -99,3 +97,5 @@ private:
     LaneState m_interactive;
     LaneState m_longWork;
 };
+
+#include "PreviewSchedulerImplementation.hpp"

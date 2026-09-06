@@ -10,6 +10,7 @@ depends=(
   'glib2'
   'gvfs'
   'libarchive'
+  'poppler-qt6'
   'qt6-base'
   'qt6-declarative'
   'wayland'
@@ -58,16 +59,27 @@ build() {
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DRYOFILES_PORTALCTL_BUILD_TESTS=ON
   cmake --build build-portalctl
+
+  cmake \
+    -S Ryofiles/tools/preview \
+    -B build-preview \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DRYOFILES_PREVIEW_BUILD_TESTS=ON
+  cmake --build build-preview
 }
 
 check() {
   ctest --test-dir build --output-on-failure
   ctest --test-dir build-portalctl --output-on-failure
+  ctest --test-dir build-preview --output-on-failure
 }
 
 package() {
   DESTDIR="$pkgdir" cmake --install build
   DESTDIR="$pkgdir" cmake --install build-portalctl
+  DESTDIR="$pkgdir" cmake --install build-preview
 
   install -Dm644 \
     Ryofiles/assets/io.github.ashmitvoid.Ryofiles.metainfo.xml \

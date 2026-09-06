@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
+include(GNUInstallDirs)
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Test)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(POPPLER_QT6 REQUIRED IMPORTED_TARGET poppler-qt6)
@@ -38,3 +40,7 @@ if(RYOFILES_PREVIEW_BUILD_TESTS)
 
     add_test(NAME preview-scheduler COMMAND ryofiles_preview_scheduler_tests)
 endif()
+
+install(TARGETS ryofiles-preview-helper
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
