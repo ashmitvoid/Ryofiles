@@ -8,38 +8,38 @@ Item {
     required property var tabs
     property real uiScale: 1
 
-    height: 42 * uiScale
+    height: 44 * uiScale
 
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 1
-        color: Ryoku.line
+        color: Ryoku.lineSoft
     }
 
     Flickable {
         id: scroller
         anchors.fill: parent
-        anchors.leftMargin: 12 * root.uiScale
-        anchors.rightMargin: 12 * root.uiScale
+        anchors.leftMargin: 14 * root.uiScale
+        anchors.rightMargin: 14 * root.uiScale
         clip: true
-        contentWidth: row.implicitWidth
+        contentWidth: tabRow.implicitWidth
         contentHeight: height
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
         interactive: contentWidth > width
 
         Row {
-            id: row
+            id: tabRow
             height: parent.height
-            spacing: 6 * root.uiScale
+            spacing: 2 * root.uiScale
 
             Repeater {
                 model: root.tabs
 
-                delegate: Rectangle {
-                    id: plate
+                delegate: Item {
+                    id: tab
 
                     required property int index
                     required property string title
@@ -47,116 +47,119 @@ Item {
                     required property bool active
 
                     width: Math.min(
-                        Math.max(132 * root.uiScale, labelRow.implicitWidth + 30 * root.uiScale),
-                        260 * root.uiScale
-                    )
-                    height: 32 * root.uiScale
-                    anchors.verticalCenter: parent.verticalCenter
-                    radius: 6 * root.uiScale
+                        Math.max(118 * root.uiScale, titleText.implicitWidth + 54 * root.uiScale),
+                        238 * root.uiScale)
+                    height: parent.height
 
-                    color: active
-                        ? Ryoku.bone
-                        : (plateHover.hovered ? Ryoku.tint5 : "transparent")
-                    border.width: 1
-                    border.color: active ? Ryoku.bone : Ryoku.line
-
-                    Behavior on color {
-                        ColorAnimation { duration: Ryoku.duration(90) }
-                    }
-
-                    Row {
-                        id: labelRow
+                    Rectangle {
                         anchors.left: parent.left
-                        anchors.right: closeBox.left
-                        anchors.leftMargin: 11 * root.uiScale
-                        anchors.rightMargin: 4 * root.uiScale
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 7 * root.uiScale
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.topMargin: 6 * root.uiScale
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 3 * root.uiScale
+                        radius: 7 * root.uiScale
+                        color: tab.active
+                            ? Ryoku.paperLift
+                            : (tabHover.hovered ? Ryoku.tint5 : "transparent")
 
-                        Text {
-                            visible: plate.active
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "//"
-                            color: Ryoku.inkOnBoneDim
-                            font.family: Ryoku.monoFont
-                            font.pixelSize: 9 * root.uiScale
-                        }
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Math.max(20, labelRow.width - (plate.active ? 26 : 0) * root.uiScale)
-                            text: plate.title.toUpperCase()
-                            elide: Text.ElideRight
-                            color: plate.active ? Ryoku.inkOnBone : Ryoku.inkDim
-                            font.family: Ryoku.uiFont
-                            font.pixelSize: 10 * root.uiScale
-                            font.weight: Font.Medium
-                            font.letterSpacing: 1.2
+                        Behavior on color {
+                            enabled: !Ryoku.reduceMotion
+                            ColorAnimation { duration: Ryoku.duration(120) }
                         }
                     }
 
                     Rectangle {
-                        id: closeBox
+                        anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.rightMargin: 5 * root.uiScale
+                        anchors.leftMargin: 10 * root.uiScale
+                        anchors.rightMargin: 10 * root.uiScale
+                        anchors.bottom: parent.bottom
+                        height: tab.active ? 2 * root.uiScale : 0
+                        radius: 1 * root.uiScale
+                        color: Ryoku.sun
+
+                        Behavior on height {
+                            enabled: !Ryoku.reduceMotion
+                            NumberAnimation { duration: Ryoku.duration(120); easing.type: Easing.OutCubic }
+                        }
+                    }
+
+                    Text {
+                        id: titleText
+                        anchors.left: parent.left
+                        anchors.leftMargin: 13 * root.uiScale
+                        anchors.right: closeButton.left
+                        anchors.rightMargin: 6 * root.uiScale
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 22 * root.uiScale
-                        height: 22 * root.uiScale
-                        radius: 5 * root.uiScale
-                        color: closeHover.hovered
-                            ? (plate.active ? Ryoku.inkOnBoneDim : Ryoku.tint10)
-                            : "transparent"
+                        text: tab.title
+                        elide: Text.ElideRight
+                        color: tab.active ? Ryoku.ink : Ryoku.inkMuted
+                        font.family: Ryoku.uiFont
+                        font.pixelSize: 11 * root.uiScale
+                        font.weight: tab.active ? Font.Medium : Font.Normal
+                    }
+
+                    Item {
+                        id: closeButton
+                        anchors.right: parent.right
+                        anchors.rightMargin: 8 * root.uiScale
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 24 * root.uiScale
+                        height: 24 * root.uiScale
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 6 * root.uiScale
+                            color: closeHover.hovered ? Ryoku.tint10 : "transparent"
+                        }
 
                         Text {
                             anchors.centerIn: parent
                             text: "×"
-                            color: plate.active ? Ryoku.inkOnBone : Ryoku.inkMuted
+                            color: closeHover.hovered ? Ryoku.ink : Ryoku.inkFaint
                             font.family: Ryoku.uiFont
-                            font.pixelSize: 13 * root.uiScale
+                            font.pixelSize: 14 * root.uiScale
                         }
 
-                        HoverHandler {
-                            id: closeHover
-                            cursorShape: Qt.PointingHandCursor
-                        }
+                        HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler {
-                            onTapped: root.tabs.closeTab(plate.index)
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: root.tabs.closeTab(tab.index)
                         }
                     }
 
-                    HoverHandler {
-                        id: plateHover
-                        cursorShape: Qt.PointingHandCursor
-                    }
+                    HoverHandler { id: tabHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        onTapped: root.tabs.currentIndex = plate.index
+                        onTapped: root.tabs.currentIndex = tab.index
                     }
                 }
             }
 
-            Rectangle {
-                width: 32 * root.uiScale
-                height: 32 * root.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                radius: 6 * root.uiScale
-                color: addHover.hovered ? Ryoku.tint10 : "transparent"
-                border.width: 1
-                border.color: Ryoku.line
+            Item {
+                width: 38 * root.uiScale
+                height: parent.height
 
-                Text {
+                Rectangle {
                     anchors.centerIn: parent
-                    text: "+"
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.uiFont
-                    font.pixelSize: 16 * root.uiScale
+                    width: 28 * root.uiScale
+                    height: 28 * root.uiScale
+                    radius: 7 * root.uiScale
+                    color: addHover.hovered ? Ryoku.tint10 : "transparent"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "+"
+                        color: addHover.hovered ? Ryoku.ink : Ryoku.inkMuted
+                        font.family: Ryoku.uiFont
+                        font.pixelSize: 17 * root.uiScale
+                    }
                 }
 
-                HoverHandler {
-                    id: addHover
-                    cursorShape: Qt.PointingHandCursor
-                }
+                HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
+                    acceptedButtons: Qt.LeftButton
                     onTapped: root.tabs.newTab("")
                 }
             }
