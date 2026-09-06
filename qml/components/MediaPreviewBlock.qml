@@ -17,6 +17,10 @@ Item {
         && fontPreview.isCandidate(root.session.selectedPath)
     readonly property bool candidate: mediaCandidate || fontCandidate
     readonly property bool active: root.visible && candidate
+    readonly property string kind: mediaCandidate ? "media" : (fontCandidate ? "font" : "")
+    readonly property bool loading: mediaCandidate ? mediaPreview.loading : (fontCandidate ? fontPreview.loading : false)
+    readonly property bool supported: mediaCandidate ? mediaPreview.supported : (fontCandidate ? fontPreview.supported : false)
+    readonly property string error: mediaCandidate ? mediaPreview.error : (fontCandidate ? fontPreview.error : "")
 
     function formatTime(ms) {
         var total = Math.max(0, Math.floor(Number(ms) / 1000))
@@ -27,10 +31,8 @@ Item {
 
     function codecSummary() {
         var parts = []
-        if (mediaPreview.videoCodec !== "")
-            parts.push(mediaPreview.videoCodec.toUpperCase())
-        if (mediaPreview.audioCodec !== "")
-            parts.push(mediaPreview.audioCodec.toUpperCase())
+        if (mediaPreview.videoCodec !== "") parts.push(mediaPreview.videoCodec.toUpperCase())
+        if (mediaPreview.audioCodec !== "") parts.push(mediaPreview.audioCodec.toUpperCase())
         return parts.join(" · ")
     }
 
@@ -54,199 +56,194 @@ Item {
 
     Image {
         anchors.fill: parent
-        anchors.margins: 8 * root.uiScale
+        anchors.margins: 10 * root.uiScale
         visible: root.active
             && root.mediaCandidate
             && mediaPreview.posterSource !== ""
             && !mediaPlayback.prepared
         source: visible ? mediaPreview.posterSource : ""
         fillMode: Image.PreserveAspectFit
-        cache: false
-        asynchronous: false
+        cache: true
+        asynchronous: true
         smooth: true
     }
 
     VideoOutput {
         id: videoOutput
         anchors.fill: parent
-        anchors.margins: 8 * root.uiScale
+        anchors.margins: 10 * root.uiScale
         visible: root.active
             && root.mediaCandidate
             && mediaPreview.hasVideo
             && mediaPlayback.prepared
         fillMode: VideoOutput.PreserveAspectFit
-
         Component.onCompleted: mediaPlayback.attachVideoSink(videoSink)
     }
 
     Image {
         anchors.fill: parent
-        anchors.leftMargin: 8 * root.uiScale
-        anchors.rightMargin: 8 * root.uiScale
-        anchors.topMargin: 8 * root.uiScale
-        anchors.bottomMargin: fontMetadata.visible ? 72 * root.uiScale : 8 * root.uiScale
+        anchors.leftMargin: 10 * root.uiScale
+        anchors.rightMargin: 10 * root.uiScale
+        anchors.topMargin: 10 * root.uiScale
+        anchors.bottomMargin: fontMetadata.visible ? 68 * root.uiScale : 10 * root.uiScale
         visible: root.active
             && root.fontCandidate
             && fontPreview.supported
             && fontPreview.sampleSource !== ""
         source: visible ? fontPreview.sampleSource : ""
         fillMode: Image.PreserveAspectFit
-        cache: false
-        asynchronous: false
+        cache: true
+        asynchronous: true
         smooth: true
     }
 
+    Item {
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 28 * root.uiScale, 230 * root.uiScale)
+        height: 86 * root.uiScale
+        visible: root.active && root.loading
+
+        Column {
+            anchors.centerIn: parent
+            width: parent.width
+            spacing: 8 * root.uiScale
+            Text {
+                width: parent.width
+                text: root.fontCandidate ? "Preparing font preview" : "Reading media"
+                horizontalAlignment: Text.AlignHCenter
+                color: Ryoku.inkDim
+                font.family: Ryoku.uiFont
+                font.pixelSize: 11 * root.uiScale
+                font.weight: Font.Medium
+            }
+            Text {
+                width: parent.width
+                text: "Preview work is bounded and cancellable"
+                horizontalAlignment: Text.AlignHCenter
+                color: Ryoku.inkFaint
+                font.family: Ryoku.uiFont
+                font.pixelSize: 8.5 * root.uiScale
+            }
+        }
+    }
+
+    Item {
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 28 * root.uiScale, 240 * root.uiScale)
+        height: 110 * root.uiScale
+        visible: root.active && !root.loading && root.error !== ""
+
+        Column {
+            anchors.centerIn: parent
+            width: parent.width
+            spacing: 7 * root.uiScale
+            Text {
+                width: parent.width
+                text: "Preview unavailable"
+                horizontalAlignment: Text.AlignHCenter
+                color: Ryoku.ink
+                font.family: Ryoku.uiFont
+                font.pixelSize: 11 * root.uiScale
+                font.weight: Font.Medium
+            }
+            Text {
+                width: parent.width
+                text: root.error
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                maximumLineCount: 4
+                elide: Text.ElideRight
+                color: Ryoku.inkMuted
+                font.family: Ryoku.uiFont
+                font.pixelSize: 8.5 * root.uiScale
+            }
+        }
+    }
+
     Text {
         anchors.centerIn: parent
         visible: root.active
             && root.mediaCandidate
-            && !mediaPreview.loading
+            && !root.loading
+            && root.error === ""
+            && mediaPreview.supported
             && mediaPreview.posterSource === ""
             && !mediaPlayback.prepared
-        text: mediaPreview.hasAudio && !mediaPreview.hasVideo ? "♫" : "▶"
+        text: mediaPreview.hasAudio && !mediaPreview.hasVideo ? "Audio" : "Media"
         color: Ryoku.inkMuted
         font.family: Ryoku.uiFont
-        font.pixelSize: 42 * root.uiScale
-    }
-
-    Text {
-        anchors.centerIn: parent
-        width: parent.width - 28 * root.uiScale
-        visible: root.active && root.mediaCandidate && mediaPreview.loading
-        text: "// READING MEDIA…"
-        horizontalAlignment: Text.AlignHCenter
-        color: Ryoku.inkMuted
-        font.family: Ryoku.monoFont
-        font.pixelSize: 9 * root.uiScale
-    }
-
-    Text {
-        anchors.centerIn: parent
-        width: parent.width - 28 * root.uiScale
-        visible: root.active
-            && root.mediaCandidate
-            && !mediaPreview.loading
-            && mediaPreview.error !== ""
-        text: "// " + mediaPreview.error
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
-        maximumLineCount: 3
-        elide: Text.ElideRight
-        color: Ryoku.inkMuted
-        font.family: Ryoku.monoFont
-        font.pixelSize: 8 * root.uiScale
-    }
-
-    Text {
-        anchors.centerIn: parent
-        width: parent.width - 28 * root.uiScale
-        visible: root.active && root.fontCandidate && fontPreview.loading
-        text: "// RENDERING FONT…"
-        horizontalAlignment: Text.AlignHCenter
-        color: Ryoku.inkMuted
-        font.family: Ryoku.monoFont
-        font.pixelSize: 9 * root.uiScale
-    }
-
-    Text {
-        anchors.centerIn: parent
-        width: parent.width - 28 * root.uiScale
-        visible: root.active
-            && root.fontCandidate
-            && !fontPreview.loading
-            && fontPreview.error !== ""
-        text: "// " + fontPreview.error
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
-        maximumLineCount: 3
-        elide: Text.ElideRight
-        color: Ryoku.inkMuted
-        font.family: Ryoku.monoFont
-        font.pixelSize: 8 * root.uiScale
+        font.pixelSize: 22 * root.uiScale
+        font.weight: Font.Medium
     }
 
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 8 * root.uiScale
-        height: 64 * root.uiScale
+        anchors.margins: 9 * root.uiScale
+        height: 66 * root.uiScale
         visible: root.active && root.mediaCandidate && mediaPreview.supported
-        radius: 5 * root.uiScale
-        color: Ryoku.tint5
-        opacity: 0.94
+        radius: 8 * root.uiScale
+        color: Ryoku.paperLift
         border.width: 1
-        border.color: Ryoku.line
+        border.color: Ryoku.lineSoft
 
         Column {
             anchors.fill: parent
-            anchors.margins: 7 * root.uiScale
+            anchors.margins: 8 * root.uiScale
             spacing: 5 * root.uiScale
 
             Row {
                 width: parent.width
-                height: 24 * root.uiScale
-                spacing: 7 * root.uiScale
+                height: 26 * root.uiScale
+                spacing: 6 * root.uiScale
 
                 Rectangle {
-                    width: 34 * root.uiScale
+                    width: 30 * root.uiScale
                     height: parent.height
-                    radius: 4 * root.uiScale
+                    radius: 6 * root.uiScale
                     color: playHover.hovered ? Ryoku.tint10 : Ryoku.tint5
-                    border.width: 1
-                    border.color: Ryoku.line
-
                     Text {
                         anchors.centerIn: parent
                         text: mediaPlayback.playing ? "Ⅱ" : "▶"
                         color: Ryoku.ink
-                        font.family: Ryoku.monoFont
+                        font.family: Ryoku.uiFont
                         font.pixelSize: 10 * root.uiScale
                     }
                     HoverHandler { id: playHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         onTapped: {
-                            if (mediaPlayback.playing)
-                                mediaPlayback.pause()
-                            else
-                                mediaPlayback.play()
+                            if (mediaPlayback.playing) mediaPlayback.pause()
+                            else mediaPlayback.play()
                         }
                     }
                 }
 
                 Rectangle {
-                    width: 34 * root.uiScale
+                    width: 30 * root.uiScale
                     height: parent.height
-                    radius: 4 * root.uiScale
-                    color: stopHover.hovered ? Ryoku.tint10 : Ryoku.tint5
-                    border.width: 1
-                    border.color: Ryoku.line
-                    opacity: mediaPlayback.prepared ? 1.0 : 0.45
-
+                    radius: 6 * root.uiScale
+                    color: stopHover.hovered && mediaPlayback.prepared ? Ryoku.tint10 : Ryoku.tint5
+                    opacity: mediaPlayback.prepared ? 1.0 : 0.38
                     Text {
                         anchors.centerIn: parent
                         text: "■"
                         color: Ryoku.inkDim
-                        font.family: Ryoku.monoFont
-                        font.pixelSize: 9 * root.uiScale
+                        font.family: Ryoku.uiFont
+                        font.pixelSize: 8 * root.uiScale
                     }
                     HoverHandler { id: stopHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler {
-                        enabled: mediaPlayback.prepared
-                        onTapped: mediaPlayback.stop()
-                    }
+                    TapHandler { enabled: mediaPlayback.prepared; onTapped: mediaPlayback.stop() }
                 }
 
                 Text {
-                    width: Math.max(0, parent.width - 82 * root.uiScale)
+                    width: Math.max(0, parent.width - 72 * root.uiScale)
                     height: parent.height
                     verticalAlignment: Text.AlignVCenter
                     horizontalAlignment: Text.AlignRight
                     text: root.formatTime(mediaPlayback.position)
-                        + " / "
-                        + root.formatTime(mediaPlayback.duration > 0
-                            ? mediaPlayback.duration
-                            : mediaPreview.durationMs)
+                        + " / " + root.formatTime(mediaPlayback.duration > 0
+                            ? mediaPlayback.duration : mediaPreview.durationMs)
                     color: Ryoku.inkMuted
                     font.family: Ryoku.monoFont
                     font.pixelSize: 8 * root.uiScale
@@ -256,32 +253,23 @@ Item {
             Rectangle {
                 id: progressTrack
                 width: parent.width
-                height: 5 * root.uiScale
-                radius: height / 2
+                height: 4 * root.uiScale
+                radius: 2 * root.uiScale
                 color: Ryoku.tint10
-
                 Rectangle {
                     height: parent.height
-                    radius: height / 2
+                    radius: parent.radius
                     width: {
-                        var duration = mediaPlayback.duration > 0
-                            ? mediaPlayback.duration
-                            : mediaPreview.durationMs
-                        if (duration <= 0)
-                            return 0
-                        return parent.width * Math.max(0, Math.min(1,
-                            mediaPlayback.position / duration))
+                        var duration = mediaPlayback.duration > 0 ? mediaPlayback.duration : mediaPreview.durationMs
+                        if (duration <= 0) return 0
+                        return parent.width * Math.max(0, Math.min(1, mediaPlayback.position / duration))
                     }
                     color: Ryoku.inkDim
                 }
-
                 TapHandler {
-                    enabled: mediaPlayback.prepared
-                        && mediaPlayback.seekable
-                        && mediaPlayback.duration > 0
+                    enabled: mediaPlayback.prepared && mediaPlayback.seekable && mediaPlayback.duration > 0
                     onTapped: (eventPoint, button) => {
-                        var ratio = Math.max(0, Math.min(1,
-                            eventPoint.position.x / progressTrack.width))
+                        var ratio = Math.max(0, Math.min(1, eventPoint.position.x / progressTrack.width))
                         mediaPlayback.seek(Math.round(ratio * mediaPlayback.duration))
                     }
                 }
@@ -291,21 +279,17 @@ Item {
                 width: parent.width
                 text: {
                     var parts = []
-                    if (mediaPreview.title !== "")
-                        parts.push(mediaPreview.title)
-                    else if (root.session)
-                        parts.push(root.session.selectedPath.split("/").pop())
-                    if (mediaPreview.artist !== "")
-                        parts.push(mediaPreview.artist)
+                    if (mediaPreview.title !== "") parts.push(mediaPreview.title)
+                    else if (root.session) parts.push(root.session.selectedPath.split("/").pop())
+                    if (mediaPreview.artist !== "") parts.push(mediaPreview.artist)
                     var codecs = root.codecSummary()
-                    if (codecs !== "")
-                        parts.push(codecs)
+                    if (codecs !== "") parts.push(codecs)
                     return parts.join(" · ")
                 }
                 elide: Text.ElideRight
                 color: Ryoku.inkFaint
-                font.family: Ryoku.monoFont
-                font.pixelSize: 7 * root.uiScale
+                font.family: Ryoku.uiFont
+                font.pixelSize: 7.5 * root.uiScale
             }
         }
     }
@@ -315,29 +299,23 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 8 * root.uiScale
-        height: 56 * root.uiScale
+        anchors.margins: 9 * root.uiScale
+        height: 54 * root.uiScale
         visible: root.active && root.fontCandidate && fontPreview.supported
-        radius: 5 * root.uiScale
-        color: Ryoku.tint5
-        opacity: 0.94
+        radius: 8 * root.uiScale
+        color: Ryoku.paperLift
         border.width: 1
-        border.color: Ryoku.line
+        border.color: Ryoku.lineSoft
 
         Column {
             anchors.fill: parent
-            anchors.margins: 7 * root.uiScale
-            spacing: 4 * root.uiScale
-
+            anchors.margins: 8 * root.uiScale
+            spacing: 3 * root.uiScale
             Text {
                 width: parent.width
                 text: {
-                    var family = fontPreview.familyName !== ""
-                        ? fontPreview.familyName
-                        : "FONT"
-                    var style = fontPreview.styleName !== ""
-                        ? fontPreview.styleName
-                        : fontPreview.styleLabel
+                    var family = fontPreview.familyName !== "" ? fontPreview.familyName : "Font"
+                    var style = fontPreview.styleName !== "" ? fontPreview.styleName : fontPreview.styleLabel
                     return style !== "" ? family + " · " + style : family
                 }
                 elide: Text.ElideRight
@@ -346,23 +324,19 @@ Item {
                 font.pixelSize: 10 * root.uiScale
                 font.weight: Font.Medium
             }
-
             Text {
                 width: parent.width
                 text: {
                     var parts = []
-                    if (fontPreview.weight > 0)
-                        parts.push("WEIGHT " + fontPreview.weight)
-                    if (fontPreview.unitsPerEm > 0)
-                        parts.push("UPM " + Math.round(fontPreview.unitsPerEm))
-                    if (fontPreview.writingSystems !== "")
-                        parts.push(fontPreview.writingSystems)
-                    return "// " + parts.join(" · ")
+                    if (fontPreview.weight > 0) parts.push("Weight " + fontPreview.weight)
+                    if (fontPreview.unitsPerEm > 0) parts.push("UPM " + Math.round(fontPreview.unitsPerEm))
+                    if (fontPreview.writingSystems !== "") parts.push(fontPreview.writingSystems)
+                    return parts.join(" · ")
                 }
                 elide: Text.ElideRight
                 color: Ryoku.inkFaint
-                font.family: Ryoku.monoFont
-                font.pixelSize: 7 * root.uiScale
+                font.family: Ryoku.uiFont
+                font.pixelSize: 7.5 * root.uiScale
             }
         }
     }
@@ -376,12 +350,12 @@ Item {
             && root.mediaCandidate
             && mediaPreview.supported
             && mediaPlayback.error !== ""
-        text: "// " + mediaPlayback.error
+        text: mediaPlayback.error
         wrapMode: Text.WordWrap
         maximumLineCount: 2
         elide: Text.ElideRight
-        color: Ryoku.inkFaint
-        font.family: Ryoku.monoFont
+        color: Ryoku.sun
+        font.family: Ryoku.uiFont
         font.pixelSize: 8 * root.uiScale
     }
 }

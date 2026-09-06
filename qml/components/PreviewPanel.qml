@@ -11,12 +11,80 @@ Item {
     property real uiScale: 1
     property var details: ({})
 
+    readonly property int selectionCount: root.session ? root.session.selectionCount : 0
+    readonly property string selectedPath:
+        root.selectionCount === 1 && root.session ? root.session.selectedPath : ""
+    readonly property string selectedName: root.baseName(root.selectedPath)
+    readonly property bool singleSelection: root.selectionCount === 1 && root.selectedPath !== ""
+    readonly property bool directorySelection: root.singleSelection && root.details.isDirectory === true
+    readonly property string previewKind: {
+        if (!root.singleSelection) return ""
+        if (root.directorySelection) return "folder"
+        if (imagePreview.isCandidate(root.selectedPath)) return "image"
+        if (pdfPreview.isCandidate(root.selectedPath)) return "pdf"
+        if (mediaPreviewBlock.mediaCandidate) return "media"
+        if (mediaPreviewBlock.fontCandidate) return "font"
+        if (archivePreview.isCandidate(root.selectedPath)) return "archive"
+        return "text"
+    }
+    readonly property bool busy: {
+        if (!root.singleSelection || root.directorySelection) return false
+        if (root.previewKind === "image")
+            return imagePreview.loading || previewImage.status === Image.Loading
+        if (root.previewKind === "pdf")
+            return pdfPreview.loading || pdfImage.status === Image.Loading
+        if (root.previewKind === "media" || root.previewKind === "font")
+            return mediaPreviewBlock.loading
+        if (root.previewKind === "archive") return archivePreview.loading
+        return textPreview.loading
+    }
+    readonly property string previewError: {
+        if (!root.singleSelection || root.directorySelection) return ""
+        if (root.previewKind === "image") {
+            if (imagePreview.error !== "") return imagePreview.error
+            if (!imagePreview.loading && previewImage.status === Image.Error)
+                return "The image could not be decoded."
+            return ""
+        }
+        if (root.previewKind === "pdf") return pdfPreview.error
+        if (root.previewKind === "media" || root.previewKind === "font") return mediaPreviewBlock.error
+        if (root.previewKind === "archive") return archivePreview.error
+        return textPreview.error
+    }
+    readonly property bool ready: {
+        if (!root.singleSelection || root.directorySelection) return false
+        if (root.previewKind === "image")
+            return previewImage.status === Image.Ready || animationImage.source !== ""
+        if (root.previewKind === "pdf") return pdfPreview.supported && pdfImage.status === Image.Ready
+        if (root.previewKind === "media" || root.previewKind === "font") return mediaPreviewBlock.supported
+        if (root.previewKind === "archive") return archivePreview.supported
+        return textPreview.supported
+    }
+    readonly property bool limitError: {
+        var message = root.previewError.toLowerCase()
+        return message.indexOf("limit") >= 0
+            || message.indexOf("exceed") >= 0
+            || message.indexOf("too large") >= 0
+            || message.indexOf("maximum") >= 0
+    }
+    readonly property bool showStateCard:
+        !root.singleSelection
+        || root.directorySelection
+        || (!root.ready && (root.busy || root.previewError !== "" || !root.busy))
+
+    function baseName(path) {
+        if (!path || path === "") return ""
+        var clean = path.endsWith("/") && path.length > 1 ? path.slice(0, -1) : path
+        var slash = clean.lastIndexOf("/")
+        return slash >= 0 ? clean.substring(slash + 1) : clean
+    }
+
     function refreshDetails() {
-        if (!root.visible || !session || session.selectionCount !== 1 || session.selectedPath === "") {
+        if (!root.visible || !root.singleSelection) {
             details = ({})
             return
         }
-        details = desktop.propertiesForPath(session.selectedPath)
+        details = desktop.propertiesForPath(root.selectedPath)
     }
 
     function resetImageView() {
@@ -28,9 +96,7 @@ Item {
 
     function setImageZoom(value) {
         var bounded = Math.max(1.0, Math.min(4.0, value))
-        if (Math.abs(imageFlick.zoom - bounded) < 0.001)
-            return
-
+        if (Math.abs(imageFlick.zoom - bounded) < 0.001) return
         var oldWidth = Math.max(1, imageFlick.contentWidth)
         var oldHeight = Math.max(1, imageFlick.contentHeight)
         var centerX = (imageFlick.contentX + imageFlick.width / 2) / oldWidth
@@ -43,46 +109,50 @@ Item {
 
     function formatBytes(value) {
         var bytes = Number(value)
-        if (!isFinite(bytes) || bytes < 0)
-            return ""
-        if (bytes < 1024)
-            return Math.round(bytes) + " B"
-        if (bytes < 1024 * 1024)
-            return (bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0) + " KiB"
+        if (!isFinite(bytes) || bytes < 0) return ""
+        if (bytes < 1024) return Math.round(bytes) + " B"
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0) + " KiB"
         if (bytes < 1024 * 1024 * 1024)
             return (bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + " MiB"
         return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GiB"
     }
 
-    function archiveKindMark(kind) {
-        if (kind === "directory")
-            return "▰"
-        if (kind === "symlink")
-            return "↗"
-        if (kind === "hardlink")
-            return "↔"
-        if (kind === "file")
-            return "□"
-        return "·"
+    function stateTitle() {
+        if (root.selectionCount === 0) return "Select a file"
+        if (root.selectionCount > 1) return root.selectionCount + " items selected"
+        if (root.directorySelection) return "Folder selected"
+        if (root.busy) return "Loading preview"
+        if (root.previewError !== "") return root.limitError ? "Preview limit reached" : "Preview unavailable"
+        return "No preview available"
+    }
+
+    function stateDetail() {
+        if (root.selectionCount === 0) return "Choose an item to inspect it here."
+        if (root.selectionCount > 1) return "Preview is available for one selected item at a time."
+        if (root.directorySelection) return "Folder contents are never recursively scanned just to produce a preview."
+        if (root.busy) return "Work is bounded and cancelled automatically when the selection changes."
+        if (root.previewError !== "") return root.previewError
+        return "This file type does not have a visual preview. Properties remain available below."
     }
 
     onSessionChanged: {
         refreshDetails()
         resetImageView()
     }
+    onSelectedPathChanged: {
+        refreshDetails()
+        resetImageView()
+        imageAnimation.stop()
+        panelScroll.contentY = 0
+    }
     onVisibleChanged: {
         refreshDetails()
-        if (!visible)
-            imageAnimation.stop()
+        if (!visible) imageAnimation.stop()
     }
 
     Connections {
         target: root.session
-        function onSelectionChanged() {
-            root.refreshDetails()
-            root.resetImageView()
-            imageAnimation.stop()
-        }
+        function onSelectionChanged() { root.refreshDetails() }
         function onPathChanged() {
             root.refreshDetails()
             root.resetImageView()
@@ -94,747 +164,626 @@ Item {
 
     ArchivePreviewLoader {
         id: archivePreview
-        active: root.visible
-            && root.session
-            && root.session.selectionCount === 1
-            && archivePreview.isCandidate(root.session.selectedPath)
-        path: active ? root.session.selectedPath : ""
+        active: root.visible && root.singleSelection && archivePreview.isCandidate(root.selectedPath)
+        path: active ? root.selectedPath : ""
     }
 
     PdfPreviewLoader {
         id: pdfPreview
-        active: root.visible
-            && root.session
-            && root.session.selectionCount === 1
-            && pdfPreview.isCandidate(root.session.selectedPath)
-        path: active ? root.session.selectedPath : ""
+        active: root.visible && root.singleSelection && pdfPreview.isCandidate(root.selectedPath)
+        path: active ? root.selectedPath : ""
     }
 
     ImagePreviewLoader {
         id: imagePreview
-        active: root.visible
-            && root.session
-            && root.session.selectionCount === 1
-            && imagePreview.isCandidate(root.session.selectedPath)
-        path: active ? root.session.selectedPath : ""
+        active: root.visible && root.singleSelection && imagePreview.isCandidate(root.selectedPath)
+        path: active ? root.selectedPath : ""
     }
 
     ImageAnimationController {
         id: imageAnimation
         active: root.visible
-            && root.session
-            && root.session.selectionCount === 1
+            && root.singleSelection
             && imagePreview.animationSupported
             && !Ryoku.reduceMotion
-        path: active ? root.session.selectedPath : ""
+        path: active ? root.selectedPath : ""
     }
 
     TextPreviewLoader {
         id: textPreview
         active: root.visible
-            && root.session
-            && root.session.selectionCount === 1
-            && !root.thumbnails.isCandidate(root.session.selectedPath)
-            && !archivePreview.isCandidate(root.session.selectedPath)
-            && !pdfPreview.isCandidate(root.session.selectedPath)
+            && root.singleSelection
+            && !root.directorySelection
+            && !root.thumbnails.isCandidate(root.selectedPath)
+            && !archivePreview.isCandidate(root.selectedPath)
+            && !pdfPreview.isCandidate(root.selectedPath)
             && !mediaPreviewBlock.candidate
-        path: active ? root.session.selectedPath : ""
+        path: active ? root.selectedPath : ""
     }
 
     Rectangle {
         anchors.left: parent.left
         width: 1
         height: parent.height
-        color: Ryoku.line
+        color: Ryoku.lineSoft
     }
 
-    Column {
-        anchors.fill: parent
-        anchors.leftMargin: 20 * root.uiScale
-        anchors.rightMargin: 20 * root.uiScale
-        anchors.topMargin: 18 * root.uiScale
-        anchors.bottomMargin: 18 * root.uiScale
-        spacing: 14 * root.uiScale
+    Item {
+        id: header
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 52 * root.uiScale
 
-        Row {
-            width: parent.width
+        Column {
+            anchors.left: parent.left
+            anchors.leftMargin: 16 * root.uiScale
+            anchors.right: closeButton.left
+            anchors.rightMargin: 10 * root.uiScale
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 1 * root.uiScale
 
             Text {
-                width: parent.width - closeButton.width
-                text: "// PREVIEW"
+                width: parent.width
+                text: root.selectedName !== "" ? root.selectedName : "Preview"
+                elide: Text.ElideMiddle
                 color: Ryoku.ink
-                font.family: Ryoku.monoFont
-                font.pixelSize: 10 * root.uiScale
-                font.letterSpacing: 1.2
-            }
-
-            Text {
-                id: closeButton
-                text: "×"
-                color: closeHover.hovered ? Ryoku.ink : Ryoku.inkMuted
                 font.family: Ryoku.uiFont
-                font.pixelSize: 17 * root.uiScale
-
-                HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: if (root.session) root.session.previewVisible = false }
+                font.pixelSize: 11.5 * root.uiScale
+                font.weight: Font.Medium
+            }
+            Text {
+                width: parent.width
+                text: root.singleSelection
+                    ? (root.details.mime || root.details.type || root.previewKind)
+                    : "Quick inspection"
+                elide: Text.ElideRight
+                color: Ryoku.inkFaint
+                font.family: Ryoku.uiFont
+                font.pixelSize: 8 * root.uiScale
             }
         }
 
         Rectangle {
-            id: previewArea
-            width: parent.width
-            height: Math.min(parent.width, 270 * root.uiScale)
-            radius: 6 * root.uiScale
-            color: Ryoku.tint5
-            border.width: 1
-            border.color: Ryoku.line
-            clip: true
+            id: closeButton
+            anchors.right: parent.right
+            anchors.rightMargin: 12 * root.uiScale
+            anchors.verticalCenter: parent.verticalCenter
+            width: 28 * root.uiScale
+            height: 28 * root.uiScale
+            radius: 7 * root.uiScale
+            color: closeHover.hovered ? Ryoku.tint10 : "transparent"
+            Text {
+                anchors.centerIn: parent
+                text: "×"
+                color: Ryoku.inkMuted
+                font.family: Ryoku.uiFont
+                font.pixelSize: 15 * root.uiScale
+            }
+            HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: if (root.session) root.session.previewVisible = false }
+        }
 
-            Flickable {
-                id: imageFlick
-                property real zoom: 1.0
-                anchors.fill: parent
-                anchors.margins: 8 * root.uiScale
-                visible: root.visible
-                    && root.session
-                    && root.session.selectionCount === 1
-                    && root.thumbnails.isCandidate(root.session.selectedPath)
-                    && imageAnimation.frameSource === ""
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: Ryoku.lineSoft
+        }
+    }
+
+    Flickable {
+        id: panelScroll
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: header.bottom
+        anchors.bottom: parent.bottom
+        clip: true
+        contentWidth: width
+        contentHeight: panelColumn.implicitHeight + 28 * root.uiScale
+        boundsBehavior: Flickable.StopAtBounds
+
+        Column {
+            id: panelColumn
+            x: 16 * root.uiScale
+            y: 14 * root.uiScale
+            width: panelScroll.width - 32 * root.uiScale
+            spacing: 12 * root.uiScale
+
+            Rectangle {
+                id: previewArea
+                width: parent.width
+                height: Math.min(parent.width * 0.82, 286 * root.uiScale)
+                radius: 10 * root.uiScale
+                color: Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.lineSoft
                 clip: true
-                interactive: zoom > 1.001
-                contentWidth: width * zoom
-                contentHeight: height * zoom
-                boundsBehavior: Flickable.StopAtBounds
+
+                Flickable {
+                    id: imageFlick
+                    property real zoom: 1.0
+                    anchors.fill: parent
+                    anchors.margins: 8 * root.uiScale
+                    visible: root.previewKind === "image"
+                        && root.singleSelection
+                        && imageAnimation.frameSource === ""
+                    clip: true
+                    interactive: zoom > 1.001
+                    contentWidth: width * zoom
+                    contentHeight: height * zoom
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    Image {
+                        id: previewImage
+                        width: imageFlick.contentWidth
+                        height: imageFlick.contentHeight
+                        source: imageFlick.visible
+                            ? root.thumbnails.urlForPath(
+                                root.selectedPath,
+                                Math.round(1024 * root.uiScale),
+                                10)
+                            : ""
+                        sourceSize.width: Math.round(1024 * root.uiScale)
+                        sourceSize.height: Math.round(1024 * root.uiScale)
+                        fillMode: Image.PreserveAspectFit
+                        cache: true
+                        asynchronous: true
+                        smooth: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        onWheel: function(wheel) {
+                            if ((wheel.modifiers & Qt.ControlModifier) === 0) {
+                                wheel.accepted = false
+                                return
+                            }
+                            root.setImageZoom(imageFlick.zoom * (wheel.angleDelta.y > 0 ? 1.2 : 1 / 1.2))
+                            wheel.accepted = true
+                        }
+                    }
+                }
 
                 Image {
-                    id: previewImage
-                    width: imageFlick.contentWidth
-                    height: imageFlick.contentHeight
-                    source: imageFlick.visible
-                        ? root.thumbnails.urlForPath(
-                            root.session.selectedPath,
-                            Math.round(1024 * root.uiScale),
-                            10)
-                        : ""
-                    sourceSize.width: Math.round(1024 * root.uiScale)
-                    sourceSize.height: Math.round(1024 * root.uiScale)
+                    id: animationImage
+                    anchors.fill: parent
+                    anchors.margins: 8 * root.uiScale
+                    visible: imageAnimation.frameSource !== ""
+                    source: visible ? imageAnimation.frameSource : ""
                     fillMode: Image.PreserveAspectFit
-                    cache: false
-                    asynchronous: false
+                    cache: true
+                    asynchronous: true
+                    smooth: true
+                    z: 3
+                }
+
+                Image {
+                    id: pdfImage
+                    anchors.fill: parent
+                    anchors.margins: 8 * root.uiScale
+                    visible: root.previewKind === "pdf" && pdfPreview.supported
+                    source: visible ? pdfPreview.imageSource : ""
+                    fillMode: Image.PreserveAspectFit
+                    cache: true
+                    asynchronous: true
                     smooth: true
                 }
 
-                MouseArea {
+                MediaPreviewBlock {
+                    id: mediaPreviewBlock
                     anchors.fill: parent
-                    acceptedButtons: Qt.NoButton
-                    onWheel: function(wheel) {
-                        if ((wheel.modifiers & Qt.ControlModifier) === 0) {
-                            wheel.accepted = false
-                            return
-                        }
-                        root.setImageZoom(imageFlick.zoom * (wheel.angleDelta.y > 0 ? 1.2 : 1 / 1.2))
-                        wheel.accepted = true
-                    }
+                    session: root.session
+                    uiScale: root.uiScale
+                    visible: candidate
+                    z: 2
                 }
-            }
 
-            Image {
-                id: animationImage
-                anchors.fill: parent
-                anchors.margins: 8 * root.uiScale
-                visible: imageAnimation.frameSource !== ""
-                source: visible ? imageAnimation.frameSource : ""
-                fillMode: Image.PreserveAspectFit
-                cache: false
-                asynchronous: false
-                smooth: true
-                z: 3
-            }
-
-            Image {
-                id: pdfImage
-                anchors.fill: parent
-                anchors.margins: 8 * root.uiScale
-                visible: pdfPreview.supported
-                source: visible ? pdfPreview.imageSource : ""
-                fillMode: Image.PreserveAspectFit
-                cache: false
-                asynchronous: false
-                smooth: true
-            }
-
-            MediaPreviewBlock {
-                id: mediaPreviewBlock
-                anchors.fill: parent
-                session: root.session
-                uiScale: root.uiScale
-                visible: candidate
-                z: 2
-            }
-
-            Flickable {
-                id: textFlick
-                anchors.fill: parent
-                anchors.margins: 10 * root.uiScale
-                visible: textPreview.supported
-                clip: true
-                contentWidth: width
-                contentHeight: previewText.paintedHeight
-                boundsBehavior: Flickable.StopAtBounds
-
-                Text {
-                    id: previewText
-                    width: textFlick.width
-                    text: textPreview.text
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WrapAnywhere
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.monoFont
-                    font.pixelSize: 9 * root.uiScale
-                    lineHeight: 1.25
-                }
-            }
-
-            Flickable {
-                id: archiveFlick
-                anchors.fill: parent
-                anchors.margins: 10 * root.uiScale
-                visible: archivePreview.supported
-                clip: true
-                contentWidth: width
-                contentHeight: archiveColumn.implicitHeight
-                boundsBehavior: Flickable.StopAtBounds
-
-                Column {
-                    id: archiveColumn
-                    width: archiveFlick.width
-                    spacing: 5 * root.uiScale
+                Flickable {
+                    id: textFlick
+                    anchors.fill: parent
+                    anchors.margins: 12 * root.uiScale
+                    visible: root.previewKind === "text" && textPreview.supported
+                    clip: true
+                    contentWidth: width
+                    contentHeight: previewText.paintedHeight
+                    boundsBehavior: Flickable.StopAtBounds
 
                     Text {
+                        id: previewText
+                        width: textFlick.width
+                        text: textPreview.text
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WrapAnywhere
+                        color: Ryoku.inkDim
+                        font.family: Ryoku.monoFont
+                        font.pixelSize: 9 * root.uiScale
+                        lineHeight: 1.25
+                    }
+                }
+
+                Flickable {
+                    id: archiveFlick
+                    anchors.fill: parent
+                    anchors.margins: 12 * root.uiScale
+                    visible: root.previewKind === "archive" && archivePreview.supported
+                    clip: true
+                    contentWidth: width
+                    contentHeight: archiveColumn.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    Column {
+                        id: archiveColumn
+                        width: archiveFlick.width
+                        spacing: 6 * root.uiScale
+
+                        Text {
+                            width: parent.width
+                            text: archivePreview.formatName !== ""
+                                ? archivePreview.formatName + " archive"
+                                : "Archive contents"
+                            elide: Text.ElideRight
+                            color: Ryoku.inkMuted
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 9 * root.uiScale
+                            font.weight: Font.Medium
+                        }
+
+                        Repeater {
+                            model: archivePreview.entries
+                            delegate: Row {
+                                id: archiveEntryRow
+                                required property var modelData
+                                width: archiveColumn.width
+                                spacing: 7 * root.uiScale
+                                Text {
+                                    width: Math.max(0, archiveEntryRow.width - 70 * root.uiScale)
+                                    text: archiveEntryRow.modelData.path
+                                    elide: Text.ElideMiddle
+                                    color: Ryoku.inkDim
+                                    font.family: Ryoku.uiFont
+                                    font.pixelSize: 8 * root.uiScale
+                                }
+                                Text {
+                                    width: 62 * root.uiScale
+                                    text: archiveEntryRow.modelData.sizeKnown
+                                        ? root.formatBytes(archiveEntryRow.modelData.size) : ""
+                                    horizontalAlignment: Text.AlignRight
+                                    color: Ryoku.inkFaint
+                                    font.family: Ryoku.monoFont
+                                    font.pixelSize: 7.5 * root.uiScale
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    anchors.centerIn: parent
+                    width: Math.max(80, parent.width - 34 * root.uiScale)
+                    height: 132 * root.uiScale
+                    visible: root.showStateCard && !root.ready
+                    z: 10
+
+                    Column {
+                        anchors.centerIn: parent
                         width: parent.width
-                        text: archivePreview.formatName !== ""
-                            ? "// " + archivePreview.formatName.toUpperCase()
-                            : "// ARCHIVE"
-                        elide: Text.ElideRight
-                        color: Ryoku.inkMuted
-                        font.family: Ryoku.monoFont
-                        font.pixelSize: 8 * root.uiScale
-                        font.letterSpacing: 0.6
-                    }
+                        spacing: 8 * root.uiScale
 
-                    Repeater {
-                        model: archivePreview.entries
-
-                        delegate: Row {
-                            id: archiveEntryRow
-                            required property var modelData
-                            width: archiveColumn.width
-                            spacing: 7 * root.uiScale
-
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 44 * root.uiScale
+                            height: 44 * root.uiScale
+                            radius: 11 * root.uiScale
+                            color: Ryoku.paperLift
+                            border.width: 1
+                            border.color: root.previewError !== "" ? Ryoku.sun : Ryoku.lineSoft
                             Text {
-                                width: 14 * root.uiScale
-                                text: root.archiveKindMark(archiveEntryRow.modelData.kind)
-                                color: Ryoku.inkFaint
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 9 * root.uiScale
+                                anchors.centerIn: parent
+                                text: root.busy ? "…" : (root.directorySelection ? "DIR" : "i")
+                                color: root.previewError !== "" ? Ryoku.sun : Ryoku.inkMuted
+                                font.family: root.directorySelection ? Ryoku.monoFont : Ryoku.uiFont
+                                font.pixelSize: root.directorySelection ? 8 * root.uiScale : 16 * root.uiScale
+                                font.weight: Font.Medium
                             }
+                        }
 
-                            Text {
-                                width: Math.max(0, archiveEntryRow.width - 82 * root.uiScale)
-                                text: archiveEntryRow.modelData.path
-                                elide: Text.ElideMiddle
-                                color: Ryoku.inkDim
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 8 * root.uiScale
-                            }
-
-                            Text {
-                                width: 54 * root.uiScale
-                                text: archiveEntryRow.modelData.sizeKnown
-                                    ? root.formatBytes(archiveEntryRow.modelData.size)
-                                    : ""
-                                horizontalAlignment: Text.AlignRight
-                                color: Ryoku.inkFaint
-                                font.family: Ryoku.monoFont
-                                font.pixelSize: 8 * root.uiScale
-                            }
+                        Text {
+                            width: parent.width
+                            text: root.stateTitle()
+                            horizontalAlignment: Text.AlignHCenter
+                            color: Ryoku.ink
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 11 * root.uiScale
+                            font.weight: Font.Medium
+                        }
+                        Text {
+                            width: parent.width
+                            text: root.stateDetail()
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 4
+                            elide: Text.ElideRight
+                            color: Ryoku.inkMuted
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 8.5 * root.uiScale
                         }
                     }
                 }
             }
 
-            Text {
-                anchors.centerIn: parent
-                width: parent.width - 28 * root.uiScale
-                visible: !textFlick.visible
-                    && !archiveFlick.visible
-                    && !mediaPreviewBlock.candidate
-                    && (!imageFlick.visible || previewImage.status !== Image.Ready)
-                    && animationImage.source === ""
-                    && (!pdfImage.visible || pdfImage.status !== Image.Ready)
-                text: {
-                    if (!root.session || root.session.selectionCount === 0)
-                        return "// NO SELECTION"
-                    if (root.session.selectionCount > 1)
-                        return root.session.selectionCount + " ITEMS SELECTED"
-                    if (imageFlick.visible && previewImage.status === Image.Loading)
-                        return "// LOADING IMAGE…"
-                    if (pdfPreview.loading)
-                        return "// RENDERING PDF…"
-                    if (pdfPreview.isCandidate(root.session.selectedPath)
-                            && pdfPreview.error !== "")
-                        return "// COULD NOT RENDER PDF"
-                    if (archivePreview.loading)
-                        return "// READING ARCHIVE…"
-                    if (archivePreview.isCandidate(root.session.selectedPath)
-                            && archivePreview.error !== "")
-                        return "// COULD NOT READ ARCHIVE"
-                    if (textPreview.loading)
-                        return "// READING TEXT…"
-                    if (textPreview.error !== "")
-                        return "// COULD NOT READ PREVIEW"
-                    return root.details.isDirectory === true ? "▰" : "□"
-                }
-                horizontalAlignment: Text.AlignHCenter
-                color: Ryoku.inkMuted
-                font.family: Ryoku.monoFont
-                font.pixelSize: root.details.isDirectory === true
-                    ? 38 * root.uiScale
-                    : 10 * root.uiScale
-            }
-        }
+            Row {
+                width: parent.width
+                height: 28 * root.uiScale
+                visible: root.previewKind === "image" && root.singleSelection
+                spacing: 6 * root.uiScale
 
-        Row {
-            width: parent.width
-            height: 26 * root.uiScale
-            visible: root.session
-                && root.session.selectionCount === 1
-                && imagePreview.isCandidate(root.session.selectedPath)
-            spacing: 7 * root.uiScale
-
-            Rectangle {
-                width: 30 * root.uiScale
-                height: parent.height
-                radius: 4 * root.uiScale
-                color: imageZoomOutHover.hovered && imageFlick.zoom > 1.001 ? Ryoku.tint10 : Ryoku.tint5
-                border.width: 1
-                border.color: Ryoku.line
-                opacity: imageFlick.zoom > 1.001 ? 1.0 : 0.45
-                Text {
-                    anchors.centerIn: parent
-                    text: "−"
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.monoFont
-                    font.pixelSize: 11 * root.uiScale
-                }
-                HoverHandler { id: imageZoomOutHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    enabled: imageFlick.zoom > 1.001
-                    onTapped: root.setImageZoom(imageFlick.zoom / 1.25)
-                }
-            }
-
-            Rectangle {
-                width: 58 * root.uiScale
-                height: parent.height
-                radius: 4 * root.uiScale
-                color: imageFitHover.hovered ? Ryoku.tint10 : Ryoku.tint5
-                border.width: 1
-                border.color: Ryoku.line
-                Text {
-                    anchors.centerIn: parent
-                    text: Math.round(imageFlick.zoom * 100) + "%"
-                    color: Ryoku.inkMuted
-                    font.family: Ryoku.monoFont
-                    font.pixelSize: 8 * root.uiScale
-                }
-                HoverHandler { id: imageFitHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: root.resetImageView() }
-            }
-
-            Rectangle {
-                width: 30 * root.uiScale
-                height: parent.height
-                radius: 4 * root.uiScale
-                color: imageZoomInHover.hovered && imageFlick.zoom < 3.999 ? Ryoku.tint10 : Ryoku.tint5
-                border.width: 1
-                border.color: Ryoku.line
-                opacity: imageFlick.zoom < 3.999 ? 1.0 : 0.45
-                Text {
-                    anchors.centerIn: parent
-                    text: "+"
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.monoFont
-                    font.pixelSize: 11 * root.uiScale
-                }
-                HoverHandler { id: imageZoomInHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    enabled: imageFlick.zoom < 3.999
-                    onTapped: root.setImageZoom(imageFlick.zoom * 1.25)
-                }
-            }
-
-            Rectangle {
-                width: Math.max(52 * root.uiScale, parent.width - 139 * root.uiScale)
-                height: parent.height
-                visible: imagePreview.animated
-                radius: 4 * root.uiScale
-                color: imageAnimationHover.hovered && imagePreview.animationSupported && !Ryoku.reduceMotion
-                    ? Ryoku.tint10 : Ryoku.tint5
-                border.width: 1
-                border.color: Ryoku.line
-                opacity: imagePreview.animationSupported && !Ryoku.reduceMotion ? 1.0 : 0.45
-                Text {
-                    anchors.centerIn: parent
-                    text: imageAnimation.playing ? "■ STOP" : "▶ QUICK LOOK"
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.monoFont
-                    font.pixelSize: 8 * root.uiScale
-                }
-                HoverHandler { id: imageAnimationHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    enabled: imagePreview.animationSupported && !Ryoku.reduceMotion
-                    onTapped: {
-                        if (imageAnimation.playing)
-                            imageAnimation.stop()
-                        else
-                            imageAnimation.play()
+                Repeater {
+                    model: [
+                        { label: "−", action: "out" },
+                        { label: Math.round(imageFlick.zoom * 100) + "%", action: "fit" },
+                        { label: "+", action: "in" }
+                    ]
+                    delegate: Rectangle {
+                        id: zoomButton
+                        required property var modelData
+                        width: modelData.action === "fit" ? 62 * root.uiScale : 30 * root.uiScale
+                        height: parent.height
+                        radius: 6 * root.uiScale
+                        color: zoomHover.hovered ? Ryoku.tint10 : Ryoku.tint5
+                        Text {
+                            anchors.centerIn: parent
+                            text: zoomButton.modelData.label
+                            color: Ryoku.inkDim
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 9 * root.uiScale
+                        }
+                        HoverHandler { id: zoomHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            onTapped: {
+                                if (zoomButton.modelData.action === "out") root.setImageZoom(imageFlick.zoom / 1.25)
+                                else if (zoomButton.modelData.action === "in") root.setImageZoom(imageFlick.zoom * 1.25)
+                                else root.resetImageView()
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        Row {
-            width: parent.width
-            height: 26 * root.uiScale
-            visible: root.session
-                && root.session.selectionCount === 1
-                && pdfPreview.isCandidate(root.session.selectedPath)
-            spacing: 8 * root.uiScale
-
-            Rectangle {
-                width: 30 * root.uiScale
-                height: parent.height
-                radius: 4 * root.uiScale
-                color: pdfPrevHover.hovered && pdfPreview.page > 0 && !pdfPreview.loading
-                    ? Ryoku.tint10 : Ryoku.tint5
-                border.width: 1
-                border.color: Ryoku.line
-                opacity: pdfPreview.page > 0 && !pdfPreview.loading ? 1.0 : 0.45
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "‹"
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.uiFont
-                    font.pixelSize: 16 * root.uiScale
-                }
-                HoverHandler { id: pdfPrevHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    enabled: pdfPreview.page > 0 && !pdfPreview.loading
-                    onTapped: pdfPreview.page = pdfPreview.page - 1
-                }
-            }
-
-            Text {
-                width: Math.max(0, parent.width - 76 * root.uiScale)
-                height: parent.height
-                verticalAlignment: Text.AlignVCenter
-                horizontalAlignment: Text.AlignHCenter
-                text: pdfPreview.pageCount > 0
-                    ? "PAGE " + (pdfPreview.page + 1) + " / " + pdfPreview.pageCount
-                    : "PDF"
-                color: Ryoku.inkMuted
-                font.family: Ryoku.monoFont
-                font.pixelSize: 8 * root.uiScale
-                font.letterSpacing: 0.5
-            }
-
-            Rectangle {
-                width: 30 * root.uiScale
-                height: parent.height
-                radius: 4 * root.uiScale
-                readonly property bool canNext: pdfPreview.pageCount > 0
-                    && pdfPreview.page + 1 < pdfPreview.pageCount
-                    && !pdfPreview.loading
-                color: pdfNextHover.hovered && canNext ? Ryoku.tint10 : Ryoku.tint5
-                border.width: 1
-                border.color: Ryoku.line
-                opacity: canNext ? 1.0 : 0.45
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "›"
-                    color: Ryoku.inkDim
-                    font.family: Ryoku.uiFont
-                    font.pixelSize: 16 * root.uiScale
-                }
-                HoverHandler { id: pdfNextHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    enabled: parent.canNext
-                    onTapped: pdfPreview.page = pdfPreview.page + 1
-                }
-            }
-        }
-
-        Text {
-            width: parent.width
-            text: root.details.name || ""
-            visible: text !== ""
-            elide: Text.ElideMiddle
-            color: Ryoku.ink
-            font.family: Ryoku.uiFont
-            font.pixelSize: 15 * root.uiScale
-            font.weight: Font.Medium
-        }
-
-        Text {
-            width: parent.width
-            text: root.details.mime || root.details.type || ""
-            visible: text !== ""
-            elide: Text.ElideRight
-            color: Ryoku.inkMuted
-            font.family: Ryoku.monoFont
-            font.pixelSize: 9 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imagePreview.supported
-            text: {
-                var parts = []
-                if (imagePreview.pixelWidth > 0 && imagePreview.pixelHeight > 0)
-                    parts.push(imagePreview.pixelWidth + " × " + imagePreview.pixelHeight)
-                if (imagePreview.formatName !== "")
-                    parts.push(imagePreview.formatName.toUpperCase())
-                if (imagePreview.animated && imagePreview.frameCount > 1)
-                    parts.push(imagePreview.frameCount + " FRAMES")
-                return "// " + parts.join(" · ")
-            }
-            elide: Text.ElideRight
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imagePreview.supported
-                && (imagePreview.cameraMake !== "" || imagePreview.cameraModel !== "" || imagePreview.lensModel !== "")
-            text: {
-                var parts = []
-                var camera = (imagePreview.cameraMake + " " + imagePreview.cameraModel).trim()
-                if (camera !== "")
-                    parts.push(camera)
-                if (imagePreview.lensModel !== "")
-                    parts.push(imagePreview.lensModel)
-                return "// " + parts.join(" · ")
-            }
-            maximumLineCount: 2
-            elide: Text.ElideRight
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imagePreview.supported
-                && (imagePreview.dateTaken !== "" || imagePreview.exposureTime !== ""
-                    || imagePreview.aperture !== "" || imagePreview.iso !== "" || imagePreview.focalLength !== "")
-            text: {
-                var parts = []
-                if (imagePreview.dateTaken !== "")
-                    parts.push(imagePreview.dateTaken)
-                if (imagePreview.exposureTime !== "")
-                    parts.push(imagePreview.exposureTime)
-                if (imagePreview.aperture !== "")
-                    parts.push("f/" + imagePreview.aperture)
-                if (imagePreview.iso !== "")
-                    parts.push("ISO " + imagePreview.iso)
-                if (imagePreview.focalLength !== "")
-                    parts.push(imagePreview.focalLength)
-                return "// " + parts.join(" · ")
-            }
-            maximumLineCount: 2
-            elide: Text.ElideRight
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imagePreview.metadataLimited
-            text: "// DEEP IMAGE METADATA SKIPPED — 64 MiB SAFETY LIMIT"
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imagePreview.animated && !imagePreview.animationSupported
-            text: "// ANIMATION EXCEEDS BOUNDED QUICK LOOK LIMITS"
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imageAnimation.error !== ""
-            text: "// " + imageAnimation.error
-            wrapMode: Text.WordWrap
-            maximumLineCount: 2
-            elide: Text.ElideRight
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: pdfPreview.supported
-                && (pdfPreview.title !== "" || pdfPreview.author !== "")
-            text: {
-                var parts = []
-                if (pdfPreview.title !== "")
-                    parts.push(pdfPreview.title)
-                if (pdfPreview.author !== "")
-                    parts.push(pdfPreview.author)
-                return "// " + parts.join(" · ")
-            }
-            maximumLineCount: 2
-            elide: Text.ElideRight
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: archivePreview.supported
-            text: {
-                var listed = archivePreview.entries.length
-                var suffix = archivePreview.truncated ? "+ ENTRIES — BOUNDED PREVIEW" : " ENTRIES"
-                return "// " + listed + suffix
-            }
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: archivePreview.isCandidate(root.session ? root.session.selectedPath : "")
-                && archivePreview.error !== ""
-            text: "// " + archivePreview.error
-            wrapMode: Text.WordWrap
-            maximumLineCount: 3
-            elide: Text.ElideRight
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: pdfPreview.isCandidate(root.session ? root.session.selectedPath : "")
-                && pdfPreview.error !== ""
-            text: "// " + pdfPreview.error
-            wrapMode: Text.WordWrap
-            maximumLineCount: 3
-            elide: Text.ElideRight
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: imagePreview.isCandidate(root.session ? root.session.selectedPath : "")
-                && imagePreview.error !== ""
-            text: "// " + imagePreview.error
-            wrapMode: Text.WordWrap
-            maximumLineCount: 3
-            elide: Text.ElideRight
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Text {
-            width: parent.width
-            visible: textPreview.supported && textPreview.truncated
-            text: "// TEXT PREVIEW TRUNCATED — 192 KiB / 2,500-line limit"
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
-        }
-
-        Rectangle {
-            width: parent.width
-            height: 1
-            color: Ryoku.line
-            visible: root.session && root.session.selectionCount === 1
-        }
-
-        Column {
-            width: parent.width
-            spacing: 8 * root.uiScale
-            visible: root.session && root.session.selectionCount === 1
-
-            Repeater {
-                model: [
-                    { label: "SIZE", value: root.details.sizeText || "" },
-                    { label: "MODIFIED", value: root.details.modified || "" },
-                    { label: "OWNER", value: root.details.owner || "" },
-                    { label: "PERMS", value: root.details.permissions || "" }
-                ]
-
-                delegate: Row {
-                    id: metadataRow
-                    required property var modelData
-                    width: parent.width
-                    visible: modelData.value !== ""
-
+                Rectangle {
+                    width: Math.max(0, parent.width - 140 * root.uiScale)
+                    height: parent.height
+                    visible: imagePreview.animated
+                    radius: 6 * root.uiScale
+                    color: animationHover.hovered && imagePreview.animationSupported && !Ryoku.reduceMotion
+                        ? Ryoku.tint10 : Ryoku.tint5
+                    opacity: imagePreview.animationSupported && !Ryoku.reduceMotion ? 1.0 : 0.42
                     Text {
-                        width: 78 * root.uiScale
-                        text: metadataRow.modelData.label
-                        color: Ryoku.inkFaint
-                        font.family: Ryoku.monoFont
-                        font.pixelSize: 8 * root.uiScale
-                        font.letterSpacing: 0.8
-                    }
-
-                    Text {
-                        width: parent.width - 78 * root.uiScale
-                        text: metadataRow.modelData.value
-                        elide: Text.ElideMiddle
+                        anchors.centerIn: parent
+                        text: imageAnimation.playing ? "Stop animation" : "Quick Look animation"
                         color: Ryoku.inkDim
                         font.family: Ryoku.uiFont
-                        font.pixelSize: 10 * root.uiScale
+                        font.pixelSize: 8.5 * root.uiScale
+                    }
+                    HoverHandler { id: animationHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        enabled: imagePreview.animationSupported && !Ryoku.reduceMotion
+                        onTapped: {
+                            if (imageAnimation.playing) imageAnimation.stop()
+                            else imageAnimation.play()
+                        }
                     }
                 }
             }
-        }
 
-        Text {
-            width: parent.width
-            visible: root.details.isDirectory === true
-            text: "// Folder size remains on-demand; no recursive scan."
-            wrapMode: Text.WordWrap
-            color: Ryoku.inkFaint
-            font.family: Ryoku.monoFont
-            font.pixelSize: 8 * root.uiScale
+            Row {
+                width: parent.width
+                height: 28 * root.uiScale
+                visible: root.previewKind === "pdf" && root.singleSelection
+                spacing: 6 * root.uiScale
+
+                Rectangle {
+                    width: 30 * root.uiScale
+                    height: parent.height
+                    radius: 6 * root.uiScale
+                    color: pdfPrevHover.hovered && pdfPreview.page > 0 && !pdfPreview.loading ? Ryoku.tint10 : Ryoku.tint5
+                    opacity: pdfPreview.page > 0 && !pdfPreview.loading ? 1.0 : 0.4
+                    Text { anchors.centerIn: parent; text: "‹"; color: Ryoku.inkDim; font.family: Ryoku.uiFont; font.pixelSize: 15 * root.uiScale }
+                    HoverHandler { id: pdfPrevHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { enabled: pdfPreview.page > 0 && !pdfPreview.loading; onTapped: pdfPreview.page = pdfPreview.page - 1 }
+                }
+                Text {
+                    width: Math.max(0, parent.width - 72 * root.uiScale)
+                    height: parent.height
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    text: pdfPreview.pageCount > 0
+                        ? "Page " + (pdfPreview.page + 1) + " of " + pdfPreview.pageCount : "PDF"
+                    color: Ryoku.inkMuted
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 9 * root.uiScale
+                }
+                Rectangle {
+                    width: 30 * root.uiScale
+                    height: parent.height
+                    radius: 6 * root.uiScale
+                    readonly property bool canNext: pdfPreview.pageCount > 0
+                        && pdfPreview.page + 1 < pdfPreview.pageCount && !pdfPreview.loading
+                    color: pdfNextHover.hovered && canNext ? Ryoku.tint10 : Ryoku.tint5
+                    opacity: canNext ? 1.0 : 0.4
+                    Text { anchors.centerIn: parent; text: "›"; color: Ryoku.inkDim; font.family: Ryoku.uiFont; font.pixelSize: 15 * root.uiScale }
+                    HoverHandler { id: pdfNextHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { enabled: parent.canNext; onTapped: pdfPreview.page = pdfPreview.page + 1 }
+                }
+            }
+
+            Column {
+                width: parent.width
+                visible: root.singleSelection
+                spacing: 5 * root.uiScale
+
+                Text {
+                    width: parent.width
+                    text: root.details.name || root.selectedName
+                    elide: Text.ElideMiddle
+                    color: Ryoku.ink
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 13 * root.uiScale
+                    font.weight: Font.Medium
+                }
+
+                Text {
+                    width: parent.width
+                    visible: imagePreview.supported
+                    text: {
+                        var parts = []
+                        if (imagePreview.pixelWidth > 0 && imagePreview.pixelHeight > 0)
+                            parts.push(imagePreview.pixelWidth + " × " + imagePreview.pixelHeight)
+                        if (imagePreview.formatName !== "") parts.push(imagePreview.formatName.toUpperCase())
+                        if (imagePreview.animated && imagePreview.frameCount > 1) parts.push(imagePreview.frameCount + " frames")
+                        return parts.join(" · ")
+                    }
+                    elide: Text.ElideRight
+                    color: Ryoku.inkMuted
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8.5 * root.uiScale
+                }
+
+                Text {
+                    width: parent.width
+                    visible: imagePreview.supported
+                        && (imagePreview.cameraMake !== "" || imagePreview.cameraModel !== "" || imagePreview.lensModel !== "")
+                    text: {
+                        var parts = []
+                        var camera = (imagePreview.cameraMake + " " + imagePreview.cameraModel).trim()
+                        if (camera !== "") parts.push(camera)
+                        if (imagePreview.lensModel !== "") parts.push(imagePreview.lensModel)
+                        return parts.join(" · ")
+                    }
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    wrapMode: Text.WordWrap
+                    color: Ryoku.inkFaint
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+
+                Text {
+                    width: parent.width
+                    visible: imagePreview.supported
+                        && (imagePreview.dateTaken !== "" || imagePreview.exposureTime !== ""
+                            || imagePreview.aperture !== "" || imagePreview.iso !== "" || imagePreview.focalLength !== "")
+                    text: {
+                        var parts = []
+                        if (imagePreview.dateTaken !== "") parts.push(imagePreview.dateTaken)
+                        if (imagePreview.exposureTime !== "") parts.push(imagePreview.exposureTime)
+                        if (imagePreview.aperture !== "") parts.push("f/" + imagePreview.aperture)
+                        if (imagePreview.iso !== "") parts.push("ISO " + imagePreview.iso)
+                        if (imagePreview.focalLength !== "") parts.push(imagePreview.focalLength)
+                        return parts.join(" · ")
+                    }
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    wrapMode: Text.WordWrap
+                    color: Ryoku.inkFaint
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+
+                Text {
+                    width: parent.width
+                    visible: imagePreview.metadataLimited
+                    text: "Deep image metadata was skipped because it exceeds the 64 MiB safety limit."
+                    wrapMode: Text.WordWrap
+                    color: Ryoku.inkFaint
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+
+                Text {
+                    width: parent.width
+                    visible: imagePreview.animated && !imagePreview.animationSupported
+                    text: "Animation Quick Look is disabled because this file exceeds the bounded animation limits."
+                    wrapMode: Text.WordWrap
+                    color: Ryoku.inkFaint
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+
+                Text {
+                    width: parent.width
+                    visible: textPreview.supported && textPreview.truncated
+                    text: "Text preview is truncated at the bounded 192 KiB / 2,500-line limit."
+                    wrapMode: Text.WordWrap
+                    color: Ryoku.inkFaint
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+
+                Text {
+                    width: parent.width
+                    visible: archivePreview.supported
+                    text: archivePreview.entries.length
+                        + (archivePreview.truncated ? "+ entries · bounded preview" : " entries")
+                    color: Ryoku.inkFaint
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                visible: root.singleSelection
+                color: Ryoku.lineSoft
+            }
+
+            Column {
+                width: parent.width
+                spacing: 8 * root.uiScale
+                visible: root.singleSelection
+
+                Repeater {
+                    model: [
+                        { label: "Size", value: root.details.sizeText || "" },
+                        { label: "Modified", value: root.details.modified || "" },
+                        { label: "Owner", value: root.details.owner || "" },
+                        { label: "Permissions", value: root.details.permissions || "" }
+                    ]
+                    delegate: Row {
+                        id: metadataRow
+                        required property var modelData
+                        width: parent.width
+                        visible: modelData.value !== ""
+                        Text {
+                            width: 84 * root.uiScale
+                            text: metadataRow.modelData.label
+                            color: Ryoku.inkFaint
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 8.5 * root.uiScale
+                        }
+                        Text {
+                            width: parent.width - 84 * root.uiScale
+                            text: metadataRow.modelData.value
+                            elide: Text.ElideMiddle
+                            color: Ryoku.inkDim
+                            font.family: Ryoku.uiFont
+                            font.pixelSize: 9 * root.uiScale
+                        }
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                visible: root.directorySelection
+                text: "Folder size is intentionally on-demand; opening this panel never starts a recursive scan."
+                wrapMode: Text.WordWrap
+                color: Ryoku.inkFaint
+                font.family: Ryoku.uiFont
+                font.pixelSize: 8 * root.uiScale
+            }
         }
     }
 }
