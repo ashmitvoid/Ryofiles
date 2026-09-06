@@ -3,6 +3,7 @@
 #include "navigation/DirectorySession.hpp"
 
 #include <QDir>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -19,6 +20,59 @@ private slots:
         QVERIFY(!session.remote());
         QVERIFY(!session.model()->remote());
         QVERIFY(session.localBackendActive());
+    }
+
+    void localModelExposesNamesAndKeepsAnchoredSelection() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QStringList names{
+            QStringLiteral("alpha.txt"),
+            QStringLiteral("bravo.txt"),
+            QStringLiteral("charlie.txt"),
+        };
+        for (const QString& name : names) {
+            QFile file(QDir(temp.path()).filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QVERIFY(file.write(name.toUtf8()) > 0);
+        }
+
+        DirectorySession session(temp.path());
+        QTRY_VERIFY_WITH_TIMEOUT(!session.model()->loading(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(session.model()->rowCount(), static_cast<int>(names.size()), 5000);
+
+        const QString alphaPath = QDir(temp.path()).filePath(QStringLiteral("alpha.txt"));
+        const QString bravoPath = QDir(temp.path()).filePath(QStringLiteral("bravo.txt"));
+        const QString charliePath = QDir(temp.path()).filePath(QStringLiteral("charlie.txt"));
+        const int alpha = session.model()->indexOfPath(alphaPath);
+        const int bravo = session.model()->indexOfPath(bravoPath);
+        const int charlie = session.model()->indexOfPath(charliePath);
+        QVERIFY(alpha >= 0);
+        QVERIFY(bravo >= 0);
+        QVERIFY(charlie >= 0);
+
+        QCOMPARE(session.model()->nameAt(alpha), QStringLiteral("alpha.txt"));
+        QCOMPARE(session.model()->nameAt(bravo), QStringLiteral("bravo.txt"));
+        QCOMPARE(session.model()->nameAt(charlie), QStringLiteral("charlie.txt"));
+        QVERIFY(session.model()->nameAt(-1).isEmpty());
+        QVERIFY(session.model()->nameAt(session.model()->rowCount()).isEmpty());
+
+        session.selectSingle(alpha);
+        QCOMPARE(session.selectedPath(), alphaPath);
+        QCOMPARE(session.selectionCount(), 1);
+
+        session.selectRange(charlie);
+        QCOMPARE(session.selectedPath(), charliePath);
+        QCOMPARE(session.selectionCount(), 3);
+        QVERIFY(session.isSelectedPath(alphaPath));
+        QVERIFY(session.isSelectedPath(bravoPath));
+        QVERIFY(session.isSelectedPath(charliePath));
+
+        session.toggleSelection(bravo);
+        QCOMPARE(session.selectionCount(), 2);
+        QVERIFY(session.isSelectedPath(alphaPath));
+        QVERIFY(!session.isSelectedPath(bravoPath));
+        QVERIFY(session.isSelectedPath(charliePath));
     }
 
     void remoteHistorySwitchesBackendsWithoutLosingLocalState() {

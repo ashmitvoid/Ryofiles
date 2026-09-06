@@ -14,10 +14,27 @@ Item {
     readonly property real dividerWidth: 10 * root.uiScale
     readonly property real minimumPaneWidth: 240 * root.uiScale
 
+    function focusActivePane() {
+        if (!root.tabs)
+            return
+        if (root.tabs.split && root.tabs.activePane === 1)
+            secondaryPane.focusView()
+        else
+            primaryPane.focusView()
+    }
+
+    function restoreFocusIfUnclaimed() {
+        var window = root.Window.window
+        if (!window || window.activeFocusItem || !root.visible || !root.tabs || !root.tabs.currentSession)
+            return
+        root.focusActivePane()
+    }
+
     function activatePane(index) {
         if (!root.tabs)
             return
         root.tabs.activePane = index
+        Qt.callLater(root.focusActivePane)
     }
 
     function clampRatio(value) {
@@ -121,7 +138,7 @@ Item {
     Shortcut {
         sequence: "F6"
         enabled: root.tabs && root.tabs.split
-        onActivated: root.tabs.activePane = root.tabs.activePane === 0 ? 1 : 0
+        onActivated: root.activatePane(root.tabs.activePane === 0 ? 1 : 0)
     }
 
     Connections {
@@ -131,6 +148,21 @@ Item {
                 root.splitRatio = root.clampRatio(root.splitRatio)
             else
                 root.splitRatio = 0.5
+            Qt.callLater(root.focusActivePane)
+        }
+        function onActivePaneChanged() {
+            Qt.callLater(root.focusActivePane)
+        }
+        function onCurrentSessionChanged() {
+            Qt.callLater(root.focusActivePane)
+        }
+    }
+
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            if (target && !target.activeFocusItem)
+                Qt.callLater(root.restoreFocusIfUnclaimed)
         }
     }
 
@@ -138,4 +170,6 @@ Item {
         if (root.tabs && root.tabs.split)
             root.splitRatio = root.clampRatio(root.splitRatio)
     }
+
+    Component.onCompleted: Qt.callLater(root.focusActivePane)
 }

@@ -145,6 +145,12 @@ QString SessionFileModel::pathAt(int index) const {
     return data(this->index(index, 0), PathRole).toString();
 }
 
+QString SessionFileModel::nameAt(int index) const {
+    if (index < 0 || index >= rowCount())
+        return {};
+    return data(this->index(index, 0), NameRole).toString();
+}
+
 bool SessionFileModel::isDirectoryAt(int index) const {
     if (index < 0 || index >= rowCount())
         return false;
