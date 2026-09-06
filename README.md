@@ -152,10 +152,10 @@ Remote archive extraction is deliberately outside the frozen V1 scope.
 
 ## V1 release gates
 
-Before V1 is tagged, the remaining work is deliberately hardening-focused:
+The automated hardening baseline now includes a 4,096-entry directory snapshot and a rapid-navigation stale-scan regression that drains outstanding worker tasks before checking the newer path remains authoritative. Before V1 is tagged, the remaining gates are:
 
-- large-directory and stale-generation regression coverage;
 - real-application FileChooser matrix on Ryoku/Hyprland;
+- manual performance/stress runs for larger local trees and representative removable/slow/network storage;
 - keyboard, theme, reduced-motion, HiDPI/per-monitor scale, empty/error-state, and lifecycle regression passes;
 - clean Arch/CachyOS install, upgrade, uninstall, and reversible portal-routing validation;
 - final packaging metadata, version/changelog, release artifacts, and release-candidate smoke testing.
@@ -164,7 +164,7 @@ These gates do not expand the frozen V1 feature surface.
 
 ## Build and CI
 
-Ryofiles is built with CMake and Qt 6. Pull requests run the full application/test suite, FileChooser backend and public-broker smokes, portal-routing-helper tests, staged-install checks, and exact-head Arch package validation. Feature-branch pushes do not duplicate those expensive PR pipelines; pushes to canonical `main` revalidate the merged state. Package CI separately verifies payload contents, neutral portal registration, exact source SHA, installation, runtime linkage, and the production binary's libarchive dependency.
+Ryofiles is built with CMake and Qt 6. Every pull request runs the full application/test suite, FileChooser backend/public-broker smokes, portal-routing-helper tests, and staged-install checks. Pull requests that touch shipped C++/QML, packaging, portal assets, or the packaging workflow also run exact-head Arch package validation. Feature-branch pushes do not duplicate those expensive PR pipelines; pushes to canonical `main` revalidate the merged state. Package CI verifies payload contents, neutral portal registration, exact source SHA, installation, runtime linkage, and the production binary's libarchive dependency.
 
 ## License
 
