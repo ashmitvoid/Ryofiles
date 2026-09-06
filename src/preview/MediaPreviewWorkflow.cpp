@@ -77,6 +77,14 @@ void MediaPreviewLoader::setActive(bool active) {
     scheduleLoad();
 }
 
+void MediaPreviewLoader::setMetadataOnly(bool metadataOnly) {
+    if (m_metadataOnly == metadataOnly)
+        return;
+    m_metadataOnly = metadataOnly;
+    emit metadataOnlyChanged();
+    scheduleLoad();
+}
+
 bool MediaPreviewLoader::isCandidate(const QString& path) const {
     return isMediaCandidatePath(path);
 }
@@ -145,7 +153,7 @@ void MediaPreviewLoader::startLoad() {
     QJsonObject request;
     request.insert(QStringLiteral("op"), QStringLiteral("media-probe"));
     request.insert(QStringLiteral("path"), loadPath);
-    request.insert(QStringLiteral("poster"), true);
+    request.insert(QStringLiteral("poster"), !m_metadataOnly);
     request.insert(QStringLiteral("maxWidth"), 1000);
     request.insert(QStringLiteral("maxHeight"), 700);
 
