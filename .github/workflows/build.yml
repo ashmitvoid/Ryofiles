@@ -73,9 +73,11 @@ jobs:
           rm -rf stage
           DESTDIR="$PWD/stage" cmake --install build --prefix /usr
           DESTDIR="$PWD/stage" cmake --install build-portalctl --prefix /usr
+          DESTDIR="$PWD/stage" cmake --install build-preview --prefix /usr
 
           test -x stage/usr/bin/ryofiles
           test -x stage/usr/bin/ryofiles-portalctl
+          test -x stage/usr/bin/ryofiles-preview-helper
           test -f stage/usr/share/applications/ryofiles.desktop
           test ! -e stage/etc
 
@@ -83,6 +85,7 @@ jobs:
           expected=(
             'usr/bin/ryofiles'
             'usr/bin/ryofiles-portalctl'
+            'usr/bin/ryofiles-preview-helper'
             'usr/share/applications/ryofiles.desktop'
           )
 

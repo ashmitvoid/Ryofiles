@@ -15,6 +15,7 @@ on:
       - 'qml/**'
       - 'tests/PortalRoutingManagerTest.cpp'
       - 'tools/portalctl/**'
+      - 'tools/preview/**'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
   pull_request:
@@ -29,6 +30,7 @@ on:
       - 'qml/**'
       - 'tests/PortalRoutingManagerTest.cpp'
       - 'tools/portalctl/**'
+      - 'tools/preview/**'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
   workflow_dispatch:
@@ -102,7 +104,7 @@ jobs:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake git ninja glib2 gvfs libarchive qt6-base qt6-declarative
+          base-devel cmake git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative
 
       - name: Checkout exact package source SHA
         uses: actions/checkout@v4
@@ -161,6 +163,7 @@ jobs:
           for required in \
             usr/bin/ryofiles \
             usr/bin/ryofiles-portalctl \
+            usr/bin/ryofiles-preview-helper \
             usr/share/applications/ryofiles.desktop \
             usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml \
             usr/share/xdg-desktop-portal/portals/ryofiles.portal \
@@ -196,6 +199,7 @@ jobs:
 
           test -x /usr/bin/ryofiles
           test -x /usr/bin/ryofiles-portalctl
+          test -x /usr/bin/ryofiles-preview-helper
           test -f /usr/share/applications/ryofiles.desktop
           test -f /usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml
           test -f /usr/share/xdg-desktop-portal/portals/ryofiles.portal
@@ -209,13 +213,20 @@ jobs:
 
           ldd /usr/bin/ryofiles | tee /tmp/ryofiles-ldd.txt
           ldd /usr/bin/ryofiles-portalctl | tee /tmp/ryofiles-portalctl-ldd.txt
+          ldd /usr/bin/ryofiles-preview-helper | tee /tmp/ryofiles-preview-helper-ldd.txt
           if grep -Fq 'not found' /tmp/ryofiles-ldd.txt \
-            || grep -Fq 'not found' /tmp/ryofiles-portalctl-ldd.txt; then
+            || grep -Fq 'not found' /tmp/ryofiles-portalctl-ldd.txt \
+            || grep -Fq 'not found' /tmp/ryofiles-preview-helper-ldd.txt; then
             echo 'Installed package has unresolved runtime libraries.' >&2
             exit 1
           fi
 
           grep -Eq 'libarchive\.so' /tmp/ryofiles-ldd.txt || {
             echo 'Installed Ryofiles binary is not linked against libarchive.' >&2
+            exit 1
+          }
+
+          grep -Eq 'libpoppler-qt6\.so' /tmp/ryofiles-preview-helper-ldd.txt || {
+            echo 'Installed preview helper is not linked against Poppler Qt6.' >&2
             exit 1
           }

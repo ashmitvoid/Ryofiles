@@ -64,6 +64,15 @@ Item {
         path: active ? root.session.selectedPath : ""
     }
 
+    PdfPreviewLoader {
+        id: pdfPreview
+        active: root.visible
+            && root.session
+            && root.session.selectionCount === 1
+            && pdfPreview.isCandidate(root.session.selectedPath)
+        path: active ? root.session.selectedPath : ""
+    }
+
     TextPreviewLoader {
         id: textPreview
         active: root.visible
@@ -71,6 +80,7 @@ Item {
             && root.session.selectionCount === 1
             && !root.thumbnails.isCandidate(root.session.selectedPath)
             && !archivePreview.isCandidate(root.session.selectedPath)
+            && !pdfPreview.isCandidate(root.session.selectedPath)
         path: active ? root.session.selectedPath : ""
     }
 
@@ -139,6 +149,18 @@ Item {
                     : ""
                 sourceSize.width: Math.round(720 * root.uiScale)
                 sourceSize.height: Math.round(720 * root.uiScale)
+                fillMode: Image.PreserveAspectFit
+                cache: false
+                asynchronous: false
+                smooth: true
+            }
+
+            Image {
+                id: pdfImage
+                anchors.fill: parent
+                anchors.margins: 8 * root.uiScale
+                visible: pdfPreview.supported
+                source: visible ? pdfPreview.imageSource : ""
                 fillMode: Image.PreserveAspectFit
                 cache: false
                 asynchronous: false
@@ -242,6 +264,7 @@ Item {
                 visible: !textFlick.visible
                     && !archiveFlick.visible
                     && (!previewImage.visible || previewImage.status !== Image.Ready)
+                    && (!pdfImage.visible || pdfImage.status !== Image.Ready)
                 text: {
                     if (!root.session || root.session.selectionCount === 0)
                         return "// NO SELECTION"
@@ -249,6 +272,11 @@ Item {
                         return root.session.selectionCount + " ITEMS SELECTED"
                     if (previewImage.visible && previewImage.status === Image.Loading)
                         return "// LOADING IMAGE…"
+                    if (pdfPreview.loading)
+                        return "// RENDERING PDF…"
+                    if (pdfPreview.isCandidate(root.session.selectedPath)
+                            && pdfPreview.error !== "")
+                        return "// COULD NOT RENDER PDF"
                     if (archivePreview.loading)
                         return "// READING ARCHIVE…"
                     if (archivePreview.isCandidate(root.session.selectedPath)
@@ -266,6 +294,79 @@ Item {
                 font.pixelSize: root.details.isDirectory === true
                     ? 38 * root.uiScale
                     : 10 * root.uiScale
+            }
+        }
+
+        Row {
+            width: parent.width
+            height: 26 * root.uiScale
+            visible: root.session
+                && root.session.selectionCount === 1
+                && pdfPreview.isCandidate(root.session.selectedPath)
+            spacing: 8 * root.uiScale
+
+            Rectangle {
+                width: 30 * root.uiScale
+                height: parent.height
+                radius: 4 * root.uiScale
+                color: pdfPrevHover.hovered && pdfPreview.page > 0 && !pdfPreview.loading
+                    ? Ryoku.tint10 : Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.line
+                opacity: pdfPreview.page > 0 && !pdfPreview.loading ? 1.0 : 0.45
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "‹"
+                    color: Ryoku.inkDim
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 16 * root.uiScale
+                }
+                HoverHandler { id: pdfPrevHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    enabled: pdfPreview.page > 0 && !pdfPreview.loading
+                    onTapped: pdfPreview.page = pdfPreview.page - 1
+                }
+            }
+
+            Text {
+                width: Math.max(0, parent.width - 76 * root.uiScale)
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+                text: pdfPreview.pageCount > 0
+                    ? "PAGE " + (pdfPreview.page + 1) + " / " + pdfPreview.pageCount
+                    : "PDF"
+                color: Ryoku.inkMuted
+                font.family: Ryoku.monoFont
+                font.pixelSize: 8 * root.uiScale
+                font.letterSpacing: 0.5
+            }
+
+            Rectangle {
+                width: 30 * root.uiScale
+                height: parent.height
+                radius: 4 * root.uiScale
+                readonly property bool canNext: pdfPreview.pageCount > 0
+                    && pdfPreview.page + 1 < pdfPreview.pageCount
+                    && !pdfPreview.loading
+                color: pdfNextHover.hovered && canNext ? Ryoku.tint10 : Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.line
+                opacity: canNext ? 1.0 : 0.45
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "›"
+                    color: Ryoku.inkDim
+                    font.family: Ryoku.uiFont
+                    font.pixelSize: 16 * root.uiScale
+                }
+                HoverHandler { id: pdfNextHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    enabled: parent.canNext
+                    onTapped: pdfPreview.page = pdfPreview.page + 1
+                }
             }
         }
 
@@ -292,6 +393,26 @@ Item {
 
         Text {
             width: parent.width
+            visible: pdfPreview.supported
+                && (pdfPreview.title !== "" || pdfPreview.author !== "")
+            text: {
+                var parts = []
+                if (pdfPreview.title !== "")
+                    parts.push(pdfPreview.title)
+                if (pdfPreview.author !== "")
+                    parts.push(pdfPreview.author)
+                return "// " + parts.join(" · ")
+            }
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
             visible: archivePreview.supported
             text: {
                 var listed = archivePreview.entries.length
@@ -309,6 +430,19 @@ Item {
             visible: archivePreview.isCandidate(root.session ? root.session.selectedPath : "")
                 && archivePreview.error !== ""
             text: "// " + archivePreview.error
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: pdfPreview.isCandidate(root.session ? root.session.selectedPath : "")
+                && pdfPreview.error !== ""
+            text: "// " + pdfPreview.error
             wrapMode: Text.WordWrap
             maximumLineCount: 3
             elide: Text.ElideRight
