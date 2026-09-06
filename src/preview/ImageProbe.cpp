@@ -184,66 +184,41 @@ QJsonObject probe(
                         exifValue(exif, "Exif.Image.Model"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("lensModel"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.LensModel",
-                            "Exif.Image.LensModel",
-                        }));
+                        exifValue(exif, "Exif.Photo.LensModel"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("dateTaken"),
                         firstExifValue(exif, {
                             "Exif.Photo.DateTimeOriginal",
-                            "Exif.Image.DateTimeOriginal",
                             "Exif.Photo.DateTimeDigitized",
-                            "Exif.Image.DateTimeDigitized",
                             "Exif.Image.DateTime",
                         }));
                     insertIfNotEmpty(
                         payload, QStringLiteral("exposureTime"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.ExposureTime",
-                            "Exif.Image.ExposureTime",
-                        }));
+                        exifValue(exif, "Exif.Photo.ExposureTime"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("aperture"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.FNumber",
-                            "Exif.Image.FNumber",
-                        }));
+                        exifValue(exif, "Exif.Photo.FNumber"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("iso"),
                         firstExifValue(exif, {
                             "Exif.Photo.PhotographicSensitivity",
                             "Exif.Photo.ISOSpeedRatings",
-                            "Exif.Image.PhotographicSensitivity",
-                            "Exif.Image.ISOSpeedRatings",
                         }));
                     insertIfNotEmpty(
                         payload, QStringLiteral("focalLength"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.FocalLength",
-                            "Exif.Image.FocalLength",
-                        }));
+                        exifValue(exif, "Exif.Photo.FocalLength"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("orientation"),
                         exifValue(exif, "Exif.Image.Orientation"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("exposureBias"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.ExposureBiasValue",
-                            "Exif.Image.ExposureBiasValue",
-                        }));
+                        exifValue(exif, "Exif.Photo.ExposureBiasValue"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("whiteBalance"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.WhiteBalance",
-                            "Exif.Image.WhiteBalance",
-                        }));
+                        exifValue(exif, "Exif.Photo.WhiteBalance"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("colorSpace"),
-                        firstExifValue(exif, {
-                            "Exif.Photo.ColorSpace",
-                            "Exif.Image.ColorSpace",
-                        }));
+                        exifValue(exif, "Exif.Photo.ColorSpace"));
                     insertIfNotEmpty(
                         payload, QStringLiteral("software"),
                         exifValue(exif, "Exif.Image.Software"));
