@@ -51,6 +51,7 @@ struct BoundedArchiveInput {
     int fd = -1;
     quint64 snapshotBytes = 0;
     quint64 offset = 0;
+    quint64 highWaterMark = 0;
     const std::atomic_bool* cancelRequested = nullptr;
     std::array<char, kReadBlockBytes> buffer{};
 };
@@ -96,6 +97,7 @@ int boundedOpen(struct archive* archiveHandle, void* clientData) {
     }
 
     input->offset = 0;
+    input->highWaterMark = 0;
     return ARCHIVE_OK;
 }
 
@@ -145,6 +147,7 @@ la_ssize_t boundedRead(
     }
 
     input->offset += static_cast<quint64>(bytesRead);
+    input->highWaterMark = std::max(input->highWaterMark, input->offset);
     *buffer = input->buffer.data();
     return static_cast<la_ssize_t>(bytesRead);
 }
@@ -184,7 +187,63 @@ la_int64_t boundedSkip(
         return 0;
 
     input->offset += static_cast<quint64>(moved);
+    input->highWaterMark = std::max(input->highWaterMark, input->offset);
     return static_cast<la_int64_t>(moved);
+}
+
+la_int64_t boundedSeek(
+    struct archive* archiveHandle,
+    void* clientData,
+    la_int64_t offset,
+    int whence) {
+    auto* input = static_cast<BoundedArchiveInput*>(clientData);
+    if (!input || input->fd < 0) {
+        archive_set_error(archiveHandle, EBADF, "%s", "Archive preview input is invalid");
+        return ARCHIVE_FATAL;
+    }
+
+    if (input->cancelRequested
+        && input->cancelRequested->load(std::memory_order_relaxed)) {
+        archive_set_error(archiveHandle, ECANCELED, "%s", "Archive preview cancelled");
+        return ARCHIVE_FATAL;
+    }
+
+    la_int64_t base = 0;
+    switch (whence) {
+    case SEEK_SET:
+        break;
+    case SEEK_CUR:
+        base = static_cast<la_int64_t>(input->offset);
+        break;
+    case SEEK_END:
+        base = static_cast<la_int64_t>(input->snapshotBytes);
+        break;
+    default:
+        archive_set_error(archiveHandle, EINVAL, "%s", "Archive preview seek mode is invalid");
+        return ARCHIVE_FATAL;
+    }
+
+    if ((offset > 0 && offset > std::numeric_limits<la_int64_t>::max() - base)
+        || (offset < 0 && offset < -base)) {
+        archive_set_error(archiveHandle, EINVAL, "%s", "Archive preview seek is outside the input snapshot");
+        return ARCHIVE_FATAL;
+    }
+
+    const la_int64_t target = base + offset;
+    if (target < 0 || static_cast<quint64>(target) > input->snapshotBytes) {
+        archive_set_error(archiveHandle, EINVAL, "%s", "Archive preview seek is outside the input snapshot");
+        return ARCHIVE_FATAL;
+    }
+
+    const off_t positioned = ::lseek(input->fd, static_cast<off_t>(target), SEEK_SET);
+    if (positioned < 0 || positioned != static_cast<off_t>(target)) {
+        archive_set_error(archiveHandle, errno, "%s", "Could not seek archive preview input");
+        return ARCHIVE_FATAL;
+    }
+
+    input->offset = static_cast<quint64>(target);
+    input->highWaterMark = std::max(input->highWaterMark, input->offset);
+    return target;
 }
 
 int boundedClose(struct archive*, void*) {
@@ -325,6 +384,12 @@ ArchivePreviewResult ArchivePreviewStore::inspect(
     input.snapshotBytes = snapshotBytes;
     input.cancelRequested = &cancelRequested;
 
+    if (archive_read_set_seek_callback(reader, boundedSeek) != ARCHIVE_OK) {
+        result.error = archiveFailure(reader, QStringLiteral("Could not configure archive preview seeking"));
+        archive_read_free(reader);
+        return result;
+    }
+
     const int openStatus = archive_read_open2(
         reader,
         &input,
@@ -343,7 +408,7 @@ ArchivePreviewResult ArchivePreviewStore::inspect(
     auto finish = [&](ArchivePreviewStatus status, const QString& error = QString()) {
         result.status = status;
         result.error = error;
-        result.archiveBytesConsumed = input.offset;
+        result.archiveBytesConsumed = input.highWaterMark;
         archive_read_close(reader);
         archive_read_free(reader);
         return result;
@@ -402,7 +467,7 @@ ArchivePreviewResult ArchivePreviewStore::inspect(
         }
 
         if (progress) {
-            progress({pathText, result.entriesSeen, input.offset});
+            progress({pathText, result.entriesSeen, input.highWaterMark});
             if (cancelRequested.load(std::memory_order_relaxed))
                 return finish(ArchivePreviewStatus::Cancelled);
         }
