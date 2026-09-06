@@ -2,10 +2,13 @@
 
 #include "fs/DirectoryModel.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
+#include <QEventLoop>
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QtTest>
 
 class DirectoryModelFilterTest final : public QObject {
@@ -222,6 +225,67 @@ private slots:
         QCOMPARE(pathSpy.count(), 0);
         QCOMPARE(model.path(), colonDirectory);
         QVERIFY(!model.loading());
+    }
+
+    void largeDirectoryPublishesCompleteSortedSnapshot() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString root = QDir(temp.path()).filePath(QStringLiteral("large"));
+        QVERIFY(QDir().mkpath(root));
+
+        constexpr int kEntryCount = 4096;
+        for (int i = 0; i < kEntryCount; ++i) {
+            writeFile(QDir(root).filePath(
+                QStringLiteral("item-%1.txt").arg(i, 4, 10, QLatin1Char('0'))));
+        }
+
+        DirectoryModel model(false, nullptr);
+        model.setPath(root);
+        model.setActive(true);
+        QTRY_VERIFY_WITH_TIMEOUT(!model.loading(), 15000);
+
+        QCOMPARE(model.rowCount(), kEntryCount);
+        QCOMPARE(
+            QFileInfo(model.pathAt(0)).fileName(),
+            QStringLiteral("item-0000.txt"));
+        QCOMPARE(
+            QFileInfo(model.pathAt(kEntryCount - 1)).fileName(),
+            QStringLiteral("item-4095.txt"));
+    }
+
+    void rapidNavigationNeverPublishesStaleLargeScan() {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+
+        const QString slowRoot = QDir(temp.path()).filePath(QStringLiteral("slow"));
+        const QString fastRoot = QDir(temp.path()).filePath(QStringLiteral("fast"));
+        QVERIFY(QDir().mkpath(slowRoot));
+        QVERIFY(QDir().mkpath(fastRoot));
+
+        constexpr int kSlowEntryCount = 2048;
+        for (int i = 0; i < kSlowEntryCount; ++i) {
+            writeFile(QDir(slowRoot).filePath(
+                QStringLiteral("stale-%1.txt").arg(i, 4, 10, QLatin1Char('0'))));
+        }
+        const QString sentinel = QDir(fastRoot).filePath(QStringLiteral("current.txt"));
+        writeFile(sentinel);
+
+        DirectoryModel model(false, nullptr);
+        model.setPath(slowRoot);
+        model.setActive(true);
+        QVERIFY(model.loading());
+
+        model.setPath(fastRoot);
+        QTRY_VERIFY_WITH_TIMEOUT(!model.loading(), 15000);
+
+        QVERIFY(QThreadPool::globalInstance()->waitForDone(15000));
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 1000);
+
+        QCOMPARE(model.path(), QDir(fastRoot).absolutePath());
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.pathAt(0), QFileInfo(sentinel).absoluteFilePath());
+        QCOMPARE(QFileInfo(model.pathAt(0)).fileName(), QStringLiteral("current.txt"));
     }
 };
 
