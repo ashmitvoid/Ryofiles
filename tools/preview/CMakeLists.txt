@@ -19,6 +19,9 @@ pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 
 qt_add_executable(ryofiles-preview-helper
     ../../src/preview/PreviewProtocol.hpp
+    ../../src/preview/PreviewFileAccess.hpp
+    ../../src/preview/FontProbe.hpp
+    ../../src/preview/FontProbe.cpp
     ../../src/preview/MediaProbe.hpp
     ../../src/preview/MediaProbe.cpp
     ../../src/preview/preview_helper_main.cpp
@@ -61,6 +64,18 @@ if(RYOFILES_PREVIEW_BUILD_TESTS)
     add_dependencies(ryofiles_media_preview_tests ryofiles-preview-helper)
 
     add_test(NAME media-preview COMMAND ryofiles_media_preview_tests)
+
+    qt_add_executable(ryofiles_font_preview_tests
+        ../../tests/FontPreviewTest.cpp
+        ../../src/preview/PreviewProtocol.hpp
+        ../../src/preview/PreviewScheduler.hpp
+        ../../src/preview/PreviewScheduler.cpp
+    )
+    target_include_directories(ryofiles_font_preview_tests PRIVATE ../../src)
+    target_link_libraries(ryofiles_font_preview_tests PRIVATE Qt6::Core Qt6::Test)
+    add_dependencies(ryofiles_font_preview_tests ryofiles-preview-helper)
+
+    add_test(NAME font-preview COMMAND ryofiles_font_preview_tests)
 endif()
 
 install(TARGETS ryofiles-preview-helper

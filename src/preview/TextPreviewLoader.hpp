@@ -186,3 +186,71 @@ private:
     QString m_error;
     QTimer m_debounce;
 };
+
+class FontPreviewLoader : public QObject {
+    Q_OBJECT
+
+    Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(bool supported READ supported NOTIFY resultChanged)
+    Q_PROPERTY(QString familyName READ familyName NOTIFY resultChanged)
+    Q_PROPERTY(QString styleName READ styleName NOTIFY resultChanged)
+    Q_PROPERTY(QString styleLabel READ styleLabel NOTIFY resultChanged)
+    Q_PROPERTY(int weight READ weight NOTIFY resultChanged)
+    Q_PROPERTY(double unitsPerEm READ unitsPerEm NOTIFY resultChanged)
+    Q_PROPERTY(QString writingSystems READ writingSystems NOTIFY resultChanged)
+    Q_PROPERTY(QString sampleText READ sampleText NOTIFY resultChanged)
+    Q_PROPERTY(QString sampleSource READ sampleSource NOTIFY resultChanged)
+    Q_PROPERTY(QString error READ error NOTIFY resultChanged)
+
+public:
+    explicit FontPreviewLoader(QObject* parent = nullptr);
+    ~FontPreviewLoader() override;
+
+    QString path() const { return m_path; }
+    void setPath(const QString& path);
+    bool active() const { return m_active; }
+    void setActive(bool active);
+    bool loading() const { return m_loading; }
+    bool supported() const { return m_supported; }
+    QString familyName() const { return m_familyName; }
+    QString styleName() const { return m_styleName; }
+    QString styleLabel() const { return m_styleLabel; }
+    int weight() const { return m_weight; }
+    double unitsPerEm() const { return m_unitsPerEm; }
+    QString writingSystems() const { return m_writingSystems; }
+    QString sampleText() const { return m_sampleText; }
+    QString sampleSource() const { return m_sampleSource; }
+    QString error() const { return m_error; }
+
+    Q_INVOKABLE bool isCandidate(const QString& path) const;
+
+signals:
+    void pathChanged();
+    void activeChanged();
+    void loadingChanged();
+    void resultChanged();
+
+private:
+    void scheduleLoad();
+    void startLoad();
+    void clearResult();
+    void setLoading(bool loading);
+
+    QString m_path;
+    bool m_active = false;
+    bool m_loading = false;
+    bool m_supported = false;
+    quint64 m_generation = 0;
+    QString m_familyName;
+    QString m_styleName;
+    QString m_styleLabel;
+    int m_weight = 0;
+    double m_unitsPerEm = 0.0;
+    QString m_writingSystems;
+    QString m_sampleText;
+    QString m_sampleSource;
+    QString m_error;
+    QTimer m_debounce;
+};
