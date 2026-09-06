@@ -303,6 +303,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           base_work="$GITHUB_WORKSPACE/.ci-base-package"
           rm -rf "$base_work"
           mkdir -p "$base_work"
