@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'CMakeLists.txt'
+      - 'CHANGELOG.md'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
       - 'assets/*.desktop'
@@ -17,9 +18,11 @@ on:
       - 'tools/portalctl/**'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
+      - '.github/workflows/release.yml'
   pull_request:
     paths:
       - 'CMakeLists.txt'
+      - 'CHANGELOG.md'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
       - 'assets/*.desktop'
@@ -31,6 +34,7 @@ on:
       - 'tools/portalctl/**'
       - 'packaging/**'
       - '.github/workflows/packaging.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 concurrency:
@@ -57,6 +61,21 @@ jobs:
       - name: Validate AppStream metadata
         run: appstreamcli validate --no-net assets/io.github.ashmitvoid.Ryofiles.metainfo.xml
 
+      - name: Validate release version metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version="$(sed -n 's/^project(ryofiles VERSION \([^ ]*\) LANGUAGES.*/\1/p' CMakeLists.txt)"
+          portalctl_version="$(sed -n 's/^project(ryofiles-portalctl VERSION \([^ ]*\) LANGUAGES.*/\1/p' tools/portalctl/CMakeLists.txt)"
+          release_pkgver="$(sed -n 's/^pkgver=\(.*\)$/\1/p' packaging/arch/PKGBUILD.release)"
+
+          test -n "$project_version"
+          test "$portalctl_version" = "$project_version"
+          test "$release_pkgver" = "$project_version"
+          grep -Fq "<release version=\"$project_version\"" \
+            assets/io.github.ashmitvoid.Ryofiles.metainfo.xml
+          grep -Fq "## $project_version " CHANGELOG.md
+
       - name: Validate neutral portal registration
         shell: bash
         run: |
@@ -77,13 +96,16 @@ jobs:
           grep -Fxq 'Exec=/usr/bin/ryofiles --filechooser-portal' "$service"
 
       - name: Validate PKGBUILD shell syntax
-        run: bash -n packaging/arch/PKGBUILD
+        run: |
+          bash -n packaging/arch/PKGBUILD
+          bash -n packaging/arch/PKGBUILD.release
 
       - name: Guard reversible integration
         shell: bash
         run: |
           set -euo pipefail
-          if grep -En '(xdg-mime[[:space:]]+default|xdg-settings|portals\.conf|xdg-desktop-portal.*\.conf)' packaging/arch/PKGBUILD; then
+          if grep -En '(xdg-mime[[:space:]]+default|xdg-settings|portals\.conf|xdg-desktop-portal.*\.conf)' \
+              packaging/arch/PKGBUILD packaging/arch/PKGBUILD.release; then
             echo 'Packaging must not change file-manager or portal defaults during installation.' >&2
             exit 1
           fi
@@ -205,7 +227,8 @@ jobs:
           grep -Fxq 'Exec=/usr/bin/ryofiles --filechooser-portal' \
             /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service
 
-          /usr/bin/ryofiles-portalctl --version
+          expected_version="$(sed -n 's/^project(ryofiles VERSION \([^ ]*\) LANGUAGES.*/\1/p' CMakeLists.txt)"
+          /usr/bin/ryofiles-portalctl --version | grep -Fq "$expected_version"
 
           ldd /usr/bin/ryofiles | tee /tmp/ryofiles-ldd.txt
           ldd /usr/bin/ryofiles-portalctl | tee /tmp/ryofiles-portalctl-ldd.txt
@@ -219,3 +242,194 @@ jobs:
             echo 'Installed Ryofiles binary is not linked against libarchive.' >&2
             exit 1
           }
+
+  version-transition:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.versions.outputs.changed }}
+      base_version: ${{ steps.versions.outputs.base_version }}
+      head_version: ${{ steps.versions.outputs.head_version }}
+    steps:
+      - name: Checkout exact PR head with history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - id: versions
+        name: Detect project version transition
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          head_version="$(sed -n 's/^project(ryofiles VERSION \([^ ]*\) LANGUAGES.*/\1/p' CMakeLists.txt)"
+          base_version="$(git show "$BASE_SHA:CMakeLists.txt" | sed -n 's/^project(ryofiles VERSION \([^ ]*\) LANGUAGES.*/\1/p')"
+          test -n "$head_version"
+          test -n "$base_version"
+          echo "head_version=$head_version" >> "$GITHUB_OUTPUT"
+          echo "base_version=$base_version" >> "$GITHUB_OUTPUT"
+          if [[ "$head_version" != "$base_version" ]]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  release-migration:
+    needs:
+      - metadata
+      - version-transition
+    if: needs.version-transition.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    env:
+      BASE_SOURCE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+      RELEASE_VERSION: ${{ needs.version-transition.outputs.head_version }}
+    steps:
+      - name: Install migration-test dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          base-devel cmake git ninja glib2 gvfs libarchive qt6-base qt6-declarative
+
+      - name: Checkout exact PR head with base history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Prepare base development package
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_work="$GITHUB_WORKSPACE/.ci-base-package"
+          rm -rf "$base_work"
+          mkdir -p "$base_work"
+          git show "$BASE_SOURCE_SHA:packaging/arch/PKGBUILD" > "$base_work/PKGBUILD"
+
+          unpinned="source=('git+https://github.com/ashmitvoid/Ryofiles.git')"
+          pinned="source=('git+https://github.com/ashmitvoid/Ryofiles.git#commit=$BASE_SOURCE_SHA')"
+          grep -Fxq "$unpinned" "$base_work/PKGBUILD"
+          sed -i "s|^source=('git+https://github.com/ashmitvoid/Ryofiles.git')$|$pinned|" "$base_work/PKGBUILD"
+
+      - name: Prepare stable release package from exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_work="$GITHUB_WORKSPACE/.ci-release-package"
+          rm -rf "$release_work"
+          mkdir -p "$release_work"
+          cp packaging/arch/PKGBUILD.release "$release_work/PKGBUILD"
+
+          grep -Fq '#tag=v${pkgver}' "$release_work/PKGBUILD"
+          sed -i "s|#tag=v\${pkgver}|#commit=$HEAD_SOURCE_SHA|" "$release_work/PKGBUILD"
+          grep -Fq "#commit=$HEAD_SOURCE_SHA" "$release_work/PKGBUILD"
+
+      - name: Build base and release packages as unprivileged user
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd --create-home migrator
+          chown -R migrator:migrator \
+            "$GITHUB_WORKSPACE/.ci-base-package" \
+            "$GITHUB_WORKSPACE/.ci-release-package"
+          su migrator -c "cd '$GITHUB_WORKSPACE/.ci-base-package' && makepkg --noconfirm --cleanbuild"
+          su migrator -c "cd '$GITHUB_WORKSPACE/.ci-release-package' && makepkg --noconfirm --cleanbuild"
+
+      - name: Verify stable package source and payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_work="$GITHUB_WORKSPACE/.ci-release-package"
+          packaged_sha="$(su migrator -c "git -C '$release_work/src/Ryofiles' rev-parse HEAD")"
+          test "$packaged_sha" = "$HEAD_SOURCE_SHA"
+
+          release_pkg="$(find "$release_work" -maxdepth 1 -type f -name "ryofiles-$RELEASE_VERSION-*-x86_64.pkg.tar.zst" -print -quit)"
+          test -n "$release_pkg"
+          bsdtar -tf "$release_pkg" > /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/bin/ryofiles' /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/bin/ryofiles-portalctl' /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/share/licenses/ryofiles/LICENSE' /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/share/licenses/ryofiles/THIRD_PARTY_NOTICES.md' /tmp/ryofiles-release-files.txt
+          if grep -Eq '^etc/' /tmp/ryofiles-release-files.txt; then
+            echo 'Stable package must not write system configuration.' >&2
+            exit 1
+          fi
+
+      - name: Migrate development package to stable V1
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_pkg="$(find "$GITHUB_WORKSPACE/.ci-base-package" -maxdepth 1 -type f -name 'ryofiles-git-*-x86_64.pkg.tar.zst' -print -quit)"
+          release_pkg="$(find "$GITHUB_WORKSPACE/.ci-release-package" -maxdepth 1 -type f -name "ryofiles-$RELEASE_VERSION-*-x86_64.pkg.tar.zst" -print -quit)"
+          test -n "$base_pkg"
+          test -n "$release_pkg"
+
+          pacman -U --noconfirm "$base_pkg"
+          pacman -Q ryofiles-git
+          test -x /usr/bin/ryofiles
+
+          pacman -R --noconfirm ryofiles-git
+          pacman -U --noconfirm "$release_pkg"
+          pacman -Q ryofiles
+          if pacman -Q ryofiles-git >/dev/null 2>&1; then
+            echo 'Development package remained installed after stable migration.' >&2
+            exit 1
+          fi
+
+          /usr/bin/ryofiles-portalctl --version | grep -Fq "$RELEASE_VERSION"
+
+      - name: Exercise installed reversible FileChooser routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          route_root="$(mktemp -d)"
+          config_home="$route_root/config"
+          state_home="$route_root/state"
+          config_dir="$config_home/xdg-desktop-portal"
+          config="$config_dir/hyprland-portals.conf"
+          original="$route_root/original.conf"
+          mkdir -p "$config_dir" "$state_home"
+
+          cat > "$config" <<'EOF'
+          [preferred]
+          default=gtk
+          org.freedesktop.impl.portal.FileChooser=gtk
+          org.freedesktop.impl.portal.ScreenCast=hyprland
+          org.freedesktop.impl.portal.Screenshot=hyprland
+          EOF
+          cp "$config" "$original"
+
+          XDG_CONFIG_HOME="$config_home" XDG_STATE_HOME="$state_home" \
+            /usr/bin/ryofiles-portalctl status | grep -Fxq 'enabled=no'
+          XDG_CONFIG_HOME="$config_home" XDG_STATE_HOME="$state_home" \
+            /usr/bin/ryofiles-portalctl enable
+          XDG_CONFIG_HOME="$config_home" XDG_STATE_HOME="$state_home" \
+            /usr/bin/ryofiles-portalctl status | grep -Fxq 'managed=yes'
+          grep -Fxq 'org.freedesktop.impl.portal.FileChooser=ryofiles;gtk' "$config"
+
+          XDG_CONFIG_HOME="$config_home" XDG_STATE_HOME="$state_home" \
+            /usr/bin/ryofiles-portalctl disable
+          cmp "$original" "$config"
+          test ! -e "$state_home/ryofiles/portal-routing.json"
+
+          printf '%s\n' "$route_root" > /tmp/ryofiles-route-root
+
+      - name: Uninstall stable package cleanly
+        shell: bash
+        run: |
+          set -euo pipefail
+          route_root="$(cat /tmp/ryofiles-route-root)"
+          pacman -Rns --noconfirm ryofiles
+
+          test ! -e /usr/bin/ryofiles
+          test ! -e /usr/bin/ryofiles-portalctl
+          test ! -e /usr/share/applications/ryofiles.desktop
+          test ! -e /usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml
+          test ! -e /usr/share/xdg-desktop-portal/portals/ryofiles.portal
+          test ! -e /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service
+          test ! -e /usr/share/licenses/ryofiles
+          cmp "$route_root/original.conf" \
+            "$route_root/config/xdg-desktop-portal/hyprland-portals.conf"
+          test ! -e "$route_root/state/ryofiles/portal-routing.json"
