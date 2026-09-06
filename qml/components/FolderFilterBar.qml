@@ -15,10 +15,20 @@ Item {
     readonly property bool remote: session && session.remote
 
     signal deepSearchRequested(string query)
+    signal focusReturnRequested()
 
     height: active ? 42 * uiScale : 0
     visible: height > 0
     clip: true
+
+    function returnFocus() {
+        Qt.callLater(function() {
+            if (root.parent && root.parent.focusView)
+                root.parent.focusView()
+            else
+                root.focusReturnRequested()
+        })
+    }
 
     function open() {
         if (!files)
@@ -39,6 +49,7 @@ Item {
         field.text = ""
         field.focus = false
         expanded = false
+        root.returnFocus()
     }
 
     onDeepSearchRequested: function(query) {
@@ -125,6 +136,7 @@ Item {
 
                 Keys.onReturnPressed: function(event) {
                     focus = false
+                    root.returnFocus()
                     event.accepted = true
                 }
             }

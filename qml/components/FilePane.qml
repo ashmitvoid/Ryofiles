@@ -25,6 +25,155 @@ Item {
         root.contextRequested(sceneX, sceneY, path, isDirectory, root.paneIndex)
     }
 
+    function focusView() {
+        if (viewLoader.item && viewLoader.item.focusView)
+            viewLoader.item.focusView()
+    }
+
+    function activateAndFocus() {
+        root.activated(root.paneIndex)
+        Qt.callLater(root.focusView)
+    }
+
+    onPaneActiveChanged: {
+        if (root.paneActive)
+            Qt.callLater(root.focusView)
+    }
+
+    Item {
+        id: keyboardController
+        visible: false
+        width: 0
+        height: 0
+
+        property string typeAheadBuffer: ""
+        property double typeAheadDeadlineMs: 0
+
+        function currentOrInitial(view) {
+            if (!root.files || root.files.count <= 0)
+                return -1
+            if (view.currentIndex >= 0 && view.currentIndex < root.files.count)
+                return view.currentIndex
+            if (root.session && root.session.selectedPath !== "") {
+                var selected = root.files.indexOfPath(root.session.selectedPath)
+                if (selected >= 0)
+                    return selected
+            }
+            return 0
+        }
+
+        function moveTo(view, index, modifiers, positionMode) {
+            if (!root.files || root.files.count <= 0 || !root.session)
+                return false
+
+            var target = Math.max(0, Math.min(root.files.count - 1, index))
+            view.currentIndex = target
+            view.positionViewAtIndex(target, positionMode)
+
+            if (modifiers & Qt.ShiftModifier)
+                root.session.selectRange(target)
+            else if ((modifiers & Qt.ControlModifier) === 0)
+                root.session.selectSingle(target)
+            return true
+        }
+
+        function findPrefix(prefix, startIndex) {
+            if (!root.files || root.files.count <= 0 || prefix === "")
+                return -1
+            var needle = prefix.toLowerCase()
+            var count = root.files.count
+            for (var offset = 0; offset < count; ++offset) {
+                var index = (startIndex + offset) % count
+                var name = root.files.nameAt(index)
+                if (name && name.toLowerCase().indexOf(needle) === 0)
+                    return index
+            }
+            return -1
+        }
+
+        function typeAhead(text, view, positionMode) {
+            if (!text || text.length === 0 || !root.files || root.files.count <= 0)
+                return false
+
+            var now = Date.now()
+            var nextBuffer = now <= typeAheadDeadlineMs
+                ? typeAheadBuffer + text
+                : text
+            var current = currentOrInitial(view)
+            var start = current >= 0 ? (current + 1) % root.files.count : 0
+            var match = findPrefix(nextBuffer, start)
+
+            if (match < 0 && nextBuffer.length > 1) {
+                nextBuffer = text
+                match = findPrefix(nextBuffer, start)
+            }
+            if (match < 0)
+                return false
+
+            typeAheadBuffer = nextBuffer
+            typeAheadDeadlineMs = now + 900
+            return moveTo(view, match, 0, positionMode)
+        }
+
+        function handleKey(event, view, gridMode, columns, pageStep, positionMode) {
+            if (!root.paneActive || !root.session || !root.files || root.files.loading)
+                return false
+
+            var current = currentOrInitial(view)
+            var modifiers = event.modifiers
+            var target = current
+            var handled = true
+
+            if (event.key === Qt.Key_Up)
+                target = current - Math.max(1, columns)
+            else if (event.key === Qt.Key_Down)
+                target = current + Math.max(1, columns)
+            else if (event.key === Qt.Key_Left && gridMode)
+                target = current - 1
+            else if (event.key === Qt.Key_Right && gridMode)
+                target = current + 1
+            else if (event.key === Qt.Key_Home)
+                target = 0
+            else if (event.key === Qt.Key_End)
+                target = root.files.count - 1
+            else if (event.key === Qt.Key_PageUp)
+                target = current - Math.max(1, pageStep)
+            else if (event.key === Qt.Key_PageDown)
+                target = current + Math.max(1, pageStep)
+            else if (event.key === Qt.Key_Space && (modifiers & Qt.ControlModifier)) {
+                if (current >= 0) {
+                    view.currentIndex = current
+                    view.positionViewAtIndex(current, positionMode)
+                    root.session.toggleSelection(current)
+                }
+                return true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                if (current >= 0)
+                    root.session.activate(current)
+                return true
+            } else if (event.key === Qt.Key_Escape) {
+                root.session.clearSelection()
+                return true
+            } else {
+                handled = false
+            }
+
+            if (handled) {
+                if (current < 0)
+                    target = 0
+                return moveTo(view, target, modifiers, positionMode)
+            }
+
+            var text = event.text
+            var blockedModifiers = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+            if (text && text.length > 0 && (modifiers & blockedModifiers) === 0
+                    && text.charCodeAt(0) >= 32) {
+                return typeAhead(text, view, positionMode)
+            }
+            return false
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "transparent"
@@ -67,7 +216,7 @@ Item {
         }
 
         HoverHandler { cursorShape: Qt.PointingHandCursor }
-        TapHandler { onTapped: root.activated(root.paneIndex) }
+        TapHandler { onTapped: root.activateAndFocus() }
     }
 
     Component {
@@ -75,10 +224,11 @@ Item {
         FileListView {
             session: root.session
             files: root.files
+            keyboardController: keyboardController
             uiScale: root.uiScale
             compact: true
             paneActive: root.paneActive
-            onPaneActivated: root.activated(root.paneIndex)
+            onPaneActivated: root.activateAndFocus()
             onContextRequested: function(sceneX, sceneY, path, isDirectory) {
                 root.routeContext(sceneX, sceneY, path, isDirectory)
             }
@@ -90,9 +240,10 @@ Item {
         FileGridView {
             session: root.session
             files: root.files
+            keyboardController: keyboardController
             uiScale: root.uiScale
             paneActive: root.paneActive
-            onPaneActivated: root.activated(root.paneIndex)
+            onPaneActivated: root.activateAndFocus()
             onContextRequested: function(sceneX, sceneY, path, isDirectory) {
                 root.routeContext(sceneX, sceneY, path, isDirectory)
             }
@@ -104,10 +255,11 @@ Item {
         FileListView {
             session: root.session
             files: root.files
+            keyboardController: keyboardController
             uiScale: root.uiScale
             compact: false
             paneActive: root.paneActive
-            onPaneActivated: root.activated(root.paneIndex)
+            onPaneActivated: root.activateAndFocus()
             onContextRequested: function(sceneX, sceneY, path, isDirectory) {
                 root.routeContext(sceneX, sceneY, path, isDirectory)
             }
@@ -115,6 +267,7 @@ Item {
     }
 
     Loader {
+        id: viewLoader
         anchors.fill: parent
         anchors.margins: 2 * root.uiScale
         active: root.session !== null && root.files !== null
@@ -126,6 +279,10 @@ Item {
             if (root.session.viewMode === 1)
                 return gridView
             return detailsView
+        }
+        onLoaded: {
+            if (root.paneActive)
+                Qt.callLater(root.focusView)
         }
     }
 

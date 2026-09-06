@@ -73,6 +73,7 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE QString pathAt(int index) const;
+    Q_INVOKABLE QString nameAt(int index) const;
     Q_INVOKABLE bool isDirectoryAt(int index) const;
     Q_INVOKABLE int indexOfPath(const QString& path) const;
 

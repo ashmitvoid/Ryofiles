@@ -7,12 +7,12 @@ Item {
 
     required property var session
     required property var files
+    required property var keyboardController
     property real uiScale: 1
     property bool compact: false
     property bool paneActive: true
 
     property bool restoring: false
-    property bool pointerSelection: false
     readonly property bool remote: root.session && root.session.remote
     readonly property bool previewOpen: !root.remote && root.session && root.session.previewVisible
     readonly property real previewWidth: Math.min(
@@ -23,6 +23,12 @@ Item {
     signal paneActivated()
 
     clip: true
+
+    function focusView() {
+        if (!root.paneActive)
+            return
+        view.forceActiveFocus()
+    }
 
     function restoreState() {
         if (!root.session || !root.files || root.session.model !== root.files)
@@ -48,6 +54,8 @@ Item {
 
             Qt.callLater(function() {
                 root.restoring = false
+                if (root.paneActive)
+                    root.focusView()
             })
         })
     }
@@ -59,6 +67,10 @@ Item {
     onFilesChanged: {
         restoring = true
         restoreState()
+    }
+    onPaneActiveChanged: {
+        if (root.paneActive)
+            Qt.callLater(root.focusView)
     }
 
     Shortcut {
@@ -93,13 +105,11 @@ Item {
         currentIndex: -1
         boundsBehavior: Flickable.StopAtBounds
         reuseItems: true
+        activeFocusOnTab: root.paneActive
 
-        onCurrentIndexChanged: {
-            if (root.restoring || root.pointerSelection || !activeFocus || !root.session || !root.files ||
-                root.files.loading || currentIndex < 0)
-                return
-            root.session.selectSingle(currentIndex)
-        }
+        readonly property int keyboardPageStep: Math.max(
+            1,
+            Math.floor(height / Math.max(1, (root.compact ? 34 : 44) * root.uiScale)))
 
         onContentYChanged: {
             if (!root.restoring && root.session && root.files && !root.files.loading)
@@ -120,6 +130,8 @@ Item {
                 var revision = root.session ? root.session.selectionRevision : 0
                 return revision >= 0 && root.session && root.session.isSelectedPath(filePath)
             }
+            readonly property bool currentItem:
+                root.paneActive && view.activeFocus && view.currentIndex === row.index
 
             width: view.width
             height: (root.compact ? 34 : 44) * root.uiScale
@@ -127,6 +139,10 @@ Item {
             color: selected
                 ? Ryoku.bone
                 : (mouse.containsMouse ? Ryoku.tint5 : "transparent")
+            border.width: currentItem ? 1 : 0
+            border.color: currentItem
+                ? (selected ? Ryoku.inkOnBoneDim : Ryoku.lineStrong)
+                : "transparent"
 
             Row {
                 anchors.fill: parent
@@ -193,7 +209,6 @@ Item {
 
                 onClicked: function(event) {
                     root.paneActivated()
-                    root.pointerSelection = true
                     view.currentIndex = row.index
 
                     if (event.button === Qt.RightButton) {
@@ -202,7 +217,6 @@ Item {
 
                         var point = row.mapToItem(null, event.x, event.y)
                         root.contextRequested(point.x, point.y, row.filePath, row.isDir)
-                        root.pointerSelection = false
                         view.forceActiveFocus()
                         return
                     }
@@ -214,7 +228,6 @@ Item {
                     else
                         root.session.selectSingle(row.index)
 
-                    root.pointerSelection = false
                     view.forceActiveFocus()
                 }
 
@@ -222,12 +235,22 @@ Item {
                     root.paneActivated()
                     view.currentIndex = row.index
                     root.session.activate(row.index)
+                    view.forceActiveFocus()
                 }
             }
         }
 
-        Keys.onReturnPressed: if (root.session) root.session.activate(currentIndex)
-        Keys.onEnterPressed: if (root.session) root.session.activate(currentIndex)
+        Keys.onPressed: function(event) {
+            if (root.keyboardController.handleKey(
+                    event,
+                    view,
+                    false,
+                    1,
+                    view.keyboardPageStep,
+                    ListView.Contain)) {
+                event.accepted = true
+            }
+        }
     }
 
     PreviewPanel {
@@ -277,7 +300,9 @@ Item {
         TapHandler {
             onTapped: {
                 root.paneActivated()
-                if (root.session && !root.remote) root.session.previewVisible = true
+                if (root.session && !root.remote)
+                    root.session.previewVisible = true
+                Qt.callLater(root.focusView)
             }
         }
     }
@@ -293,8 +318,8 @@ Item {
     }
 
     Component.onCompleted: {
-        if (root.paneActive)
-            view.forceActiveFocus()
         restoreState()
+        if (root.paneActive)
+            Qt.callLater(root.focusView)
     }
 }
