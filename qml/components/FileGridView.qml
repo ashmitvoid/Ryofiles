@@ -103,6 +103,11 @@ Item {
             font.family: Ryoku.uiFont
             font.pixelSize: 11 * root.uiScale
             font.weight: Font.Medium
+
+            Behavior on color {
+                enabled: !Ryoku.reduceMotion
+                ColorAnimation { duration: Ryoku.duration(110) }
+            }
         }
 
         Rectangle {
@@ -125,17 +130,25 @@ Item {
         height: 26 * root.uiScale
         visible: !root.remote && !root.previewOpen
         radius: 6 * root.uiScale
-        color: previewHover.hovered ? Ryoku.tint10 : "transparent"
+        color: previewTap.pressed
+            ? Ryoku.tint10
+            : (previewHover.hovered ? Ryoku.tint5 : "transparent")
+
+        Behavior on color {
+            enabled: !Ryoku.reduceMotion
+            ColorAnimation { duration: Ryoku.duration(90) }
+        }
 
         Text {
             anchors.centerIn: parent
             text: "Preview"
-            color: previewHover.hovered ? Ryoku.ink : Ryoku.inkMuted
+            color: previewHover.hovered || previewTap.pressed ? Ryoku.ink : Ryoku.inkMuted
             font.family: Ryoku.uiFont
             font.pixelSize: 10 * root.uiScale
         }
         HoverHandler { id: previewHover; cursorShape: Qt.PointingHandCursor }
         TapHandler {
+            id: previewTap
             onTapped: {
                 root.paneActivated()
                 if (root.session && !root.remote)
@@ -200,6 +213,12 @@ Item {
 
             width: view.cellWidth
             height: view.cellHeight
+            opacity: mouse.pressed ? 0.82 : 1.0
+
+            Behavior on opacity {
+                enabled: !Ryoku.reduceMotion
+                NumberAnimation { duration: Ryoku.duration(70) }
+            }
 
             Rectangle {
                 anchors.fill: parent
@@ -248,6 +267,12 @@ Item {
                         cache: true
                         asynchronous: true
                         smooth: true
+                        opacity: status === Image.Ready ? 1.0 : 0.0
+
+                        Behavior on opacity {
+                            enabled: !Ryoku.reduceMotion
+                            NumberAnimation { duration: Ryoku.duration(130); easing.type: Easing.OutCubic }
+                        }
                     }
 
                     Item {
@@ -255,6 +280,12 @@ Item {
                         width: 64 * root.uiScale
                         height: 54 * root.uiScale
                         visible: !thumbnail.visible || thumbnail.status !== Image.Ready
+                        opacity: thumbnail.status === Image.Ready ? 0.0 : 1.0
+
+                        Behavior on opacity {
+                            enabled: !Ryoku.reduceMotion
+                            NumberAnimation { duration: Ryoku.duration(100) }
+                        }
 
                         Rectangle {
                             anchors.left: parent.left
@@ -381,11 +412,21 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         width: root.previewOpen ? root.previewWidth : 0
-        visible: root.previewOpen
+        visible: width > 0.5
+        opacity: root.previewOpen ? 1.0 : 0.0
         session: root.session
         desktop: Desktop
         thumbnails: Thumbnails
         uiScale: root.uiScale
+
+        Behavior on width {
+            enabled: !Ryoku.reduceMotion
+            NumberAnimation { duration: Ryoku.duration(150); easing.type: Easing.OutCubic }
+        }
+        Behavior on opacity {
+            enabled: !Ryoku.reduceMotion
+            NumberAnimation { duration: Ryoku.duration(110) }
+        }
     }
 
     Connections {
