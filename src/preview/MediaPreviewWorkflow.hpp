@@ -12,7 +12,7 @@ class QFile;
 class QMediaPlayer;
 class QVideoSink;
 
-class MediaPreviewLoader final : public QObject {
+class MediaPreviewLoader : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
@@ -111,7 +111,7 @@ private:
     QTimer m_debounce;
 };
 
-class MediaPlaybackController final : public QObject {
+class MediaPlaybackController : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
