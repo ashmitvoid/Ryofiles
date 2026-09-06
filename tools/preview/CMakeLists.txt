@@ -16,12 +16,15 @@ pkg_check_modules(AVFORMAT REQUIRED IMPORTED_TARGET libavformat)
 pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec)
 pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
 pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
+pkg_check_modules(EXIV2 REQUIRED IMPORTED_TARGET exiv2)
 
 qt_add_executable(ryofiles-preview-helper
     ../../src/preview/PreviewProtocol.hpp
     ../../src/preview/PreviewFileAccess.hpp
     ../../src/preview/FontProbe.hpp
     ../../src/preview/FontProbe.cpp
+    ../../src/preview/ImageProbe.hpp
+    ../../src/preview/ImageProbe.cpp
     ../../src/preview/MediaProbe.hpp
     ../../src/preview/MediaProbe.cpp
     ../../src/preview/preview_helper_main.cpp
@@ -35,6 +38,7 @@ target_link_libraries(ryofiles-preview-helper PRIVATE
     PkgConfig::AVCODEC
     PkgConfig::AVUTIL
     PkgConfig::SWSCALE
+    PkgConfig::EXIV2
 )
 
 option(RYOFILES_PREVIEW_BUILD_TESTS "Build preview foundation tests" ON)
@@ -76,6 +80,18 @@ if(RYOFILES_PREVIEW_BUILD_TESTS)
     add_dependencies(ryofiles_font_preview_tests ryofiles-preview-helper)
 
     add_test(NAME font-preview COMMAND ryofiles_font_preview_tests)
+
+    qt_add_executable(ryofiles_image_preview_tests
+        ../../tests/ImagePreviewTest.cpp
+        ../../src/preview/PreviewProtocol.hpp
+        ../../src/preview/PreviewScheduler.hpp
+        ../../src/preview/PreviewScheduler.cpp
+    )
+    target_include_directories(ryofiles_image_preview_tests PRIVATE ../../src)
+    target_link_libraries(ryofiles_image_preview_tests PRIVATE Qt6::Core Qt6::Test)
+    add_dependencies(ryofiles_image_preview_tests ryofiles-preview-helper)
+
+    add_test(NAME image-preview COMMAND ryofiles_image_preview_tests)
 endif()
 
 install(TARGETS ryofiles-preview-helper
