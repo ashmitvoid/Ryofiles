@@ -40,7 +40,6 @@ Item {
 
                 delegate: Item {
                     id: tab
-
                     required property int index
                     required property string title
                     required property string path
@@ -59,13 +58,13 @@ Item {
                         anchors.bottom: parent.bottom
                         anchors.bottomMargin: 3 * root.uiScale
                         radius: 7 * root.uiScale
-                        color: tab.active
-                            ? Ryoku.paperLift
-                            : (tabHover.hovered ? Ryoku.tint5 : "transparent")
+                        color: tabTap.pressed
+                            ? Ryoku.tint10
+                            : (tab.active ? Ryoku.paperLift : (tabHover.hovered ? Ryoku.tint5 : "transparent"))
 
                         Behavior on color {
                             enabled: !Ryoku.reduceMotion
-                            ColorAnimation { duration: Ryoku.duration(120) }
+                            ColorAnimation { duration: Ryoku.duration(100) }
                         }
                     }
 
@@ -78,7 +77,6 @@ Item {
                         height: tab.active ? 2 * root.uiScale : 0
                         radius: 1 * root.uiScale
                         color: Ryoku.sun
-
                         Behavior on height {
                             enabled: !Ryoku.reduceMotion
                             NumberAnimation { duration: Ryoku.duration(120); easing.type: Easing.OutCubic }
@@ -111,9 +109,10 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             radius: 6 * root.uiScale
-                            color: closeHover.hovered ? Ryoku.tint10 : "transparent"
+                            color: closeTap.pressed
+                                ? Ryoku.tint10
+                                : (closeHover.hovered ? Ryoku.tint5 : "transparent")
                         }
-
                         Text {
                             anchors.centerIn: parent
                             text: "×"
@@ -121,9 +120,9 @@ Item {
                             font.family: Ryoku.uiFont
                             font.pixelSize: 14 * root.uiScale
                         }
-
                         HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler {
+                            id: closeTap
                             acceptedButtons: Qt.LeftButton
                             onTapped: root.tabs.closeTab(tab.index)
                         }
@@ -131,6 +130,7 @@ Item {
 
                     HoverHandler { id: tabHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
+                        id: tabTap
                         acceptedButtons: Qt.LeftButton
                         onTapped: root.tabs.currentIndex = tab.index
                     }
@@ -146,8 +146,11 @@ Item {
                     width: 28 * root.uiScale
                     height: 28 * root.uiScale
                     radius: 7 * root.uiScale
-                    color: addHover.hovered ? Ryoku.tint10 : "transparent"
-
+                    color: addTap.pressed ? Ryoku.tint10 : (addHover.hovered ? Ryoku.tint5 : "transparent")
+                    Behavior on color {
+                        enabled: !Ryoku.reduceMotion
+                        ColorAnimation { duration: Ryoku.duration(90) }
+                    }
                     Text {
                         anchors.centerIn: parent
                         text: "+"
@@ -156,9 +159,9 @@ Item {
                         font.pixelSize: 17 * root.uiScale
                     }
                 }
-
                 HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
+                    id: addTap
                     acceptedButtons: Qt.LeftButton
                     onTapped: root.tabs.newTab("")
                 }
