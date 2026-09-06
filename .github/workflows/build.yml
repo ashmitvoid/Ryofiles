@@ -56,6 +56,16 @@ jobs:
         run: cmake --build build-portalctl --parallel 2
       - name: Test portal routing helper
         run: ctest --test-dir build-portalctl --output-on-failure
+      - name: Configure preview foundation
+        run: >-
+          cmake -S tools/preview -B build-preview -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DRYOFILES_PREVIEW_BUILD_TESTS=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build preview foundation
+        run: cmake --build build-preview --parallel 2
+      - name: Test preview foundation
+        run: ctest --test-dir build-preview --output-on-failure
       - name: Smoke-test staged install
         shell: bash
         run: |
