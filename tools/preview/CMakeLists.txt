@@ -7,14 +7,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Test)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(POPPLER_QT6 REQUIRED IMPORTED_TARGET poppler-qt6)
 
 qt_add_executable(ryofiles-preview-helper
     ../../src/preview/PreviewProtocol.hpp
     ../../src/preview/preview_helper_main.cpp
 )
 target_include_directories(ryofiles-preview-helper PRIVATE ../../src)
-target_link_libraries(ryofiles-preview-helper PRIVATE Qt6::Core)
+target_link_libraries(ryofiles-preview-helper PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    PkgConfig::POPPLER_QT6
+)
 
 option(RYOFILES_PREVIEW_BUILD_TESTS "Build preview foundation tests" ON)
 if(RYOFILES_PREVIEW_BUILD_TESTS)
