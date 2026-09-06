@@ -33,5 +33,18 @@
   <developer id="io.github.ashmitvoid">
     <name>Ryofiles contributors</name>
   </developer>
+  <releases>
+    <release version="1.0.0" date="2026-09-06">
+      <description>
+        <ul>
+          <li>Native local and GVfs-backed remote browsing with tabs, split view, search, Trash, storage, and Git-aware actions.</li>
+          <li>Safe local operation queue with explicit conflict handling, cancellation, and no silent overwrite.</li>
+          <li>Ryoku-native open, save, and folder picker modes plus an opt-in, reversible XDG FileChooser backend.</li>
+          <li>Secure libarchive extraction and creation workflows plus bounded asynchronous archive preview.</li>
+          <li>Bounded thumbnail and text preview work with stale-generation protection and no automatic recursive folder-size scanning.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
   <content_rating type="oars-1.1"/>
 </component>
