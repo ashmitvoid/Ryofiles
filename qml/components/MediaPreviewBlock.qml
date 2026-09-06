@@ -55,6 +55,7 @@ Item {
     }
 
     Image {
+        id: posterImage
         anchors.fill: parent
         anchors.margins: 10 * root.uiScale
         visible: root.active
@@ -66,6 +67,12 @@ Item {
         cache: true
         asynchronous: true
         smooth: true
+        opacity: status === Image.Ready ? 1.0 : 0.0
+
+        Behavior on opacity {
+            enabled: !Ryoku.reduceMotion
+            NumberAnimation { duration: Ryoku.duration(140); easing.type: Easing.OutCubic }
+        }
     }
 
     VideoOutput {
@@ -81,6 +88,7 @@ Item {
     }
 
     Image {
+        id: fontSampleImage
         anchors.fill: parent
         anchors.leftMargin: 10 * root.uiScale
         anchors.rightMargin: 10 * root.uiScale
@@ -95,6 +103,12 @@ Item {
         cache: true
         asynchronous: true
         smooth: true
+        opacity: status === Image.Ready ? 1.0 : 0.0
+
+        Behavior on opacity {
+            enabled: !Ryoku.reduceMotion
+            NumberAnimation { duration: Ryoku.duration(140); easing.type: Easing.OutCubic }
+        }
     }
 
     Item {
@@ -102,6 +116,12 @@ Item {
         width: Math.min(parent.width - 28 * root.uiScale, 230 * root.uiScale)
         height: 86 * root.uiScale
         visible: root.active && root.loading
+        opacity: visible ? 1.0 : 0.0
+
+        Behavior on opacity {
+            enabled: !Ryoku.reduceMotion
+            NumberAnimation { duration: Ryoku.duration(100) }
+        }
 
         Column {
             anchors.centerIn: parent
@@ -202,7 +222,15 @@ Item {
                     width: 30 * root.uiScale
                     height: parent.height
                     radius: 6 * root.uiScale
-                    color: playHover.hovered ? Ryoku.tint10 : Ryoku.tint5
+                    color: playTap.pressed
+                        ? Ryoku.tint10
+                        : (playHover.hovered ? Ryoku.tint5 : "transparent")
+
+                    Behavior on color {
+                        enabled: !Ryoku.reduceMotion
+                        ColorAnimation { duration: Ryoku.duration(90) }
+                    }
+
                     Text {
                         anchors.centerIn: parent
                         text: mediaPlayback.playing ? "Ⅱ" : "▶"
@@ -212,6 +240,7 @@ Item {
                     }
                     HoverHandler { id: playHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
+                        id: playTap
                         onTapped: {
                             if (mediaPlayback.playing) mediaPlayback.pause()
                             else mediaPlayback.play()
@@ -223,8 +252,20 @@ Item {
                     width: 30 * root.uiScale
                     height: parent.height
                     radius: 6 * root.uiScale
-                    color: stopHover.hovered && mediaPlayback.prepared ? Ryoku.tint10 : Ryoku.tint5
+                    color: stopTap.pressed
+                        ? Ryoku.tint10
+                        : (stopHover.hovered && mediaPlayback.prepared ? Ryoku.tint5 : "transparent")
                     opacity: mediaPlayback.prepared ? 1.0 : 0.38
+
+                    Behavior on color {
+                        enabled: !Ryoku.reduceMotion
+                        ColorAnimation { duration: Ryoku.duration(90) }
+                    }
+                    Behavior on opacity {
+                        enabled: !Ryoku.reduceMotion
+                        NumberAnimation { duration: Ryoku.duration(90) }
+                    }
+
                     Text {
                         anchors.centerIn: parent
                         text: "■"
@@ -232,8 +273,16 @@ Item {
                         font.family: Ryoku.uiFont
                         font.pixelSize: 8 * root.uiScale
                     }
-                    HoverHandler { id: stopHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { enabled: mediaPlayback.prepared; onTapped: mediaPlayback.stop() }
+                    HoverHandler {
+                        id: stopHover
+                        enabled: mediaPlayback.prepared
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    TapHandler {
+                        id: stopTap
+                        enabled: mediaPlayback.prepared
+                        onTapped: mediaPlayback.stop()
+                    }
                 }
 
                 Text {
