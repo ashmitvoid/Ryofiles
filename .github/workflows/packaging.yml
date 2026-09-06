@@ -104,7 +104,7 @@ jobs:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg ttf-dejavu
+          base-devel cmake exiv2 ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative qt6-imageformats qt6-multimedia qt6-multimedia-ffmpeg ttf-dejavu
 
       - name: Checkout exact package source SHA
         uses: actions/checkout@v4
@@ -209,7 +209,7 @@ jobs:
           grep -Fxq 'Exec=/usr/bin/ryofiles --filechooser-portal' \
             /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service
 
-          pacman -Q qt6-multimedia qt6-multimedia-ffmpeg
+          pacman -Q exiv2 qt6-imageformats qt6-multimedia qt6-multimedia-ffmpeg
           /usr/bin/ryofiles-portalctl --version
 
           ldd /usr/bin/ryofiles | tee /tmp/ryofiles-ldd.txt
@@ -234,6 +234,11 @@ jobs:
 
           grep -Eq 'libpoppler-qt6\.so' /tmp/ryofiles-preview-helper-ldd.txt || {
             echo 'Installed preview helper is not linked against Poppler Qt6.' >&2
+            exit 1
+          }
+
+          grep -Eq 'libexiv2\.so' /tmp/ryofiles-preview-helper-ldd.txt || {
+            echo 'Installed preview helper is not linked against Exiv2.' >&2
             exit 1
           }
 

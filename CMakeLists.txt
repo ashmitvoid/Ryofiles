@@ -92,6 +92,7 @@ qt_add_executable(ryofiles
     src/preview/PreviewFileAccess.hpp
     src/preview/MediaPreviewWorkflow.hpp
     src/preview/MediaPreviewWorkflow.cpp
+    src/preview/ImagePreviewWorkflow.cpp
 )
 
 qt_add_qml_module(ryofiles

@@ -38,4 +38,17 @@ inline constexpr int kMaxFontPixelSize = 96;
 inline constexpr int kMaxFontSampleChars = 96;
 inline constexpr int kMaxFontWritingSystems = 16;
 
+inline constexpr qint64 kMaxImageMetadataInputBytes = 64LL * 1024 * 1024;
+inline constexpr int kMaxImageMetadataChars = 256;
+inline constexpr qint64 kMaxAnimationInputBytes = 64LL * 1024 * 1024;
+inline constexpr int kMaxAnimationSourceDimension = 4096;
+inline constexpr qint64 kMaxAnimationSourcePixels = 16LL * 1024 * 1024;
+inline constexpr int kDefaultAnimationFrameWidth = 960;
+inline constexpr int kDefaultAnimationFrameHeight = 720;
+inline constexpr int kMaxAnimationFrameDimension = 1024;
+inline constexpr int kMaxAnimationFrames = 120;
+inline constexpr int kMinAnimationDelayMs = 50;
+inline constexpr int kMaxAnimationDelayMs = 500;
+inline constexpr int kMaxAnimationPlayMs = 30'000;
+
 } // namespace PreviewProtocol

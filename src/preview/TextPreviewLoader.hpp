@@ -4,6 +4,8 @@
 #include "ArchivePreviewStore.hpp"
 #include "TextPreviewStore.hpp"
 
+#include <QElapsedTimer>
+#include <QJsonObject>
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
@@ -253,4 +255,170 @@ private:
     QString m_sampleSource;
     QString m_error;
     QTimer m_debounce;
+};
+
+class ImagePreviewLoader : public QObject {
+    Q_OBJECT
+
+    Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(bool supported READ supported NOTIFY resultChanged)
+    Q_PROPERTY(int pixelWidth READ pixelWidth NOTIFY resultChanged)
+    Q_PROPERTY(int pixelHeight READ pixelHeight NOTIFY resultChanged)
+    Q_PROPERTY(QString formatName READ formatName NOTIFY resultChanged)
+    Q_PROPERTY(bool metadataAvailable READ metadataAvailable NOTIFY resultChanged)
+    Q_PROPERTY(bool metadataLimited READ metadataLimited NOTIFY resultChanged)
+    Q_PROPERTY(bool animated READ animated NOTIFY resultChanged)
+    Q_PROPERTY(bool animationSupported READ animationSupported NOTIFY resultChanged)
+    Q_PROPERTY(int frameCount READ frameCount NOTIFY resultChanged)
+    Q_PROPERTY(QString cameraMake READ cameraMake NOTIFY resultChanged)
+    Q_PROPERTY(QString cameraModel READ cameraModel NOTIFY resultChanged)
+    Q_PROPERTY(QString lensModel READ lensModel NOTIFY resultChanged)
+    Q_PROPERTY(QString dateTaken READ dateTaken NOTIFY resultChanged)
+    Q_PROPERTY(QString exposureTime READ exposureTime NOTIFY resultChanged)
+    Q_PROPERTY(QString aperture READ aperture NOTIFY resultChanged)
+    Q_PROPERTY(QString iso READ iso NOTIFY resultChanged)
+    Q_PROPERTY(QString focalLength READ focalLength NOTIFY resultChanged)
+    Q_PROPERTY(QString orientation READ orientation NOTIFY resultChanged)
+    Q_PROPERTY(QString exposureBias READ exposureBias NOTIFY resultChanged)
+    Q_PROPERTY(QString whiteBalance READ whiteBalance NOTIFY resultChanged)
+    Q_PROPERTY(QString colorSpace READ colorSpace NOTIFY resultChanged)
+    Q_PROPERTY(QString software READ software NOTIFY resultChanged)
+    Q_PROPERTY(QString artist READ artist NOTIFY resultChanged)
+    Q_PROPERTY(QString copyright READ copyright NOTIFY resultChanged)
+    Q_PROPERTY(QString error READ error NOTIFY resultChanged)
+
+public:
+    explicit ImagePreviewLoader(QObject* parent = nullptr);
+    ~ImagePreviewLoader() override;
+
+    QString path() const { return m_path; }
+    void setPath(const QString& path);
+    bool active() const { return m_active; }
+    void setActive(bool active);
+    bool loading() const { return m_loading; }
+    bool supported() const { return m_supported; }
+    int pixelWidth() const { return m_pixelWidth; }
+    int pixelHeight() const { return m_pixelHeight; }
+    QString formatName() const { return m_formatName; }
+    bool metadataAvailable() const { return m_metadataAvailable; }
+    bool metadataLimited() const { return m_metadataLimited; }
+    bool animated() const { return m_animated; }
+    bool animationSupported() const { return m_animationSupported; }
+    int frameCount() const { return m_frameCount; }
+    QString cameraMake() const { return m_cameraMake; }
+    QString cameraModel() const { return m_cameraModel; }
+    QString lensModel() const { return m_lensModel; }
+    QString dateTaken() const { return m_dateTaken; }
+    QString exposureTime() const { return m_exposureTime; }
+    QString aperture() const { return m_aperture; }
+    QString iso() const { return m_iso; }
+    QString focalLength() const { return m_focalLength; }
+    QString orientation() const { return m_orientation; }
+    QString exposureBias() const { return m_exposureBias; }
+    QString whiteBalance() const { return m_whiteBalance; }
+    QString colorSpace() const { return m_colorSpace; }
+    QString software() const { return m_software; }
+    QString artist() const { return m_artist; }
+    QString copyright() const { return m_copyright; }
+    QString error() const { return m_error; }
+
+    Q_INVOKABLE bool isCandidate(const QString& path) const;
+
+signals:
+    void pathChanged();
+    void activeChanged();
+    void loadingChanged();
+    void resultChanged();
+
+private:
+    void scheduleLoad();
+    void startLoad();
+    void clearResult();
+    void setLoading(bool loading);
+
+    QString m_path;
+    bool m_active = false;
+    bool m_loading = false;
+    bool m_supported = false;
+    int m_pixelWidth = 0;
+    int m_pixelHeight = 0;
+    bool m_metadataAvailable = false;
+    bool m_metadataLimited = false;
+    bool m_animated = false;
+    bool m_animationSupported = false;
+    int m_frameCount = 0;
+    quint64 m_generation = 0;
+    QString m_formatName;
+    QString m_cameraMake;
+    QString m_cameraModel;
+    QString m_lensModel;
+    QString m_dateTaken;
+    QString m_exposureTime;
+    QString m_aperture;
+    QString m_iso;
+    QString m_focalLength;
+    QString m_orientation;
+    QString m_exposureBias;
+    QString m_whiteBalance;
+    QString m_colorSpace;
+    QString m_software;
+    QString m_artist;
+    QString m_copyright;
+    QString m_error;
+    QTimer m_debounce;
+};
+
+class ImageAnimationController : public QObject {
+    Q_OBJECT
+
+    Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
+    Q_PROPERTY(QString frameSource READ frameSource NOTIFY playbackChanged)
+    Q_PROPERTY(int frame READ frame NOTIFY playbackChanged)
+    Q_PROPERTY(int frameCount READ frameCount NOTIFY playbackChanged)
+    Q_PROPERTY(QString error READ error NOTIFY playbackChanged)
+
+public:
+    explicit ImageAnimationController(QObject* parent = nullptr);
+    ~ImageAnimationController() override;
+
+    QString path() const { return m_path; }
+    void setPath(const QString& path);
+    bool active() const { return m_active; }
+    void setActive(bool active);
+    bool playing() const { return m_playing; }
+    QString frameSource() const { return m_frameSource; }
+    int frame() const { return m_frame; }
+    int frameCount() const { return m_frameCount; }
+    QString error() const { return m_error; }
+
+    Q_INVOKABLE void play();
+    Q_INVOKABLE void stop();
+
+signals:
+    void pathChanged();
+    void activeChanged();
+    void playbackChanged();
+
+private:
+    void requestStart();
+    void requestNext();
+    void applyFrame(const QJsonObject& payload);
+    void fail(const QString& error);
+    void stopInternal();
+
+    QString m_path;
+    bool m_active = false;
+    bool m_playing = false;
+    quint64 m_generation = 0;
+    QString m_session;
+    QString m_frameSource;
+    int m_frame = -1;
+    int m_frameCount = 0;
+    QString m_error;
+    QTimer m_frameTimer;
+    QElapsedTimer m_elapsed;
 };
