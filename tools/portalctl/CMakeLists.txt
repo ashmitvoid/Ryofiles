@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(ryofiles-portalctl LANGUAGES CXX)
+project(ryofiles-portalctl VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,6 +16,9 @@ add_executable(ryofiles-portalctl
 )
 
 target_include_directories(ryofiles-portalctl PRIVATE ../../src)
+target_compile_definitions(ryofiles-portalctl PRIVATE
+    RYOFILES_PORTALCTL_VERSION="${PROJECT_VERSION}"
+)
 target_link_libraries(ryofiles-portalctl PRIVATE Qt6::Core)
 
 include(GNUInstallDirs)
