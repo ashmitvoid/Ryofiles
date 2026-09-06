@@ -108,6 +108,31 @@ private slots:
         QVERIFY(png.startsWith("\x89PNG\r\n\x1a\n"));
     }
 
+    void metadataOnlySkipsSampleRendering() {
+        QVERIFY2(QFile::exists(testFontPath()), qPrintable(testFontPath()));
+
+        PreviewScheduler scheduler(helperPath());
+        QObject owner;
+        const PreviewResult result = execute(
+            scheduler,
+            owner,
+            QJsonObject {
+                {QStringLiteral("op"), QStringLiteral("font-preview")},
+                {QStringLiteral("path"), testFontPath()},
+                {QStringLiteral("renderSample"), false},
+            });
+
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QVERIFY(result.payload.value(QStringLiteral("family")).toString().contains(
+            QStringLiteral("DejaVu Sans"), Qt::CaseInsensitive));
+        QVERIFY(result.payload.value(QStringLiteral("unitsPerEm")).toDouble() > 0.0);
+        QVERIFY(!result.payload.value(QStringLiteral("writingSystems")).toArray().isEmpty());
+        QVERIFY(!result.payload.contains(QStringLiteral("sampleFormat")));
+        QVERIFY(!result.payload.contains(QStringLiteral("sampleBase64")));
+        QVERIFY(!result.payload.contains(QStringLiteral("sampleWidth")));
+        QVERIFY(!result.payload.contains(QStringLiteral("sampleHeight")));
+    }
+
     void rejectsFontSymlinkWithoutFollowing() {
         QVERIFY2(QFile::exists(testFontPath()), qPrintable(testFontPath()));
         QTemporaryDir directory;
