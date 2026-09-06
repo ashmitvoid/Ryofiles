@@ -25,3 +25,11 @@ The bounded PDF preview helper dynamically links to the distribution-provided Po
 ## FFmpeg
 
 The bounded audio/video preview helper dynamically links to the distribution-provided FFmpeg libraries (`libavformat`, `libavcodec`, `libavutil`, and `libswscale`). Ryofiles does not vendor FFmpeg source or invoke the `ffmpeg`/`ffprobe` command-line programs for preview decoding. FFmpeg and its enabled components remain subject to their upstream and distribution-provided licenses and copyright notices.
+
+## Exiv2
+
+The bounded image-metadata preview helper dynamically links to the distribution-provided Exiv2 library. Ryofiles passes Exiv2 an in-memory copy read from the already-opened no-follow preview file descriptor; it does not ask Exiv2 to reopen the selected pathname. Exiv2 source is not vendored into Ryofiles and remains subject to its upstream and distribution-provided licenses and copyright notices.
+
+## Qt image format plugins
+
+GIF support is provided by Qt's image stack, and additional formats such as WebP are supplied by the distribution-provided Qt image-format plugins. Ryofiles does not vendor those plugins; they remain subject to their upstream and distribution-provided licenses and copyright notices.
