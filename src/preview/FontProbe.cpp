@@ -246,6 +246,19 @@ QJsonObject probe(
         return {};
     }
 
+    QJsonObject payload;
+    payload.insert(QStringLiteral("family"), rawFont.familyName());
+    payload.insert(QStringLiteral("styleName"), rawFont.styleName());
+    payload.insert(QStringLiteral("style"), styleLabel(rawFont.style()));
+    payload.insert(QStringLiteral("weight"), rawFont.weight());
+    payload.insert(QStringLiteral("unitsPerEm"), rawFont.unitsPerEm());
+    payload.insert(QStringLiteral("writingSystems"), detectedWritingSystems(rawFont));
+    payload.insert(QStringLiteral("fileSize"), QString::number(fileSize));
+
+    const bool renderSample = request.value(QStringLiteral("renderSample")).toBool(true);
+    if (!renderSample)
+        return payload;
+
     QString firstLine = filterSupported(rawFont, QStringLiteral("Aa Bb Cc 0123456789"));
     QString secondLine = filterSupported(rawFont, QStringLiteral("The quick brown fox"));
     if (visibleCharacterCount(firstLine) < 4)
@@ -357,21 +370,11 @@ QJsonObject probe(
     if (png.isEmpty())
         return {};
 
-    const QJsonArray writingSystems = detectedWritingSystems(rawFont);
-
-    QJsonObject payload;
-    payload.insert(QStringLiteral("family"), rawFont.familyName());
-    payload.insert(QStringLiteral("styleName"), rawFont.styleName());
-    payload.insert(QStringLiteral("style"), styleLabel(rawFont.style()));
-    payload.insert(QStringLiteral("weight"), rawFont.weight());
-    payload.insert(QStringLiteral("unitsPerEm"), rawFont.unitsPerEm());
-    payload.insert(QStringLiteral("writingSystems"), writingSystems);
     payload.insert(QStringLiteral("sampleText"), sampleLines.join(QChar::LineFeed));
     payload.insert(QStringLiteral("sampleFormat"), QStringLiteral("png"));
     payload.insert(QStringLiteral("sampleBase64"), QString::fromLatin1(png.toBase64()));
     payload.insert(QStringLiteral("sampleWidth"), image.width());
     payload.insert(QStringLiteral("sampleHeight"), image.height());
-    payload.insert(QStringLiteral("fileSize"), QString::number(fileSize));
     return payload;
 }
 
