@@ -86,6 +86,8 @@ qt_add_executable(ryofiles
     src/preview/TextPreviewStore.cpp
     src/preview/TextPreviewLoader.hpp
     src/preview/TextPreviewLoader.cpp
+    src/preview/ArchivePreviewStore.hpp
+    src/preview/ArchivePreviewStore.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -286,6 +288,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME text-preview-store COMMAND ryofiles_text_preview_tests)
+
+    qt_add_executable(ryofiles_archive_preview_tests
+        tests/ArchivePreviewStoreTest.cpp
+        src/preview/ArchivePreviewStore.hpp
+        src/preview/ArchivePreviewStore.cpp
+        src/archive/ArchiveCreator.hpp
+        src/archive/ArchiveCreator.cpp
+    )
+
+    target_include_directories(ryofiles_archive_preview_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_archive_preview_tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        LibArchive::LibArchive
+    )
+
+    add_test(NAME archive-preview-store COMMAND ryofiles_archive_preview_tests)
 
     qt_add_executable(ryofiles_directory_filter_tests
         tests/DirectoryModelFilterTest.cpp
