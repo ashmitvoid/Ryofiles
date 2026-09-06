@@ -1,4 +1,8 @@
 /build/
+/build-validation/
+/build-preview-validation/
+/validation-stage/
+/ryofiles-validation/
 /cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
