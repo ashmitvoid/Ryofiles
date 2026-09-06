@@ -50,6 +50,8 @@ mkdir -p \
   "$tmp/config/xdg-desktop-portal" \
   "$tmp/data/xdg-desktop-portal/portals" \
   "$tmp/folder" \
+  "$tmp/multi-folder-a" \
+  "$tmp/multi-folder-b" \
   "$tmp/save-parent" \
   "$tmp/save-files"
 
@@ -90,6 +92,8 @@ print(Path(sys.argv[1]).resolve().as_uri())
 PY
 )
 folder_uri="file://$tmp/folder"
+multi_folder_a_uri="file://$tmp/multi-folder-a"
+multi_folder_b_uri="file://$tmp/multi-folder-b"
 save_uri="file://$tmp/save-parent/saved.txt"
 savefiles_folder_uri="file://$tmp/save-files"
 
@@ -153,6 +157,10 @@ case "$mode" in
     if grep -Fq '"id":"savefiles_marker"' <<<"$context"; then
       printf '{"version":1,"uris":["%s"],"filter":-1,"choices":{"savefiles_marker":"true"}}\n' \
         "${RYOFILES_MATRIX_SAVEFILES_FOLDER_URI:?}"
+    elif [[ "$multiple" == yes ]]; then
+      printf '{"version":1,"uris":["%s","%s"],"filter":-1,"choices":{}}\n' \
+        "${RYOFILES_MATRIX_MULTI_FOLDER_A_URI:?}" \
+        "${RYOFILES_MATRIX_MULTI_FOLDER_B_URI:?}"
     else
       printf '{"version":1,"uris":["%s"],"filter":-1,"choices":{}}\n' \
         "${RYOFILES_MATRIX_FOLDER_URI:?}"
@@ -194,6 +202,8 @@ RYOFILES_MATRIX_MULTI_A_URI="$multi_a_uri" \
 RYOFILES_MATRIX_MULTI_B_URI="$multi_b_uri" \
 RYOFILES_MATRIX_EDGE_URI="$edge_uri" \
 RYOFILES_MATRIX_FOLDER_URI="$folder_uri" \
+RYOFILES_MATRIX_MULTI_FOLDER_A_URI="$multi_folder_a_uri" \
+RYOFILES_MATRIX_MULTI_FOLDER_B_URI="$multi_folder_b_uri" \
 RYOFILES_MATRIX_SAVE_URI="$save_uri" \
 RYOFILES_MATRIX_SAVEFILES_FOLDER_URI="$savefiles_folder_uri" \
 QT_QPA_PLATFORM=offscreen \
@@ -223,6 +233,8 @@ if ! timeout 20s python "$script_dir/FileChooserBrokerMatrixClient.py" \
     "$multi_b_uri" \
     "$edge_uri" \
     "$folder_uri" \
+    "$multi_folder_a_uri" \
+    "$multi_folder_b_uri" \
     "$save_uri" \
     "$savefiles_folder_uri" \
     "$savefiles_a_uri" \

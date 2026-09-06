@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
         QStringLiteral("mode"));
     const QCommandLineOption multipleOption(
         QStringList{QStringLiteral("multiple")},
-        QStringLiteral("Allow multiple files in --picker open mode."));
+        QStringLiteral("Allow multiple files or folders in picker mode."));
     const QCommandLineOption initialDirectoryOption(
         QStringList{QStringLiteral("initial-dir")},
         QStringLiteral("Initial local directory for picker mode."),

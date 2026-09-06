@@ -441,7 +441,7 @@ Window {
             enabled: !Picker.overwriteConfirmationRequired
 
             onCurrentIndexChanged: {
-                if (!activeFocus || !root.session || currentIndex < 0)
+                if (!activeFocus || !root.session || currentIndex < 0 || Picker.multiple)
                     return
                 root.session.selectSingle(currentIndex)
             }
@@ -518,8 +518,17 @@ Window {
 
                     onClicked: function(event) {
                         view.currentIndex = fileRow.index
-                        if (!Picker.multiple || Picker.folderMode || Picker.saveMode) {
+                        if (Picker.folderMode && Picker.multiple && !fileRow.isDir) {
+                            view.forceActiveFocus()
+                            return
+                        }
+                        if (!Picker.multiple || Picker.saveMode) {
                             root.session.selectSingle(fileRow.index)
+                        } else if (Picker.folderMode) {
+                            if (event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))
+                                root.session.toggleSelection(fileRow.index)
+                            else
+                                root.session.selectSingle(fileRow.index)
                         } else if (event.modifiers & Qt.ShiftModifier) {
                             root.session.selectRange(fileRow.index)
                         } else if (event.modifiers & Qt.ControlModifier) {
@@ -677,7 +686,9 @@ Window {
                     text: Picker.saveMode
                         ? "SAVE FILE · " + (root.session ? root.session.path : "")
                         : (Picker.folderMode
-                            ? "SELECT FOLDER · " + (root.session ? root.session.path : "")
+                            ? (Picker.multiple
+                                ? "SELECT FOLDERS · MULTI-SELECT · " + (root.session ? root.session.path : "")
+                                : "SELECT FOLDER · " + (root.session ? root.session.path : ""))
                             : (Picker.multiple ? "OPEN FILES · MULTI-SELECT" : "OPEN FILE"))
                     elide: Text.ElideMiddle
                     color: Ryoku.ink
@@ -800,7 +811,11 @@ Window {
                             : (Picker.saveMode
                                 ? "SAVE"
                                 : (Picker.folderMode
-                                    ? "SELECT THIS FOLDER"
+                                    ? (Picker.multiple && root.session
+                                        ? (root.session.selectionCount > 1
+                                            ? "SELECT " + root.session.selectionCount + " FOLDERS"
+                                            : "SELECT FOLDER")
+                                        : "SELECT THIS FOLDER")
                                     : (Picker.multiple && root.session && root.session.selectionCount > 1
                                         ? "OPEN " + root.session.selectionCount + " FILES"
                                         : "OPEN")))

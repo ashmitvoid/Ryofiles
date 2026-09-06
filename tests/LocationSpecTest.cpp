@@ -130,11 +130,6 @@ private slots:
         QVERIFY(!invalidMode.valid);
         QVERIFY(invalidMode.error.contains(QStringLiteral("open")));
 
-        const PickerContract multipleFolder =
-            PickerContract::parse("folder", true, temp.path(), {});
-        QVERIFY(!multipleFolder.valid);
-        QVERIFY(multipleFolder.error.contains(QStringLiteral("multiple"), Qt::CaseInsensitive));
-
         const PickerContract multipleSave =
             PickerContract::parse("save", true, temp.path(), {});
         QVERIFY(!multipleSave.valid);

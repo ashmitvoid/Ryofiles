@@ -470,8 +470,6 @@ PortalPickerRequest PortalPickerRequest::openFile(
     request.multiple = options.value(QStringLiteral("multiple"), false).toBool();
     const bool directory = options.value(QStringLiteral("directory"), false).toBool();
     request.mode = directory ? QStringLiteral("folder") : QStringLiteral("open");
-    if (directory)
-        request.multiple = false;
 
     QString parseError;
     request.initialDirectory = existingDirectoryFromOption(

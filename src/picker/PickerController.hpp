@@ -53,10 +53,8 @@ struct PickerContract {
             return contract;
         }
 
-        if ((contract.folderMode || contract.saveMode) && multipleSelection) {
-            contract.error = contract.folderMode
-                ? QStringLiteral("Folder picker does not support --multiple")
-                : QStringLiteral("Save picker does not support --multiple");
+        if (contract.saveMode && multipleSelection) {
+            contract.error = QStringLiteral("Save picker does not support --multiple");
             return contract;
         }
 
@@ -116,7 +114,7 @@ struct PickerContract {
             return contract;
         }
 
-        contract.multiple = !contract.folderMode && !contract.saveMode && multipleSelection;
+        contract.multiple = !contract.saveMode && multipleSelection;
         contract.initialDirectory = QDir::cleanPath(initialInfo.absoluteFilePath());
         contract.suggestedName = requestedSuggestedName;
         contract.valid = true;
@@ -141,8 +139,28 @@ struct PickerContract {
             return QStringLiteral("Enter a file name");
 
         if (folderMode) {
-            return normalizeExistingDirectory(currentDirectory).isEmpty()
-                ? QStringLiteral("Current folder is not selectable")
+            if (!multiple) {
+                return normalizeExistingDirectory(currentDirectory).isEmpty()
+                    ? QStringLiteral("Current folder is not selectable")
+                    : QString();
+            }
+
+            if (selectedPaths.isEmpty())
+                return QStringLiteral("Select one or more folders");
+
+            QSet<QString> seen;
+            for (const QString& requested : selectedPaths) {
+                if (requested.trimmed().isEmpty() || LocalPathGuard::isUriLike(requested))
+                    return QStringLiteral("Only local folders can be selected in this picker phase");
+
+                const QString path = normalizeExistingDirectory(requested);
+                if (path.isEmpty())
+                    return QStringLiteral("Only folders can be returned by the folder picker");
+                seen.insert(path);
+            }
+
+            return seen.isEmpty()
+                ? QStringLiteral("Select one or more folders")
                 : QString();
         }
 
@@ -188,15 +206,20 @@ struct PickerContract {
         if (!canAccept(selectedPaths, currentDirectory))
             return {};
 
-        if (folderMode)
+        if (folderMode && !multiple)
             return {normalizeExistingDirectory(currentDirectory)};
 
         QStringList accepted;
         QSet<QString> seen;
         for (const QString& requested : selectedPaths) {
-            const QFileInfo info(requested);
-            const QString path = QDir::cleanPath(info.absoluteFilePath());
-            if (seen.contains(path))
+            QString path;
+            if (folderMode) {
+                path = normalizeExistingDirectory(requested);
+            } else {
+                const QFileInfo info(requested);
+                path = QDir::cleanPath(info.absoluteFilePath());
+            }
+            if (path.isEmpty() || seen.contains(path))
                 continue;
             seen.insert(path);
             accepted.push_back(path);

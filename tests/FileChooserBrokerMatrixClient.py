@@ -133,10 +133,11 @@ def require_uris(results, expected, label):
 
 
 def main() -> int:
-    if len(sys.argv) != 10:
+    if len(sys.argv) != 12:
         print(
             f"usage: {sys.argv[0]} OPEN_URI MULTI_A_URI MULTI_B_URI EDGE_URI FOLDER_URI "
-            "SAVE_URI SAVEFILES_FOLDER_URI SAVEFILES_A_URI SAVEFILES_B_URI",
+            "MULTI_FOLDER_A_URI MULTI_FOLDER_B_URI SAVE_URI SAVEFILES_FOLDER_URI "
+            "SAVEFILES_A_URI SAVEFILES_B_URI",
             file=sys.stderr,
         )
         return 2
@@ -147,6 +148,8 @@ def main() -> int:
         multi_b_uri,
         edge_uri,
         folder_uri,
+        multi_folder_a_uri,
+        multi_folder_b_uri,
         save_uri,
         savefiles_folder_uri,
         savefiles_a_uri,
@@ -212,6 +215,21 @@ def main() -> int:
         {"directory": GLib.Variant("b", True)},
     )
     require_uris(results, [folder_uri], "folder OpenFile")
+
+    results = client.call(
+        "OpenFile",
+        "matrix_multi_folder",
+        "Choose multiple broker folders",
+        {
+            "directory": GLib.Variant("b", True),
+            "multiple": GLib.Variant("b", True),
+        },
+    )
+    require_uris(
+        results,
+        [multi_folder_a_uri, multi_folder_b_uri],
+        "multi-folder OpenFile",
+    )
 
     save_parent = os.path.dirname(local_path(save_uri))
     results = client.call(
