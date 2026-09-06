@@ -7,6 +7,7 @@ arch=('x86_64')
 url='https://github.com/ashmitvoid/Ryofiles'
 license=('GPL-3.0-only')
 depends=(
+  'ffmpeg'
   'glib2'
   'gvfs'
   'libarchive'

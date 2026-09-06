@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "MediaProbe.hpp"
 #include "PreviewProtocol.hpp"
 
 #include <QBuffer>
@@ -349,6 +350,22 @@ QJsonObject handleRequest(const QJsonObject& request) {
 
     if (op == QStringLiteral("pdf-page")) {
         const QJsonObject payload = pdfPagePayload(path, request, &error);
+        if (!error.isEmpty())
+            return response(id, false, error);
+        return response(id, true, {}, payload);
+    }
+
+    if (op == QStringLiteral("media-probe")) {
+        struct stat opened {};
+        std::unique_ptr<QFile> file = openRegularNoFollow(path, &opened, &error);
+        if (!file)
+            return response(id, false, error);
+
+        const QJsonObject payload = MediaProbe::probe(
+            *file,
+            static_cast<qint64>(opened.st_size),
+            request,
+            &error);
         if (!error.isEmpty())
             return response(id, false, error);
         return response(id, true, {}, payload);

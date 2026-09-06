@@ -16,4 +16,17 @@ inline constexpr int kDefaultPdfRenderHeight = 1600;
 inline constexpr int kMaxPdfRenderDimension = 2048;
 inline constexpr qsizetype kMaxEncodedImageBytes = 2 * 1024 * 1024;
 
+inline constexpr qint64 kMaxMediaInputBytes = 64LL * 1024 * 1024 * 1024;
+inline constexpr qint64 kMaxMediaReadBytes = 64LL * 1024 * 1024;
+inline constexpr qint64 kMaxMediaProbeBytes = 4LL * 1024 * 1024;
+inline constexpr qint64 kMaxMediaAnalyzeUs = 5LL * 1000 * 1000;
+inline constexpr int kMediaAvioBufferBytes = 32 * 1024;
+inline constexpr int kMaxMediaMetadataChars = 512;
+inline constexpr int kMaxMediaSourceDimension = 8192;
+inline constexpr qint64 kMaxMediaSourcePixels = 40LL * 1024 * 1024;
+inline constexpr int kDefaultMediaPosterWidth = 960;
+inline constexpr int kDefaultMediaPosterHeight = 540;
+inline constexpr int kMaxMediaPosterDimension = 1280;
+inline constexpr int kMaxMediaPackets = 512;
+
 } // namespace PreviewProtocol
