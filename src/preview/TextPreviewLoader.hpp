@@ -125,6 +125,7 @@ class PdfPreviewLoader : public QObject {
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    Q_PROPERTY(bool metadataOnly READ metadataOnly WRITE setMetadataOnly NOTIFY metadataOnlyChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool supported READ supported NOTIFY resultChanged)
     Q_PROPERTY(int page READ page WRITE setPage NOTIFY pageChanged)
@@ -145,6 +146,8 @@ public:
 
     bool active() const { return m_active; }
     void setActive(bool active);
+    bool metadataOnly() const { return m_metadataOnly; }
+    void setMetadataOnly(bool metadataOnly);
 
     bool loading() const { return m_loading; }
     bool supported() const { return m_supported; }
@@ -163,6 +166,7 @@ public:
 signals:
     void pathChanged();
     void activeChanged();
+    void metadataOnlyChanged();
     void loadingChanged();
     void pageChanged();
     void resultChanged();
@@ -175,6 +179,7 @@ private:
 
     QString m_path;
     bool m_active = false;
+    bool m_metadataOnly = false;
     bool m_loading = false;
     bool m_supported = false;
     int m_page = 0;
@@ -194,6 +199,7 @@ class FontPreviewLoader : public QObject {
 
     Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    Q_PROPERTY(bool metadataOnly READ metadataOnly WRITE setMetadataOnly NOTIFY metadataOnlyChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool supported READ supported NOTIFY resultChanged)
     Q_PROPERTY(QString familyName READ familyName NOTIFY resultChanged)
@@ -214,6 +220,8 @@ public:
     void setPath(const QString& path);
     bool active() const { return m_active; }
     void setActive(bool active);
+    bool metadataOnly() const { return m_metadataOnly; }
+    void setMetadataOnly(bool metadataOnly);
     bool loading() const { return m_loading; }
     bool supported() const { return m_supported; }
     QString familyName() const { return m_familyName; }
@@ -231,6 +239,7 @@ public:
 signals:
     void pathChanged();
     void activeChanged();
+    void metadataOnlyChanged();
     void loadingChanged();
     void resultChanged();
 
@@ -242,6 +251,7 @@ private:
 
     QString m_path;
     bool m_active = false;
+    bool m_metadataOnly = false;
     bool m_loading = false;
     bool m_supported = false;
     quint64 m_generation = 0;
