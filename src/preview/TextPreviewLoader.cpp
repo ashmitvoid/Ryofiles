@@ -2,9 +2,11 @@
 
 #include "TextPreviewLoader.hpp"
 
+#include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QVariantMap>
 #include <QtConcurrent>
+#include <QtQml>
 
 #include <utility>
 
@@ -44,7 +46,14 @@ QVariantList archiveEntriesForQml(const QVector<ArchivePreviewEntry>& entries) {
     return converted;
 }
 
+void registerArchivePreviewLoaderQmlType() {
+    qmlRegisterType<ArchivePreviewLoader>(
+        "Ryofiles.Core", 1, 0, "ArchivePreviewLoader");
+}
+
 } // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerArchivePreviewLoaderQmlType)
 
 TextPreviewLoader::TextPreviewLoader(QObject* parent)
     : QObject(parent) {
