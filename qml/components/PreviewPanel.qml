@@ -19,6 +19,31 @@ Item {
         details = desktop.propertiesForPath(session.selectedPath)
     }
 
+    function formatBytes(value) {
+        var bytes = Number(value)
+        if (!isFinite(bytes) || bytes < 0)
+            return ""
+        if (bytes < 1024)
+            return Math.round(bytes) + " B"
+        if (bytes < 1024 * 1024)
+            return (bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0) + " KiB"
+        if (bytes < 1024 * 1024 * 1024)
+            return (bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + " MiB"
+        return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GiB"
+    }
+
+    function archiveKindMark(kind) {
+        if (kind === "directory")
+            return "▰"
+        if (kind === "symlink")
+            return "↗"
+        if (kind === "hardlink")
+            return "↔"
+        if (kind === "file")
+            return "□"
+        return "·"
+    }
+
     onSessionChanged: refreshDetails()
     onVisibleChanged: refreshDetails()
 
@@ -30,12 +55,22 @@ Item {
 
     Component.onCompleted: refreshDetails()
 
+    ArchivePreviewLoader {
+        id: archivePreview
+        active: root.visible
+            && root.session
+            && root.session.selectionCount === 1
+            && archivePreview.isCandidate(root.session.selectedPath)
+        path: active ? root.session.selectedPath : ""
+    }
+
     TextPreviewLoader {
         id: textPreview
         active: root.visible
             && root.session
             && root.session.selectionCount === 1
             && !root.thumbnails.isCandidate(root.session.selectedPath)
+            && !archivePreview.isCandidate(root.session.selectedPath)
         path: active ? root.session.selectedPath : ""
     }
 
@@ -133,10 +168,79 @@ Item {
                 }
             }
 
+            Flickable {
+                id: archiveFlick
+                anchors.fill: parent
+                anchors.margins: 10 * root.uiScale
+                visible: archivePreview.supported
+                clip: true
+                contentWidth: width
+                contentHeight: archiveColumn.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+
+                Column {
+                    id: archiveColumn
+                    width: archiveFlick.width
+                    spacing: 5 * root.uiScale
+
+                    Text {
+                        width: parent.width
+                        text: archivePreview.formatName !== ""
+                            ? "// " + archivePreview.formatName.toUpperCase()
+                            : "// ARCHIVE"
+                        elide: Text.ElideRight
+                        color: Ryoku.inkMuted
+                        font.family: Ryoku.monoFont
+                        font.pixelSize: 8 * root.uiScale
+                        font.letterSpacing: 0.6
+                    }
+
+                    Repeater {
+                        model: archivePreview.entries
+
+                        delegate: Row {
+                            id: archiveEntryRow
+                            required property var modelData
+                            width: archiveColumn.width
+                            spacing: 7 * root.uiScale
+
+                            Text {
+                                width: 14 * root.uiScale
+                                text: root.archiveKindMark(archiveEntryRow.modelData.kind)
+                                color: Ryoku.inkFaint
+                                font.family: Ryoku.monoFont
+                                font.pixelSize: 9 * root.uiScale
+                            }
+
+                            Text {
+                                width: Math.max(0, archiveEntryRow.width - 82 * root.uiScale)
+                                text: archiveEntryRow.modelData.path
+                                elide: Text.ElideMiddle
+                                color: Ryoku.inkDim
+                                font.family: Ryoku.monoFont
+                                font.pixelSize: 8 * root.uiScale
+                            }
+
+                            Text {
+                                width: 54 * root.uiScale
+                                text: archiveEntryRow.modelData.sizeKnown
+                                    ? root.formatBytes(archiveEntryRow.modelData.size)
+                                    : ""
+                                horizontalAlignment: Text.AlignRight
+                                color: Ryoku.inkFaint
+                                font.family: Ryoku.monoFont
+                                font.pixelSize: 8 * root.uiScale
+                            }
+                        }
+                    }
+                }
+            }
+
             Text {
                 anchors.centerIn: parent
                 width: parent.width - 28 * root.uiScale
                 visible: !textFlick.visible
+                    && !archiveFlick.visible
                     && (!previewImage.visible || previewImage.status !== Image.Ready)
                 text: {
                     if (!root.session || root.session.selectionCount === 0)
@@ -145,6 +249,11 @@ Item {
                         return root.session.selectionCount + " ITEMS SELECTED"
                     if (previewImage.visible && previewImage.status === Image.Loading)
                         return "// LOADING IMAGE…"
+                    if (archivePreview.loading)
+                        return "// READING ARCHIVE…"
+                    if (archivePreview.isCandidate(root.session.selectedPath)
+                            && archivePreview.error !== "")
+                        return "// COULD NOT READ ARCHIVE"
                     if (textPreview.loading)
                         return "// READING TEXT…"
                     if (textPreview.error !== "")
@@ -179,6 +288,33 @@ Item {
             color: Ryoku.inkMuted
             font.family: Ryoku.monoFont
             font.pixelSize: 9 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: archivePreview.supported
+            text: {
+                var listed = archivePreview.entries.length
+                var suffix = archivePreview.truncated ? "+ ENTRIES — BOUNDED PREVIEW" : " ENTRIES"
+                return "// " + listed + suffix
+            }
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: archivePreview.isCandidate(root.session ? root.session.selectedPath : "")
+                && archivePreview.error !== ""
+            text: "// " + archivePreview.error
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
         }
 
         Text {
