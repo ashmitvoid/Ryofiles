@@ -19,6 +19,28 @@ Item {
         details = desktop.propertiesForPath(session.selectedPath)
     }
 
+    function resetImageView() {
+        imageFlick.zoom = 1.0
+        imageFlick.contentX = 0
+        imageFlick.contentY = 0
+        imageFlick.returnToBounds()
+    }
+
+    function setImageZoom(value) {
+        var bounded = Math.max(1.0, Math.min(4.0, value))
+        if (Math.abs(imageFlick.zoom - bounded) < 0.001)
+            return
+
+        var oldWidth = Math.max(1, imageFlick.contentWidth)
+        var oldHeight = Math.max(1, imageFlick.contentHeight)
+        var centerX = (imageFlick.contentX + imageFlick.width / 2) / oldWidth
+        var centerY = (imageFlick.contentY + imageFlick.height / 2) / oldHeight
+        imageFlick.zoom = bounded
+        imageFlick.contentX = centerX * imageFlick.contentWidth - imageFlick.width / 2
+        imageFlick.contentY = centerY * imageFlick.contentHeight - imageFlick.height / 2
+        imageFlick.returnToBounds()
+    }
+
     function formatBytes(value) {
         var bytes = Number(value)
         if (!isFinite(bytes) || bytes < 0)
@@ -44,13 +66,28 @@ Item {
         return "·"
     }
 
-    onSessionChanged: refreshDetails()
-    onVisibleChanged: refreshDetails()
+    onSessionChanged: {
+        refreshDetails()
+        resetImageView()
+    }
+    onVisibleChanged: {
+        refreshDetails()
+        if (!visible)
+            imageAnimation.stop()
+    }
 
     Connections {
         target: root.session
-        function onSelectionChanged() { root.refreshDetails() }
-        function onPathChanged() { root.refreshDetails() }
+        function onSelectionChanged() {
+            root.refreshDetails()
+            root.resetImageView()
+            imageAnimation.stop()
+        }
+        function onPathChanged() {
+            root.refreshDetails()
+            root.resetImageView()
+            imageAnimation.stop()
+        }
     }
 
     Component.onCompleted: refreshDetails()
@@ -70,6 +107,25 @@ Item {
             && root.session
             && root.session.selectionCount === 1
             && pdfPreview.isCandidate(root.session.selectedPath)
+        path: active ? root.session.selectedPath : ""
+    }
+
+    ImagePreviewLoader {
+        id: imagePreview
+        active: root.visible
+            && root.session
+            && root.session.selectionCount === 1
+            && imagePreview.isCandidate(root.session.selectedPath)
+        path: active ? root.session.selectedPath : ""
+    }
+
+    ImageAnimationController {
+        id: imageAnimation
+        active: root.visible
+            && root.session
+            && root.session.selectionCount === 1
+            && imagePreview.animationSupported
+            && !Ryoku.reduceMotion
         path: active ? root.session.selectedPath : ""
     }
 
@@ -134,26 +190,65 @@ Item {
             border.color: Ryoku.line
             clip: true
 
-            Image {
-                id: previewImage
+            Flickable {
+                id: imageFlick
+                property real zoom: 1.0
                 anchors.fill: parent
                 anchors.margins: 8 * root.uiScale
                 visible: root.visible
                     && root.session
                     && root.session.selectionCount === 1
                     && root.thumbnails.isCandidate(root.session.selectedPath)
-                source: visible
-                    ? root.thumbnails.urlForPath(
-                        root.session.selectedPath,
-                        Math.round(720 * root.uiScale),
-                        10)
-                    : ""
-                sourceSize.width: Math.round(720 * root.uiScale)
-                sourceSize.height: Math.round(720 * root.uiScale)
+                    && imageAnimation.frameSource === ""
+                clip: true
+                interactive: zoom > 1.001
+                contentWidth: width * zoom
+                contentHeight: height * zoom
+                boundsBehavior: Flickable.StopAtBounds
+
+                Image {
+                    id: previewImage
+                    width: imageFlick.contentWidth
+                    height: imageFlick.contentHeight
+                    source: imageFlick.visible
+                        ? root.thumbnails.urlForPath(
+                            root.session.selectedPath,
+                            Math.round(1024 * root.uiScale),
+                            10)
+                        : ""
+                    sourceSize.width: Math.round(1024 * root.uiScale)
+                    sourceSize.height: Math.round(1024 * root.uiScale)
+                    fillMode: Image.PreserveAspectFit
+                    cache: false
+                    asynchronous: false
+                    smooth: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.NoButton
+                    onWheel: function(wheel) {
+                        if ((wheel.modifiers & Qt.ControlModifier) === 0) {
+                            wheel.accepted = false
+                            return
+                        }
+                        root.setImageZoom(imageFlick.zoom * (wheel.angleDelta.y > 0 ? 1.2 : 1 / 1.2))
+                        wheel.accepted = true
+                    }
+                }
+            }
+
+            Image {
+                id: animationImage
+                anchors.fill: parent
+                anchors.margins: 8 * root.uiScale
+                visible: imageAnimation.frameSource !== ""
+                source: visible ? imageAnimation.frameSource : ""
                 fillMode: Image.PreserveAspectFit
                 cache: false
                 asynchronous: false
                 smooth: true
+                z: 3
             }
 
             Image {
@@ -274,14 +369,15 @@ Item {
                 visible: !textFlick.visible
                     && !archiveFlick.visible
                     && !mediaPreviewBlock.candidate
-                    && (!previewImage.visible || previewImage.status !== Image.Ready)
+                    && (!imageFlick.visible || previewImage.status !== Image.Ready)
+                    && animationImage.source === ""
                     && (!pdfImage.visible || pdfImage.status !== Image.Ready)
                 text: {
                     if (!root.session || root.session.selectionCount === 0)
                         return "// NO SELECTION"
                     if (root.session.selectionCount > 1)
                         return root.session.selectionCount + " ITEMS SELECTED"
-                    if (previewImage.visible && previewImage.status === Image.Loading)
+                    if (imageFlick.visible && previewImage.status === Image.Loading)
                         return "// LOADING IMAGE…"
                     if (pdfPreview.loading)
                         return "// RENDERING PDF…"
@@ -305,6 +401,106 @@ Item {
                 font.pixelSize: root.details.isDirectory === true
                     ? 38 * root.uiScale
                     : 10 * root.uiScale
+            }
+        }
+
+        Row {
+            width: parent.width
+            height: 26 * root.uiScale
+            visible: root.session
+                && root.session.selectionCount === 1
+                && imagePreview.isCandidate(root.session.selectedPath)
+            spacing: 7 * root.uiScale
+
+            Rectangle {
+                width: 30 * root.uiScale
+                height: parent.height
+                radius: 4 * root.uiScale
+                color: imageZoomOutHover.hovered && imageFlick.zoom > 1.001 ? Ryoku.tint10 : Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.line
+                opacity: imageFlick.zoom > 1.001 ? 1.0 : 0.45
+                Text {
+                    anchors.centerIn: parent
+                    text: "−"
+                    color: Ryoku.inkDim
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 11 * root.uiScale
+                }
+                HoverHandler { id: imageZoomOutHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    enabled: imageFlick.zoom > 1.001
+                    onTapped: root.setImageZoom(imageFlick.zoom / 1.25)
+                }
+            }
+
+            Rectangle {
+                width: 58 * root.uiScale
+                height: parent.height
+                radius: 4 * root.uiScale
+                color: imageFitHover.hovered ? Ryoku.tint10 : Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.line
+                Text {
+                    anchors.centerIn: parent
+                    text: Math.round(imageFlick.zoom * 100) + "%"
+                    color: Ryoku.inkMuted
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+                HoverHandler { id: imageFitHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: root.resetImageView() }
+            }
+
+            Rectangle {
+                width: 30 * root.uiScale
+                height: parent.height
+                radius: 4 * root.uiScale
+                color: imageZoomInHover.hovered && imageFlick.zoom < 3.999 ? Ryoku.tint10 : Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.line
+                opacity: imageFlick.zoom < 3.999 ? 1.0 : 0.45
+                Text {
+                    anchors.centerIn: parent
+                    text: "+"
+                    color: Ryoku.inkDim
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 11 * root.uiScale
+                }
+                HoverHandler { id: imageZoomInHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    enabled: imageFlick.zoom < 3.999
+                    onTapped: root.setImageZoom(imageFlick.zoom * 1.25)
+                }
+            }
+
+            Rectangle {
+                width: Math.max(52 * root.uiScale, parent.width - 139 * root.uiScale)
+                height: parent.height
+                visible: imagePreview.animated
+                radius: 4 * root.uiScale
+                color: imageAnimationHover.hovered && imagePreview.animationSupported && !Ryoku.reduceMotion
+                    ? Ryoku.tint10 : Ryoku.tint5
+                border.width: 1
+                border.color: Ryoku.line
+                opacity: imagePreview.animationSupported && !Ryoku.reduceMotion ? 1.0 : 0.45
+                Text {
+                    anchors.centerIn: parent
+                    text: imageAnimation.playing ? "■ STOP" : "▶ QUICK LOOK"
+                    color: Ryoku.inkDim
+                    font.family: Ryoku.monoFont
+                    font.pixelSize: 8 * root.uiScale
+                }
+                HoverHandler { id: imageAnimationHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    enabled: imagePreview.animationSupported && !Ryoku.reduceMotion
+                    onTapped: {
+                        if (imageAnimation.playing)
+                            imageAnimation.stop()
+                        else
+                            imageAnimation.play()
+                    }
+                }
             }
         }
 
@@ -404,6 +600,105 @@ Item {
 
         Text {
             width: parent.width
+            visible: imagePreview.supported
+            text: {
+                var parts = []
+                if (imagePreview.pixelWidth > 0 && imagePreview.pixelHeight > 0)
+                    parts.push(imagePreview.pixelWidth + " × " + imagePreview.pixelHeight)
+                if (imagePreview.formatName !== "")
+                    parts.push(imagePreview.formatName.toUpperCase())
+                if (imagePreview.animated && imagePreview.frameCount > 1)
+                    parts.push(imagePreview.frameCount + " FRAMES")
+                return "// " + parts.join(" · ")
+            }
+            elide: Text.ElideRight
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: imagePreview.supported
+                && (imagePreview.cameraMake !== "" || imagePreview.cameraModel !== "" || imagePreview.lensModel !== "")
+            text: {
+                var parts = []
+                var camera = (imagePreview.cameraMake + " " + imagePreview.cameraModel).trim()
+                if (camera !== "")
+                    parts.push(camera)
+                if (imagePreview.lensModel !== "")
+                    parts.push(imagePreview.lensModel)
+                return "// " + parts.join(" · ")
+            }
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: imagePreview.supported
+                && (imagePreview.dateTaken !== "" || imagePreview.exposureTime !== ""
+                    || imagePreview.aperture !== "" || imagePreview.iso !== "" || imagePreview.focalLength !== "")
+            text: {
+                var parts = []
+                if (imagePreview.dateTaken !== "")
+                    parts.push(imagePreview.dateTaken)
+                if (imagePreview.exposureTime !== "")
+                    parts.push(imagePreview.exposureTime)
+                if (imagePreview.aperture !== "")
+                    parts.push("f/" + imagePreview.aperture)
+                if (imagePreview.iso !== "")
+                    parts.push("ISO " + imagePreview.iso)
+                if (imagePreview.focalLength !== "")
+                    parts.push(imagePreview.focalLength)
+                return "// " + parts.join(" · ")
+            }
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: imagePreview.metadataLimited
+            text: "// DEEP IMAGE METADATA SKIPPED — 64 MiB SAFETY LIMIT"
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: imagePreview.animated && !imagePreview.animationSupported
+            text: "// ANIMATION EXCEEDS BOUNDED QUICK LOOK LIMITS"
+            wrapMode: Text.WordWrap
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: imageAnimation.error !== ""
+            text: "// " + imageAnimation.error
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
             visible: pdfPreview.supported
                 && (pdfPreview.title !== "" || pdfPreview.author !== "")
             text: {
@@ -454,6 +749,19 @@ Item {
             visible: pdfPreview.isCandidate(root.session ? root.session.selectedPath : "")
                 && pdfPreview.error !== ""
             text: "// " + pdfPreview.error
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+            color: Ryoku.inkFaint
+            font.family: Ryoku.monoFont
+            font.pixelSize: 8 * root.uiScale
+        }
+
+        Text {
+            width: parent.width
+            visible: imagePreview.isCandidate(root.session ? root.session.selectedPath : "")
+                && imagePreview.error !== ""
+            text: "// " + imagePreview.error
             wrapMode: Text.WordWrap
             maximumLineCount: 3
             elide: Text.ElideRight
