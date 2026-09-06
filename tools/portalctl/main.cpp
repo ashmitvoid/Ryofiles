@@ -17,7 +17,8 @@ int printFailure(const QString& message) {
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("ryofiles-portalctl"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1"));
+    QCoreApplication::setApplicationVersion(
+        QString::fromLatin1(RYOFILES_PORTALCTL_VERSION));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
