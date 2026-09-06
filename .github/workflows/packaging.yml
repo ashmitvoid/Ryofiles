@@ -104,7 +104,7 @@ jobs:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative
+          base-devel cmake ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative
 
       - name: Checkout exact package source SHA
         uses: actions/checkout@v4
@@ -230,3 +230,10 @@ jobs:
             echo 'Installed preview helper is not linked against Poppler Qt6.' >&2
             exit 1
           }
+
+          for library in libavformat libavcodec libavutil libswscale; do
+            grep -Eq "${library}\\.so" /tmp/ryofiles-preview-helper-ldd.txt || {
+              echo "Installed preview helper is not linked against ${library}." >&2
+              exit 1
+            }
+          done
