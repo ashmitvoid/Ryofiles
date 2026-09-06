@@ -225,7 +225,7 @@ bool decodeBoundedUtf8(
     return true;
 }
 
-ArchivePreviewEntryKind entryKind(const struct archive_entry* entry) {
+ArchivePreviewEntryKind entryKind(struct archive_entry* entry) {
     if (archive_entry_hardlink(entry))
         return ArchivePreviewEntryKind::Hardlink;
 
