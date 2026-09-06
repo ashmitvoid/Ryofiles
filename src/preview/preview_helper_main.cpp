@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "FontProbe.hpp"
 #include "MediaProbe.hpp"
+#include "PreviewFileAccess.hpp"
 #include "PreviewProtocol.hpp"
 
 #include <QBuffer>
-#include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -20,12 +22,8 @@
 #include <memory>
 
 #ifdef Q_OS_UNIX
-#include <cerrno>
-#include <cstring>
-#include <fcntl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #endif
 
 namespace {
@@ -59,11 +57,6 @@ void writeResponse(QFile& output, const QJsonObject& object) {
 }
 
 #ifdef Q_OS_UNIX
-QString errnoText(const char* action) {
-    return QStringLiteral("%1: %2")
-        .arg(QString::fromLatin1(action), QString::fromLocal8Bit(std::strerror(errno)));
-}
-
 QString kindForMode(mode_t mode) {
     if (S_ISREG(mode))
         return QStringLiteral("file");
@@ -74,85 +67,12 @@ QString kindForMode(mode_t mode) {
     return QStringLiteral("other");
 }
 
-qint64 mtimeNanoseconds(const struct stat& st) {
-#ifdef Q_OS_LINUX
-    return static_cast<qint64>(st.st_mtim.tv_sec) * 1'000'000'000LL
-        + static_cast<qint64>(st.st_mtim.tv_nsec);
-#else
-    return static_cast<qint64>(st.st_mtime) * 1'000'000'000LL;
-#endif
-}
-
-bool sameVersion(const struct stat& left, const struct stat& right) {
-    return left.st_dev == right.st_dev
-        && left.st_ino == right.st_ino
-        && left.st_mode == right.st_mode
-        && left.st_size == right.st_size
-        && mtimeNanoseconds(left) == mtimeNanoseconds(right);
-}
-
-std::unique_ptr<QFile> openRegularNoFollow(
-    const QString& path,
-    struct stat* openedStat,
-    QString* error) {
-    const QByteArray encoded = QFile::encodeName(path);
-
-    struct stat initial {};
-    if (::lstat(encoded.constData(), &initial) != 0) {
-        if (error)
-            *error = errnoText("Could not inspect preview file");
-        return {};
-    }
-    if (!S_ISREG(initial.st_mode)) {
-        if (error)
-            *error = QStringLiteral("Preview input is not a regular file");
-        return {};
-    }
-
-    const int fd = ::open(encoded.constData(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) {
-        if (error)
-            *error = errnoText("Could not open preview file");
-        return {};
-    }
-
-    struct stat opened {};
-    if (::fstat(fd, &opened) != 0 || !S_ISREG(opened.st_mode)) {
-        const int savedErrno = errno;
-        ::close(fd);
-        errno = savedErrno;
-        if (error)
-            *error = errnoText("Could not inspect opened preview file");
-        return {};
-    }
-
-    struct stat live {};
-    if (::lstat(encoded.constData(), &live) != 0 || !sameVersion(opened, live)) {
-        ::close(fd);
-        if (error)
-            *error = QStringLiteral("Preview file changed while it was being opened");
-        return {};
-    }
-
-    auto file = std::make_unique<QFile>();
-    if (!file->open(fd, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)) {
-        ::close(fd);
-        if (error)
-            *error = QStringLiteral("Could not attach preview file descriptor");
-        return {};
-    }
-
-    if (openedStat)
-        *openedStat = opened;
-    return file;
-}
-
 QJsonObject statPayload(const QString& path, QString* error) {
     const QByteArray encoded = QFile::encodeName(path);
     struct stat initial {};
     if (::lstat(encoded.constData(), &initial) != 0) {
         if (error)
-            *error = errnoText("Could not inspect preview path");
+            *error = PreviewFileAccess::errnoText("Could not inspect preview path");
         return {};
     }
 
@@ -161,21 +81,21 @@ QJsonObject statPayload(const QString& path, QString* error) {
     payload.insert(QStringLiteral("device"), QString::number(static_cast<qulonglong>(initial.st_dev)));
     payload.insert(QStringLiteral("inode"), QString::number(static_cast<qulonglong>(initial.st_ino)));
     payload.insert(QStringLiteral("size"), QString::number(static_cast<qlonglong>(initial.st_size)));
-    payload.insert(QStringLiteral("mtimeNs"), QString::number(mtimeNanoseconds(initial)));
+    payload.insert(QStringLiteral("mtimeNs"), QString::number(PreviewFileAccess::mtimeNanoseconds(initial)));
     payload.insert(QStringLiteral("mode"), static_cast<int>(initial.st_mode & 07777));
 
-    if (S_ISLNK(initial.st_mode) || S_ISDIR(initial.st_mode) || !S_ISREG(initial.st_mode))
+    if (!S_ISREG(initial.st_mode))
         return payload;
 
-    struct stat opened {};
-    std::unique_ptr<QFile> file = openRegularNoFollow(path, &opened, error);
-    if (!file)
+    PreviewFileAccess::OpenedFile opened =
+        PreviewFileAccess::openRegularNoFollow(path, error);
+    if (!opened)
         return {};
 
-    payload.insert(QStringLiteral("device"), QString::number(static_cast<qulonglong>(opened.st_dev)));
-    payload.insert(QStringLiteral("inode"), QString::number(static_cast<qulonglong>(opened.st_ino)));
-    payload.insert(QStringLiteral("size"), QString::number(static_cast<qlonglong>(opened.st_size)));
-    payload.insert(QStringLiteral("mtimeNs"), QString::number(mtimeNanoseconds(opened)));
+    payload.insert(QStringLiteral("device"), QString::number(opened.device));
+    payload.insert(QStringLiteral("inode"), QString::number(opened.inode));
+    payload.insert(QStringLiteral("size"), QString::number(opened.size));
+    payload.insert(QStringLiteral("mtimeNs"), QString::number(opened.mtimeNs));
 
     QMimeDatabase mimeDatabase;
     payload.insert(
@@ -220,17 +140,17 @@ QByteArray encodePngBounded(QImage* image, QString* error) {
 }
 
 QJsonObject pdfPagePayload(const QString& path, const QJsonObject& request, QString* error) {
-    struct stat opened {};
-    std::unique_ptr<QFile> file = openRegularNoFollow(path, &opened, error);
-    if (!file)
+    PreviewFileAccess::OpenedFile opened =
+        PreviewFileAccess::openRegularNoFollow(path, error);
+    if (!opened)
         return {};
-    if (opened.st_size < 0 || opened.st_size > PreviewProtocol::kMaxPdfInputBytes) {
+    if (opened.size < 0 || opened.size > PreviewProtocol::kMaxPdfInputBytes) {
         if (error)
             *error = QStringLiteral("PDF exceeds the preview input limit");
         return {};
     }
 
-    std::unique_ptr<Poppler::Document> document = Poppler::Document::load(file.get());
+    std::unique_ptr<Poppler::Document> document = Poppler::Document::load(opened.file.get());
     if (!document) {
         if (error)
             *error = QStringLiteral("Could not read PDF document");
@@ -324,7 +244,7 @@ QJsonObject pdfPagePayload(const QString& path, const QJsonObject& request, QStr
     payload.insert(QStringLiteral("author"), document->author());
     payload.insert(QStringLiteral("subject"), document->subject());
     payload.insert(QStringLiteral("keywords"), document->keywords());
-    payload.insert(QStringLiteral("fileSize"), QString::number(static_cast<qlonglong>(opened.st_size)));
+    payload.insert(QStringLiteral("fileSize"), QString::number(opened.size));
     return payload;
 }
 #endif
@@ -356,14 +276,30 @@ QJsonObject handleRequest(const QJsonObject& request) {
     }
 
     if (op == QStringLiteral("media-probe")) {
-        struct stat opened {};
-        std::unique_ptr<QFile> file = openRegularNoFollow(path, &opened, &error);
-        if (!file)
+        PreviewFileAccess::OpenedFile opened =
+            PreviewFileAccess::openRegularNoFollow(path, &error);
+        if (!opened)
             return response(id, false, error);
 
         const QJsonObject payload = MediaProbe::probe(
-            *file,
-            static_cast<qint64>(opened.st_size),
+            *opened.file,
+            opened.size,
+            request,
+            &error);
+        if (!error.isEmpty())
+            return response(id, false, error);
+        return response(id, true, {}, payload);
+    }
+
+    if (op == QStringLiteral("font-preview")) {
+        PreviewFileAccess::OpenedFile opened =
+            PreviewFileAccess::openRegularNoFollow(path, &error);
+        if (!opened)
+            return response(id, false, error);
+
+        const QJsonObject payload = FontProbe::probe(
+            *opened.file,
+            opened.size,
             request,
             &error);
         if (!error.isEmpty())
@@ -399,8 +335,9 @@ void drainOversizedLine(QFile& input, QByteArray current) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral("ryofiles-preview-helper"));
+    qputenv("QT_QPA_PLATFORM", QByteArray("offscreen"));
+    QGuiApplication app(argc, argv);
+    QGuiApplication::setApplicationName(QStringLiteral("ryofiles-preview-helper"));
     applyResourceLimits();
 
     QFile input;

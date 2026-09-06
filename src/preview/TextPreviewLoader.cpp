@@ -6,7 +6,10 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QSet>
+#include <QStringList>
 #include <QVariantMap>
 #include <QtConcurrent>
 #include <QtQml>
@@ -50,11 +53,27 @@ QVariantList archiveEntriesForQml(const QVector<ArchivePreviewEntry>& entries) {
     return converted;
 }
 
+bool isFontCandidatePath(const QString& path) {
+    const QFileInfo info(path);
+    if (!info.isAbsolute())
+        return false;
+
+    static const QSet<QString> suffixes {
+        QStringLiteral("ttf"),
+        QStringLiteral("otf"),
+        QStringLiteral("ttc"),
+        QStringLiteral("otc"),
+    };
+    return suffixes.contains(info.suffix().toLower());
+}
+
 void registerPreviewLoaderQmlTypes() {
     qmlRegisterType<ArchivePreviewLoader>(
         "Ryofiles.Core", 1, 0, "ArchivePreviewLoader");
     qmlRegisterType<PdfPreviewLoader>(
         "Ryofiles.Core", 1, 0, "PdfPreviewLoader");
+    qmlRegisterType<FontPreviewLoader>(
+        "Ryofiles.Core", 1, 0, "FontPreviewLoader");
 }
 
 } // namespace
@@ -424,6 +443,147 @@ void PdfPreviewLoader::startLoad() {
         setLoading(false);
         m_supported = false;
         m_imageSource.clear();
+        m_error = QStringLiteral("Preview queue is busy");
+        emit resultChanged();
+    }
+}
+
+FontPreviewLoader::FontPreviewLoader(QObject* parent)
+    : QObject(parent) {
+    m_debounce.setSingleShot(true);
+    m_debounce.setInterval(75);
+    connect(&m_debounce, &QTimer::timeout, this, &FontPreviewLoader::startLoad);
+}
+
+FontPreviewLoader::~FontPreviewLoader() {
+    PreviewScheduler::instance().cancelOwner(this);
+}
+
+void FontPreviewLoader::setPath(const QString& path) {
+    if (m_path == path)
+        return;
+    m_path = path;
+    emit pathChanged();
+    scheduleLoad();
+}
+
+void FontPreviewLoader::setActive(bool active) {
+    if (m_active == active)
+        return;
+    m_active = active;
+    emit activeChanged();
+    scheduleLoad();
+}
+
+bool FontPreviewLoader::isCandidate(const QString& path) const {
+    return isFontCandidatePath(path);
+}
+
+void FontPreviewLoader::setLoading(bool loading) {
+    if (m_loading == loading)
+        return;
+    m_loading = loading;
+    emit loadingChanged();
+}
+
+void FontPreviewLoader::clearResult() {
+    if (!m_supported && m_familyName.isEmpty() && m_styleName.isEmpty()
+        && m_styleLabel.isEmpty() && m_weight == 0 && m_unitsPerEm == 0.0
+        && m_writingSystems.isEmpty() && m_sampleText.isEmpty()
+        && m_sampleSource.isEmpty() && m_error.isEmpty()) {
+        return;
+    }
+
+    m_supported = false;
+    m_familyName.clear();
+    m_styleName.clear();
+    m_styleLabel.clear();
+    m_weight = 0;
+    m_unitsPerEm = 0.0;
+    m_writingSystems.clear();
+    m_sampleText.clear();
+    m_sampleSource.clear();
+    m_error.clear();
+    emit resultChanged();
+}
+
+void FontPreviewLoader::scheduleLoad() {
+    ++m_generation;
+    m_debounce.stop();
+    PreviewScheduler::instance().cancelOwner(this);
+    setLoading(false);
+    clearResult();
+
+    if (!m_active || m_path.isEmpty() || !isFontCandidatePath(m_path))
+        return;
+    m_debounce.start();
+}
+
+void FontPreviewLoader::startLoad() {
+    if (!m_active || m_path.isEmpty() || !isFontCandidatePath(m_path))
+        return;
+
+    const quint64 generation = m_generation;
+    const QString loadPath = m_path;
+    setLoading(true);
+
+    QJsonObject request;
+    request.insert(QStringLiteral("op"), QStringLiteral("font-preview"));
+    request.insert(QStringLiteral("path"), loadPath);
+    request.insert(QStringLiteral("maxWidth"), 1000);
+    request.insert(QStringLiteral("maxHeight"), 520);
+    request.insert(QStringLiteral("pixelSize"), 64);
+
+    const bool admitted = PreviewScheduler::instance().submit(
+        PreviewScheduler::Lane::InteractivePreview,
+        this,
+        request,
+        [this, generation, loadPath](PreviewResult result) {
+            if (generation != m_generation || loadPath != m_path || !m_active)
+                return;
+
+            setLoading(false);
+            if (!result.ok) {
+                m_supported = false;
+                m_error = result.error.isEmpty()
+                    ? QStringLiteral("Font preview unavailable")
+                    : result.error;
+                emit resultChanged();
+                return;
+            }
+
+            const QJsonObject payload = result.payload;
+            m_familyName = payload.value(QStringLiteral("family")).toString();
+            m_styleName = payload.value(QStringLiteral("styleName")).toString();
+            m_styleLabel = payload.value(QStringLiteral("style")).toString();
+            m_weight = payload.value(QStringLiteral("weight")).toInt(0);
+            m_unitsPerEm = payload.value(QStringLiteral("unitsPerEm")).toDouble(0.0);
+            m_sampleText = payload.value(QStringLiteral("sampleText")).toString();
+
+            QStringList writingSystems;
+            const QJsonArray systems = payload.value(QStringLiteral("writingSystems")).toArray();
+            writingSystems.reserve(systems.size());
+            for (const QJsonValue value : systems) {
+                const QString name = value.toString();
+                if (!name.isEmpty())
+                    writingSystems.append(name);
+            }
+            m_writingSystems = writingSystems.join(QStringLiteral(" · "));
+
+            const QString sampleBase64 = payload.value(QStringLiteral("sampleBase64")).toString();
+            m_sampleSource = sampleBase64.isEmpty()
+                ? QString{}
+                : QStringLiteral("data:image/png;base64,") + sampleBase64;
+            m_supported = !m_sampleSource.isEmpty();
+            m_error = m_supported
+                ? QString{}
+                : QStringLiteral("Font preview returned no sample image");
+            emit resultChanged();
+        });
+
+    if (!admitted) {
+        setLoading(false);
+        m_supported = false;
         m_error = QStringLiteral("Preview queue is busy");
         emit resultChanged();
     }

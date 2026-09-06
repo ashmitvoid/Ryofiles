@@ -23,6 +23,9 @@ makedepends=(
   'git'
   'ninja'
 )
+checkdepends=(
+  'ttf-dejavu'
+)
 optdepends=(
   'gvfs-smb: SMB/CIFS remote locations'
   'gvfs-dnssd: WebDAV and DNS-SD support'

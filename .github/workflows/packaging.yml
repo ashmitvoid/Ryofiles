@@ -104,7 +104,7 @@ jobs:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg
+          base-devel cmake ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg ttf-dejavu
 
       - name: Checkout exact package source SHA
         uses: actions/checkout@v4

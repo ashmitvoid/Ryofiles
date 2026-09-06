@@ -29,4 +29,13 @@ inline constexpr int kDefaultMediaPosterHeight = 540;
 inline constexpr int kMaxMediaPosterDimension = 1280;
 inline constexpr int kMaxMediaPackets = 512;
 
+inline constexpr qint64 kMaxFontInputBytes = 32LL * 1024 * 1024;
+inline constexpr int kDefaultFontRenderWidth = 960;
+inline constexpr int kDefaultFontRenderHeight = 420;
+inline constexpr int kMaxFontRenderDimension = 1280;
+inline constexpr int kDefaultFontPixelSize = 64;
+inline constexpr int kMaxFontPixelSize = 96;
+inline constexpr int kMaxFontSampleChars = 96;
+inline constexpr int kMaxFontWritingSystems = 16;
+
 } // namespace PreviewProtocol
