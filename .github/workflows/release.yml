@@ -1,0 +1,234 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    env:
+      RELEASE_SHA: ${{ github.sha }}
+    steps:
+      - name: Install release dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          appstream base-devel cmake dbus desktop-file-utils git github-cli glib2 gvfs
+          libarchive ninja python-gobject qt6-base qt6-declarative xdg-desktop-portal zstd
+
+      - name: Checkout exact tag commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify tag and release metadata
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version="$(sed -n 's/^project(ryofiles VERSION \([^ ]*\) LANGUAGES.*/\1/p' CMakeLists.txt)"
+          portalctl_version="$(sed -n 's/^project(ryofiles-portalctl VERSION \([^ ]*\) LANGUAGES.*/\1/p' tools/portalctl/CMakeLists.txt)"
+          release_pkgver="$(sed -n 's/^pkgver=\(.*\)$/\1/p' packaging/arch/PKGBUILD.release)"
+
+          test -n "$project_version"
+          test "$GITHUB_REF_NAME" = "v$project_version" || {
+            echo "Tag $GITHUB_REF_NAME does not match project version $project_version" >&2
+            exit 1
+          }
+          test "$portalctl_version" = "$project_version"
+          test "$release_pkgver" = "$project_version"
+          grep -Fq "<release version=\"$project_version\"" \
+            assets/io.github.ashmitvoid.Ryofiles.metainfo.xml
+          grep -Fq "## $project_version " CHANGELOG.md
+          appstreamcli validate --no-net assets/io.github.ashmitvoid.Ryofiles.metainfo.xml
+          desktop-file-validate assets/ryofiles.desktop
+
+          echo "version=$project_version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure application
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=/usr
+          -DRYOFILES_BUILD_TESTS=ON
+
+      - name: Build application
+        run: cmake --build build --parallel 2
+
+      - name: Test application
+        run: ctest --test-dir build --output-on-failure --parallel 2
+
+      - name: FileChooser D-Bus smoke
+        shell: bash
+        run: dbus-run-session -- bash tests/FileChooserPortalSmoke.sh "$PWD/build/ryofiles"
+
+      - name: FileChooser public broker smoke
+        shell: bash
+        run: bash tests/FileChooserBrokerSmoke.sh "$PWD/build/ryofiles"
+
+      - name: FileChooser public broker request matrix
+        shell: bash
+        run: bash tests/FileChooserBrokerMatrix.sh "$PWD/build/ryofiles"
+
+      - name: Configure portal routing helper
+        run: >-
+          cmake -S tools/portalctl -B build-portalctl -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=/usr
+          -DRYOFILES_PORTALCTL_BUILD_TESTS=ON
+
+      - name: Build portal routing helper
+        run: cmake --build build-portalctl --parallel 2
+
+      - name: Test portal routing helper
+        run: ctest --test-dir build-portalctl --output-on-failure
+
+      - name: Prepare staged Linux bundle
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf stage artifacts
+          mkdir -p stage artifacts
+          DESTDIR="$PWD/stage" cmake --install build --prefix /usr
+          DESTDIR="$PWD/stage" cmake --install build-portalctl --prefix /usr
+
+          install -Dm644 assets/io.github.ashmitvoid.Ryofiles.metainfo.xml \
+            stage/usr/share/metainfo/io.github.ashmitvoid.Ryofiles.metainfo.xml
+          install -Dm644 assets/portal/ryofiles.portal \
+            stage/usr/share/xdg-desktop-portal/portals/ryofiles.portal
+          install -Dm644 assets/portal/org.freedesktop.impl.portal.desktop.ryofiles.service \
+            stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service
+          install -Dm644 LICENSE stage/usr/share/licenses/ryofiles/LICENSE
+          install -Dm644 THIRD_PARTY_NOTICES.md \
+            stage/usr/share/licenses/ryofiles/THIRD_PARTY_NOTICES.md
+
+          test -x stage/usr/bin/ryofiles
+          test -x stage/usr/bin/ryofiles-portalctl
+          test ! -e stage/etc
+
+          tar --zstd -C stage -cf \
+            "artifacts/Ryofiles-$RELEASE_VERSION-linux-x86_64.tar.zst" usr
+
+      - name: Build exact-tag stable Arch package
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          package_work="$GITHUB_WORKSPACE/.release-arch-package"
+          rm -rf "$package_work"
+          mkdir -p "$package_work"
+          cp packaging/arch/PKGBUILD.release "$package_work/PKGBUILD"
+
+          useradd --create-home releasebuilder
+          chown -R releasebuilder:releasebuilder "$package_work"
+          su releasebuilder -c "cd '$package_work' && makepkg --noconfirm --cleanbuild"
+
+          packaged_sha="$(su releasebuilder -c "git -C '$package_work/src/Ryofiles' rev-parse HEAD")"
+          test "$packaged_sha" = "$RELEASE_SHA" || {
+            echo "Stable package built $packaged_sha instead of release SHA $RELEASE_SHA" >&2
+            exit 1
+          }
+
+          package_path="$(find "$package_work" -maxdepth 1 -type f -name "ryofiles-$RELEASE_VERSION-*-x86_64.pkg.tar.zst" -print -quit)"
+          test -n "$package_path"
+          bsdtar -tf "$package_path" > /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/bin/ryofiles' /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/bin/ryofiles-portalctl' /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/share/licenses/ryofiles/LICENSE' /tmp/ryofiles-release-files.txt
+          grep -Fxq 'usr/share/licenses/ryofiles/THIRD_PARTY_NOTICES.md' /tmp/ryofiles-release-files.txt
+          if grep -Eq '^etc/' /tmp/ryofiles-release-files.txt; then
+            echo 'Release package must not write system configuration.' >&2
+            exit 1
+          fi
+
+          cp "$package_path" artifacts/
+
+      - name: Install release package and verify linkage
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          package_path="$(find artifacts -maxdepth 1 -type f -name "ryofiles-$RELEASE_VERSION-*-x86_64.pkg.tar.zst" -print -quit)"
+          test -n "$package_path"
+          pacman -U --noconfirm "$package_path"
+          pacman -Q ryofiles
+
+          /usr/bin/ryofiles-portalctl --version | grep -Fq "$RELEASE_VERSION"
+          ldd /usr/bin/ryofiles | tee /tmp/ryofiles-release-ldd.txt
+          ldd /usr/bin/ryofiles-portalctl | tee /tmp/ryofiles-release-portalctl-ldd.txt
+          if grep -Fq 'not found' /tmp/ryofiles-release-ldd.txt \
+            || grep -Fq 'not found' /tmp/ryofiles-release-portalctl-ldd.txt; then
+            echo 'Release package has unresolved runtime libraries.' >&2
+            exit 1
+          fi
+          grep -Eq 'libarchive\.so' /tmp/ryofiles-release-ldd.txt
+
+      - name: Build source archive and checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git archive \
+            --format=tar \
+            --prefix="Ryofiles-$RELEASE_VERSION/" \
+            "$RELEASE_SHA" \
+            | zstd -T0 -19 -o "artifacts/Ryofiles-$RELEASE_VERSION-source.tar.zst"
+
+          (
+            cd artifacts
+            sha256sum \
+              "Ryofiles-$RELEASE_VERSION-source.tar.zst" \
+              "Ryofiles-$RELEASE_VERSION-linux-x86_64.tar.zst" \
+              "ryofiles-$RELEASE_VERSION-"*-x86_64.pkg.tar.zst \
+              > SHA256SUMS
+          )
+
+      - name: Prepare release notes
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v version="$RELEASE_VERSION" '
+            $0 ~ "^## " version " " { capture=1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+
+      - name: Upload release build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ryofiles-${{ steps.version.outputs.version }}-release
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            artifacts/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Ryofiles $RELEASE_VERSION" \
+            --notes-file release-notes.md
