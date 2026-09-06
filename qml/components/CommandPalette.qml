@@ -9,13 +9,24 @@ Item {
     property var commands: []
     property string query: ""
     property int selectedIndex: -1
+    property bool shown: false
     readonly property var matches: root.filteredCommands()
 
     signal commandTriggered(string commandId)
 
     visible: false
+    opacity: root.shown ? 1.0 : 0.0
     anchors.fill: parent
     z: 1100
+
+    Behavior on opacity {
+        enabled: !Ryoku.reduceMotion
+        NumberAnimation {
+            duration: Ryoku.duration(130)
+            easing.type: Easing.OutCubic
+            onStopped: if (!root.shown) root.visible = false
+        }
+    }
 
     function normalized(value) {
         return (value || "").toString().toLowerCase()
@@ -133,6 +144,7 @@ Item {
     function open() {
         root.query = ""
         root.visible = true
+        root.shown = true
         field.text = ""
         root.selectedIndex = root.firstEnabledIndex()
         Qt.callLater(function() {
@@ -143,12 +155,20 @@ Item {
 
     function close() {
         field.focus = false
-        root.visible = false
+        root.shown = false
         root.query = ""
         root.selectedIndex = -1
+        if (Ryoku.reduceMotion)
+            root.visible = false
     }
 
     onMatchesChanged: root.normalizeSelection()
+
+    Rectangle {
+        anchors.fill: parent
+        color: Ryoku.paper
+        opacity: 0.52
+    }
 
     MouseArea {
         anchors.fill: parent
@@ -167,11 +187,17 @@ Item {
             76 * root.uiScale
                 + Math.max(42 * root.uiScale, root.matches.length * 42 * root.uiScale)
                 + 34 * root.uiScale)
-        radius: 6 * root.uiScale
+        radius: 8 * root.uiScale
         color: Ryoku.paperLift
         border.width: 1
         border.color: Ryoku.lineStrong
         clip: true
+        scale: root.shown ? 1.0 : 0.985
+
+        Behavior on scale {
+            enabled: !Ryoku.reduceMotion
+            NumberAnimation { duration: Ryoku.duration(140); easing.type: Easing.OutCubic }
+        }
 
         MouseArea {
             anchors.fill: parent
@@ -296,11 +322,18 @@ Item {
 
                 width: ListView.view.width
                 height: 42 * root.uiScale
-                radius: 5 * root.uiScale
-                color: root.selectedIndex === row.index
-                    ? (row.modelData.enabled ? Ryoku.bone : Ryoku.tint5)
-                    : (rowHover.hovered && row.modelData.enabled ? Ryoku.tint5 : "transparent")
+                radius: 6 * root.uiScale
+                color: rowTap.pressed && row.modelData.enabled
+                    ? (root.selectedIndex === row.index ? Ryoku.bone : Ryoku.tint10)
+                    : (root.selectedIndex === row.index
+                        ? (row.modelData.enabled ? Ryoku.bone : Ryoku.tint5)
+                        : (rowHover.hovered && row.modelData.enabled ? Ryoku.tint5 : "transparent"))
                 opacity: row.modelData.enabled ? 1.0 : 0.42
+
+                Behavior on color {
+                    enabled: !Ryoku.reduceMotion
+                    ColorAnimation { duration: Ryoku.duration(90) }
+                }
 
                 Text {
                     anchors.left: parent.left
@@ -373,6 +406,7 @@ Item {
                 }
 
                 TapHandler {
+                    id: rowTap
                     enabled: row.modelData.enabled
                     onTapped: {
                         root.selectedIndex = row.index

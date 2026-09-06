@@ -15,12 +15,9 @@ Item {
     readonly property real minimumPaneWidth: 240 * root.uiScale
 
     function focusActivePane() {
-        if (!root.tabs)
-            return
-        if (root.tabs.split && root.tabs.activePane === 1)
-            secondaryPane.focusView()
-        else
-            primaryPane.focusView()
+        if (!root.tabs) return
+        if (root.tabs.split && root.tabs.activePane === 1) secondaryPane.focusView()
+        else primaryPane.focusView()
     }
 
     function restoreFocusIfUnclaimed() {
@@ -31,15 +28,13 @@ Item {
     }
 
     function activatePane(index) {
-        if (!root.tabs)
-            return
+        if (!root.tabs) return
         root.tabs.activePane = index
         Qt.callLater(root.focusActivePane)
     }
 
     function clampRatio(value) {
-        if (!root.tabs || !root.tabs.split || root.width <= 0)
-            return 1.0
+        if (!root.tabs || !root.tabs.split || root.width <= 0) return 1.0
         var available = Math.max(1, root.width - root.dividerWidth)
         var minimumRatio = Math.min(0.45, root.minimumPaneWidth / available)
         var maximumRatio = 1.0 - minimumRatio
@@ -58,7 +53,6 @@ Item {
         uiScale: root.uiScale
         paneIndex: 0
         paneActive: !root.tabs || root.tabs.activePane === 0
-
         onActivated: index => root.activatePane(index)
         onContextRequested: function(sceneX, sceneY, path, isDirectory, paneIndex) {
             root.activatePane(paneIndex)
@@ -77,11 +71,20 @@ Item {
 
         Rectangle {
             anchors.centerIn: parent
-            width: 1
+            width: dividerMouse.containsMouse || dividerMouse.drag.active ? 2 * root.uiScale : 1
             height: parent.height
+            radius: width / 2
             color: dividerMouse.containsMouse || dividerMouse.drag.active
-                ? Ryoku.lineStrong
-                : Ryoku.line
+                ? Ryoku.lineStrong : Ryoku.lineSoft
+
+            Behavior on width {
+                enabled: !Ryoku.reduceMotion
+                NumberAnimation { duration: Ryoku.duration(100); easing.type: Easing.OutCubic }
+            }
+            Behavior on color {
+                enabled: !Ryoku.reduceMotion
+                ColorAnimation { duration: Ryoku.duration(100) }
+            }
         }
 
         MouseArea {
@@ -89,7 +92,6 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.SizeHorCursor
-
             property real pressSceneX: 0
             property real pressRatio: 0.5
 
@@ -97,10 +99,8 @@ Item {
                 pressSceneX = mapToItem(root, mouse.x, mouse.y).x
                 pressRatio = root.splitRatio
             }
-
             onPositionChanged: function(mouse) {
-                if (!pressed || root.width <= root.dividerWidth)
-                    return
+                if (!pressed || root.width <= root.dividerWidth) return
                 var sceneX = mapToItem(root, mouse.x, mouse.y).x
                 var delta = sceneX - pressSceneX
                 var available = root.width - root.dividerWidth
@@ -120,7 +120,6 @@ Item {
         uiScale: root.uiScale
         paneIndex: 1
         paneActive: root.tabs && root.tabs.activePane === 1
-
         onActivated: index => root.activatePane(index)
         onContextRequested: function(sceneX, sceneY, path, isDirectory, paneIndex) {
             root.activatePane(paneIndex)
@@ -144,32 +143,21 @@ Item {
     Connections {
         target: root.tabs
         function onSplitChanged() {
-            if (root.tabs && root.tabs.split)
-                root.splitRatio = root.clampRatio(root.splitRatio)
-            else
-                root.splitRatio = 0.5
+            if (root.tabs && root.tabs.split) root.splitRatio = root.clampRatio(root.splitRatio)
+            else root.splitRatio = 0.5
             Qt.callLater(root.focusActivePane)
         }
-        function onActivePaneChanged() {
-            Qt.callLater(root.focusActivePane)
-        }
-        function onCurrentSessionChanged() {
-            Qt.callLater(root.focusActivePane)
-        }
+        function onActivePaneChanged() { Qt.callLater(root.focusActivePane) }
+        function onCurrentSessionChanged() { Qt.callLater(root.focusActivePane) }
     }
 
     Connections {
         target: root.Window.window
         function onActiveFocusItemChanged() {
-            if (target && !target.activeFocusItem)
-                Qt.callLater(root.restoreFocusIfUnclaimed)
+            if (target && !target.activeFocusItem) Qt.callLater(root.restoreFocusIfUnclaimed)
         }
     }
 
-    onWidthChanged: {
-        if (root.tabs && root.tabs.split)
-            root.splitRatio = root.clampRatio(root.splitRatio)
-    }
-
+    onWidthChanged: if (root.tabs && root.tabs.split) root.splitRatio = root.clampRatio(root.splitRatio)
     Component.onCompleted: Qt.callLater(root.focusActivePane)
 }
