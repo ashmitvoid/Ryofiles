@@ -6,7 +6,7 @@ Ryoku is the product and integration authority. Atlas is a technical upstream/re
 
 Pinned development baselines:
 
-- Ryoku `unstable-dev`: `0a3ca72be636eb8ff593dd28fc32f7a16a887806` (`0.58.6-beta.19`)
+- Ryoku `unstable-dev`: `0440e3fa02e1a4bed04a26d1c2aeab868a5f8ad4` (`0.59.7-beta.19`)
 - Atlas `main`: `f3c8e58336d72d9581be1b598c8af4be751c74e5`
 
 ## Layers
@@ -125,7 +125,7 @@ The portal `modal` option is a Qt modality hint. xdg-foreign establishes native 
 
 CI runs both the production backend under a private D-Bus and the production backend through the real `xdg-desktop-portal` frontend. The public request matrix covers single/multi file open, single/multi folder selection, SaveFile, SaveFiles, filters, choices, difficult filenames, and cancellation.
 
-Firefox, Chromium, Electron/VS Code, GTK, Qt, Flatpak, and compositor-specific parent/focus behavior remain manual V1 release gates on an actual Ryoku/Hyprland session. See `FILECHOOSER_COMPATIBILITY.md`.
+Firefox, Chromium, Electron/VS Code, GTK, Qt, Flatpak, and compositor-specific parent/focus behavior remain manual V1 release gates on an actual Ryoku/Hyprland session. See `FILECHOOSER_COMPATIBILITY.md` and `RELEASE_CHECKLIST.md`.
 
 ### Reversible Ryoku routing
 
@@ -163,14 +163,14 @@ The archive itself is opened `O_NOFOLLOW`, its regular-file size is snapshotted 
 
 V1 deliberately stops at image, bounded text/Markdown-as-text, archive-content, and standard metadata preview. Rich PDF, audio/video, and font renderer stacks are post-V1 work. This avoids adding new decoder/resource surfaces during release hardening.
 
-## CI and V1 hardening
+## CI and release architecture
 
-Feature branches do not run duplicate full pipelines on every push. Every pull request runs the Build workflow. Production-affecting pull requests matching the Packaging path filter also run exact-head package validation; canonical `main` pushes revalidate merged production changes. Packaging pins and verifies the exact source SHA, validates neutral portal packaging, inspects the payload, installs it, checks runtime linkage, and asserts the production binary resolves libarchive.
+Feature branches do not run duplicate full pipelines on every push. Every pull request runs the Build workflow. Production-affecting pull requests matching the Packaging path filter also run exact-head package validation; canonical `main` pushes revalidate merged production changes.
 
-The automated hardening baseline includes the 4,096-entry directory snapshot and deterministic stale-scan publication test described above. The remaining V1 work is release hardening rather than feature expansion:
+Packaging pins and verifies the exact source SHA, validates neutral portal packaging, inspects the payload, installs it, checks runtime linkage, and asserts the production binary resolves libarchive. Release metadata is required to agree across the top-level CMake project, portalctl project, stable Arch recipe, AppStream release entry, and changelog.
 
-- real-application FileChooser compatibility on Ryoku/Hyprland;
-- broader manual performance/stress and lifecycle regression runs;
-- keyboard/theme/reduced-motion/HiDPI/error-state checks;
-- install/upgrade/uninstall and reversible-routing validation;
-- version/changelog/release metadata and final release-candidate smoke.
+When a pull request changes the project version, a one-time release-migration job additionally builds the PR base `ryofiles-git` package and the new stable `ryofiles` package. It validates the exact release-package source SHA, transitions from the development package to the stable package, exercises the installed `ryofiles-portalctl` enable/status/disable path against an isolated routing config, requires byte-for-byte restoration, uninstalls the stable package, and verifies package-owned binaries/assets and managed routing state are gone.
+
+The `v1.0.0` tag is deliberately the publication boundary rather than the merge itself. The tag workflow rebuilds and tests the exact tag, reruns the FileChooser smokes/request matrix, builds the stable Arch package from the tagged source, verifies its source SHA/runtime linkage/payload, builds source and staged-install archives, generates SHA-256 sums, uploads the artifact set, and publishes the GitHub release. The tag should only be created after the real Ryoku/Hyprland checks in `RELEASE_CHECKLIST.md` are signed off.
+
+The automated hardening baseline also includes the 4,096-entry directory snapshot and deterministic stale-scan publication test described above. Remaining pre-tag work is environment-dependent release validation rather than feature expansion: the real-application FileChooser matrix, manual performance/stress/lifecycle checks, keyboard/theme/reduced-motion/HiDPI/error-state passes, and final RC smoke on the intended Ryoku/CachyOS machine.
