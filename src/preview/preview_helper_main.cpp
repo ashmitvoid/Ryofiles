@@ -179,6 +179,19 @@ QJsonObject pdfPagePayload(const QString& path, const QJsonObject& request, QStr
         return {};
     }
 
+    QJsonObject payload;
+    payload.insert(QStringLiteral("page"), pageIndex);
+    payload.insert(QStringLiteral("pageCount"), pageCount);
+    payload.insert(QStringLiteral("title"), document->title());
+    payload.insert(QStringLiteral("author"), document->author());
+    payload.insert(QStringLiteral("subject"), document->subject());
+    payload.insert(QStringLiteral("keywords"), document->keywords());
+    payload.insert(QStringLiteral("fileSize"), QString::number(opened.size));
+
+    const bool renderPage = request.value(QStringLiteral("renderPage")).toBool(true);
+    if (!renderPage)
+        return payload;
+
     const int maxWidth = std::clamp(
         request.value(QStringLiteral("maxWidth")).toInt(PreviewProtocol::kDefaultPdfRenderWidth),
         128,
@@ -236,18 +249,10 @@ QJsonObject pdfPagePayload(const QString& path, const QJsonObject& request, QStr
     if (png.isEmpty())
         return {};
 
-    QJsonObject payload;
-    payload.insert(QStringLiteral("page"), pageIndex);
-    payload.insert(QStringLiteral("pageCount"), pageCount);
     payload.insert(QStringLiteral("pixelWidth"), image.width());
     payload.insert(QStringLiteral("pixelHeight"), image.height());
     payload.insert(QStringLiteral("imageFormat"), QStringLiteral("png"));
     payload.insert(QStringLiteral("imageBase64"), QString::fromLatin1(png.toBase64()));
-    payload.insert(QStringLiteral("title"), document->title());
-    payload.insert(QStringLiteral("author"), document->author());
-    payload.insert(QStringLiteral("subject"), document->subject());
-    payload.insert(QStringLiteral("keywords"), document->keywords());
-    payload.insert(QStringLiteral("fileSize"), QString::number(opened.size));
     return payload;
 }
 #endif
