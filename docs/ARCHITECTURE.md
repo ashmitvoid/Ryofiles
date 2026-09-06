@@ -77,7 +77,7 @@ The repository contains the native vertical slices required for V1 daily file-ma
 
 Local filename and portal filename filters rebuild the already-scanned in-memory entry list; they do not trigger another filesystem scan. Normal browsing has no portal filter. Deep search has its own cancellation/stale-result protection and bounded result/visit ceilings.
 
-V1 regression coverage includes a multi-thousand-entry local directory snapshot and a rapid-navigation case that waits for outstanding scan workers to finish before asserting that the newer location remains authoritative. These are correctness/stale-publication gates, not benchmark claims.
+V1 regression coverage includes a 4,096-entry local directory snapshot and a rapid-navigation case that waits for outstanding scan workers to finish before asserting that the newer location remains authoritative. These are correctness/stale-publication gates, not benchmark claims.
 
 ## Picker architecture
 
@@ -165,12 +165,12 @@ V1 deliberately stops at image, bounded text/Markdown-as-text, archive-content, 
 
 ## CI and V1 hardening
 
-Feature branches do not run duplicate full pipelines on every push. The full Build and Packaging workflows are pull-request gates; canonical `main` pushes revalidate the merged state. Packaging pins and verifies the exact source SHA, validates neutral portal packaging, inspects the payload, installs it, checks runtime linkage, and asserts the production binary resolves libarchive.
+Feature branches do not run duplicate full pipelines on every push. Every pull request runs the Build workflow. Production-affecting pull requests matching the Packaging path filter also run exact-head package validation; canonical `main` pushes revalidate merged production changes. Packaging pins and verifies the exact source SHA, validates neutral portal packaging, inspects the payload, installs it, checks runtime linkage, and asserts the production binary resolves libarchive.
 
-The remaining V1 work is release hardening rather than feature expansion:
+The automated hardening baseline includes the 4,096-entry directory snapshot and deterministic stale-scan publication test described above. The remaining V1 work is release hardening rather than feature expansion:
 
 - real-application FileChooser compatibility on Ryoku/Hyprland;
-- large-directory/stale-work and lifecycle regression passes;
+- broader manual performance/stress and lifecycle regression runs;
 - keyboard/theme/reduced-motion/HiDPI/error-state checks;
 - install/upgrade/uninstall and reversible-routing validation;
 - version/changelog/release metadata and final release-candidate smoke.
