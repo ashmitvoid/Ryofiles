@@ -15,6 +15,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Quick
     Concurrent
     DBus
+    Multimedia
 )
 find_package(LibArchive REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -88,6 +89,9 @@ qt_add_executable(ryofiles
     src/preview/TextPreviewLoader.cpp
     src/preview/ArchivePreviewStore.hpp
     src/preview/ArchivePreviewStore.cpp
+    src/preview/PreviewFileAccess.hpp
+    src/preview/MediaPreviewWorkflow.hpp
+    src/preview/MediaPreviewWorkflow.cpp
 )
 
 qt_add_qml_module(ryofiles
@@ -121,6 +125,7 @@ qt_add_qml_module(ryofiles
         qml/components/OpenWithSheet.qml
         qml/components/PropertiesSheet.qml
         qml/components/PreviewPanel.qml
+        qml/components/MediaPreviewBlock.qml
         qml/components/PortalPickerOptions.qml
 )
 
@@ -133,6 +138,7 @@ target_link_libraries(ryofiles PRIVATE
     Qt6::Quick
     Qt6::Concurrent
     Qt6::DBus
+    Qt6::Multimedia
     LibArchive::LibArchive
     PkgConfig::GIO
 )
@@ -306,6 +312,24 @@ if(RYOFILES_BUILD_TESTS)
     )
 
     add_test(NAME archive-preview-store COMMAND ryofiles_archive_preview_tests)
+
+    qt_add_executable(ryofiles_media_playback_tests
+        tests/MediaPlaybackControllerTest.cpp
+        src/preview/PreviewFileAccess.hpp
+        src/preview/MediaPreviewWorkflow.hpp
+        src/preview/MediaPreviewWorkflow.cpp
+    )
+
+    target_include_directories(ryofiles_media_playback_tests PRIVATE src)
+
+    target_link_libraries(ryofiles_media_playback_tests PRIVATE
+        Qt6::Core
+        Qt6::Multimedia
+        Qt6::Qml
+        Qt6::Test
+    )
+
+    add_test(NAME media-playback-controller COMMAND ryofiles_media_playback_tests)
 
     qt_add_executable(ryofiles_directory_filter_tests
         tests/DirectoryModelFilterTest.cpp

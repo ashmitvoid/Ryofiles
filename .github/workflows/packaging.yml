@@ -104,7 +104,7 @@ jobs:
       - name: Install package build dependencies
         run: >-
           pacman -Syu --noconfirm --needed
-          base-devel cmake ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative
+          base-devel cmake ffmpeg git ninja glib2 gvfs libarchive poppler-qt6 qt6-base qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg
 
       - name: Checkout exact package source SHA
         uses: actions/checkout@v4
@@ -209,6 +209,7 @@ jobs:
           grep -Fxq 'Exec=/usr/bin/ryofiles --filechooser-portal' \
             /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service
 
+          pacman -Q qt6-multimedia qt6-multimedia-ffmpeg
           /usr/bin/ryofiles-portalctl --version
 
           ldd /usr/bin/ryofiles | tee /tmp/ryofiles-ldd.txt
@@ -223,6 +224,11 @@ jobs:
 
           grep -Eq 'libarchive\.so' /tmp/ryofiles-ldd.txt || {
             echo 'Installed Ryofiles binary is not linked against libarchive.' >&2
+            exit 1
+          }
+
+          grep -Eq 'libQt6Multimedia\.so' /tmp/ryofiles-ldd.txt || {
+            echo 'Installed Ryofiles binary is not linked against Qt6 Multimedia.' >&2
             exit 1
           }
 

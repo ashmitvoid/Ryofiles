@@ -81,6 +81,7 @@ Item {
             && !root.thumbnails.isCandidate(root.session.selectedPath)
             && !archivePreview.isCandidate(root.session.selectedPath)
             && !pdfPreview.isCandidate(root.session.selectedPath)
+            && !mediaPreviewBlock.candidate
         path: active ? root.session.selectedPath : ""
     }
 
@@ -165,6 +166,15 @@ Item {
                 cache: false
                 asynchronous: false
                 smooth: true
+            }
+
+            MediaPreviewBlock {
+                id: mediaPreviewBlock
+                anchors.fill: parent
+                session: root.session
+                uiScale: root.uiScale
+                visible: candidate
+                z: 2
             }
 
             Flickable {
@@ -263,6 +273,7 @@ Item {
                 width: parent.width - 28 * root.uiScale
                 visible: !textFlick.visible
                     && !archiveFlick.visible
+                    && !mediaPreviewBlock.candidate
                     && (!previewImage.visible || previewImage.status !== Image.Ready)
                     && (!pdfImage.visible || pdfImage.status !== Image.Ready)
                 text: {
