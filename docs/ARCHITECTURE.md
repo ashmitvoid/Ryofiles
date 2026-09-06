@@ -16,24 +16,24 @@ Ryoku integration / app lifecycle
              ↓
 Directory sessions + operations + search + storage
              ↓
-Qt models/controllers
+Qt models/controllers and bounded worker stores
              ↓
 Ryoku-native QML presentation
 ```
 
-The UI never owns expensive filesystem work.
+The QML/UI layer never owns expensive filesystem work.
 
 ## Foundation already in place
 
-The repository now has the core native vertical slices required for daily file-manager work:
+The repository contains the native vertical slices required for V1 daily file-manager work:
 
 1. native Qt 6 application shell;
 2. live `theme.json`, `shell.json`, and `colors.json` readers;
-3. Ryoku paper-and-ink role resolution matching `Ryoku.Ui/Singletons/Tokens.qml`;
+3. Ryoku paper-and-ink role resolution matching Ryoku tokens;
 4. per-monitor `displays.ui_scale` lookup;
 5. motion/reduced-motion settings;
 6. asynchronous non-recursive directory scans;
-7. generation protection so stale scans cannot replace a newer directory;
+7. generation/path protection so stale scans cannot replace a newer directory;
 8. `QFileSystemWatcher` refresh for active local directories;
 9. XDG standard places;
 10. `DirectorySession` navigation history with stable selection/scroll state;
@@ -46,124 +46,131 @@ The repository now has the core native vertical slices required for daily file-m
 17. Git status/actions and Ryoku-native contextual actions;
 18. explicit on-demand folder-size calculation outside the browsing path;
 19. lightweight open/save/folder picker bootstrap with separate `Ryofiles Picker` identity;
-20. local-only QtDBus FileChooser backend core with per-request lifecycle/cancellation;
-21. package-level neutral backend discovery and D-Bus activation registration;
-22. headless opt-in/reversible Ryoku FileChooser routing control with exact previous-line restoration;
-23. FileChooser dialog title and accept-label forwarding into the lightweight picker presentation;
-24. private-session process smoke covering backend service acquisition, OpenFile URI return, and `org.freedesktop.impl.portal.Request.Close` cancellation;
-25. bounded FileChooser filter/choice context, interactive picker presentation, selected-filter/choice result echo, and process-level structured D-Bus smoke coverage;
-26. validated FileChooser parent-window propagation with X11 transient parenting and Wayland xdg-foreign-v2 native parent attachment plus safe fallback;
-27. libarchive-backed headless archive extraction with dirfd-anchored path traversal, no-overwrite creation, cancellation/rollback, hardlink deferral, special-entry rejection, and bounded entry/expanded-size limits.
+20. local-only QtDBus FileChooser backend with per-request lifecycle/cancellation;
+21. neutral portal discovery/D-Bus activation packaging;
+22. opt-in/reversible Ryoku FileChooser routing with exact previous-line restoration;
+23. FileChooser title/accept-label propagation and validated native parent metadata;
+24. bounded filter/choice context and result validation;
+25. private-session backend process smoke and Request.Close cancellation coverage;
+26. public `xdg-desktop-portal` broker smoke/request matrix;
+27. single- and multi-folder picker/FileChooser contracts;
+28. secure libarchive extraction with dirfd-anchored writes, rollback, cancellation, hardlink deferral, and bounded expansion;
+29. extraction integrated into the shared operation queue/drawer with Extract Here/To workflows;
+30. native bounded archive creation for tar/tar.gz/tgz/tar.xz/tar.zst/zip/7z through the shared operation queue;
+31. bounded asynchronous archive preview for the same tested suffix set.
 
 ## Hard invariants
 
 - no automatic recursive directory-size scans;
 - no expensive filesystem work on the QML thread;
-- no unbounded thumbnail/decode/search queues;
+- no unbounded thumbnail/decode/search/preview queues;
 - cancellation or generation protection for stale asynchronous work;
 - no silent overwrite;
 - no shell interpolation of untrusted file paths in core operations;
 - no root GUI;
-- portal integration must be opt-in/reversible until promoted by Ryoku itself.
+- portal integration remains opt-in/reversible until promoted by Ryoku itself;
+- performance claims require measurements rather than assumptions.
+
+## Directory and stale-work boundary
+
+`DirectoryModel` performs local directory enumeration through `QtConcurrent`. Every scan captures both a monotonically increasing generation and the scan path. A completed worker result is publishable only while the model remains active, the generation still matches, and the requested path is still current. Deactivation increments the generation and removes active filesystem watchers.
+
+Local filename and portal filename filters rebuild the already-scanned in-memory entry list; they do not trigger another filesystem scan. Normal browsing has no portal filter. Deep search has its own cancellation/stale-result protection and bounded result/visit ceilings.
+
+V1 regression coverage includes a multi-thousand-entry local directory snapshot and a rapid-navigation case that waits for outstanding scan workers to finish before asserting that the newer location remains authoritative. These are correctness/stale-publication gates, not benchmark claims.
 
 ## Picker architecture
 
-Picker mode is intentionally a separate lightweight bootstrap path. `--picker` does not initialize the main window's Git, drive, network-management, Trash, clipboard-operation, or preview services. It reuses the same `DirectorySession`/`SessionFileModel` engine so picker behavior does not fork filesystem semantics.
+Picker mode is a separate lightweight bootstrap path. `--picker` does not initialize the main window's Git, drive, network-management, Trash, clipboard-operation, or preview services. It reuses the same `DirectorySession`/`SessionFileModel` engine so picker behavior does not fork filesystem semantics.
 
 The public picker contract supports:
 
 - `--picker open`;
 - optional open-file multi-selection;
-- `--picker save`;
-- optional save suggested name;
+- `--picker save` with optional suggested name;
 - exact and wildcard MIME filters for direct picker use;
-- `--picker folder` selecting the current local directory;
+- `--picker folder`;
+- optional folder multi-selection;
 - local initial directory;
 - percent-encoded `file://` URI results on stdout;
 - distinct `Ryofiles Picker` / `ryofiles-picker` window identity.
 
-Portal-launched picker processes may also receive presentation-only `--picker-title` and `--accept-label` options. These are kept outside `PickerContract` so application-provided presentation cannot alter filesystem validation or overwrite semantics. The portal passes them as individual `QProcess` arguments using `--option=value` boundaries, so strings beginning with option-like text cannot become new picker options.
+Multi-folder mode accepts only explicitly selected existing local directories. Mixed file/folder results are rejected. Single-folder mode preserves its existing current-directory selection behavior. Save mode remains single-target and rejects `--multiple`.
 
-Portal-only interactive metadata uses an internal `--portal-context-stdin` mode. The backend writes a bounded versioned JSON object to the picker child on stdin containing pre-expanded filename filter patterns, the initial/locked filter state, and bounded choices. The picker returns a bounded versioned JSON result containing the URI list, selected filter index, and choice selections. Direct `--picker` callers do not use this channel and retain the URI-line stdout contract.
+Portal-launched picker processes may also receive presentation-only `--picker-title` and `--accept-label` options. These are kept outside filesystem authorization semantics and are passed as individual `QProcess` arguments, never shell-interpolated.
 
-`PortalPickerContext` is the picker-side state machine for this internal metadata. `DirectoryModel::portalNameFilters` is a rebuild-only filter layer: active portal globs are applied to the already-scanned entry list, directories remain visible for navigation, and changing a portal filter never initiates a filesystem scan. `SessionFileModel` exposes that filter only to the local backend; remote sessions ignore it. Normal Ryofiles browsing keeps the property empty.
+Portal-only interactive metadata uses the bounded internal `--portal-context-stdin` JSON channel. `PortalPickerContext` validates filter/choice metadata and the structured result. Direct `--picker` callers retain the simple URI-line stdout contract.
 
-Save mode uses a pure `PickerSaveState` shared-capable state machine rather than encoding overwrite semantics in QML. Existing files require an explicit confirmation tied to the exact canonical target path. A repeated generic Save action remains a confirmation request rather than becoming implicit authorization, and changing the filename or current directory invalidates the pending confirmation. Existing directories are rejected as save targets and symlink entries are treated as occupied targets rather than silently followed as new names.
+Save overwrite semantics are kept in `PickerSaveState`, not encoded opportunistically in QML. Existing files require explicit confirmation tied to the exact canonical target path; changing the filename or directory invalidates the pending confirmation. Existing directories are invalid save targets and symlinks are treated as occupied targets rather than silently followed as a new name.
 
 ## FileChooser portal architecture
 
-`--filechooser-portal` is a dedicated service bootstrap for `org.freedesktop.impl.portal.desktop.ryofiles`. It exposes `org.freedesktop.impl.portal.FileChooser` and uses a per-handle `org.freedesktop.impl.portal.Request` lifecycle. OpenFile, SaveFile, and SaveFiles requests are translated into the same lightweight picker contract; returned values are normalized and revalidated as local percent-encoded `file://` URIs before a portal response is emitted. The backend forwards the request title and `accept_label` to the picker UI without changing filesystem or overwrite validation.
+`--filechooser-portal` is a dedicated service bootstrap for `org.freedesktop.impl.portal.desktop.ryofiles`. It exposes `org.freedesktop.impl.portal.FileChooser` and a per-handle `org.freedesktop.impl.portal.Request` lifecycle. OpenFile, SaveFile, and SaveFiles are translated into the lightweight picker contract; returned values are normalized and revalidated as local percent-encoded `file://` URIs before a portal response is emitted.
 
-FileChooser filters are guidance, not an authorization boundary. The backend preserves the full application-provided filter list and `current_filter` independently, expands MIME conditions to bounded filename globs once before launching the picker, and lets the picker switch among supplied filters. A direct user selection is not rejected solely for falling outside the displayed filter. A `current_filter` supplied without `filters` becomes a locked single filter because there is no application-provided alternative to switch to.
+For OpenFile, `multiple` and `directory` remain independent options, so `directory=true` and `multiple=true` becomes native multiple-folder selection rather than being forced back to a single folder.
 
-Portal `choices` are decoded as bounded boolean or option-list controls. IDs, labels, option IDs, initial values, result IDs, and result values are validated. On successful completion, `current_filter` is returned using its typed `(sa(us))` D-Bus structure and `choices` are returned as typed `a(ss)` selections. Structured picker output cannot introduce an unknown choice, omit an expected choice, change a locked filter, or return a filter index outside the original request.
-
-The portal context/result channel is capped at 1 MiB and applies explicit caps to filters, filter conditions, expanded patterns, choices, options, and metadata strings. The child process is still launched through `QProcess` with argument boundaries and stdin/stdout pipes; no shell interpolation is introduced.
+FileChooser filters are guidance rather than an authorization boundary. The backend preserves the application filter list/current filter, expands bounded MIME conditions once, lets the picker switch filters without a new filesystem scan, and validates the returned selected filter. Boolean/combo `choices` are likewise bounded, presented, validated, and echoed in the result. The portal context/result channel is capped at 1 MiB.
 
 ### Parent-window boundary
 
-Portal parent identifiers are parsed before the picker child is launched. Empty or malformed identifiers degrade to no native parent instead of rejecting the FileChooser request. The backend explicitly removes inherited `RYOFILES_PORTAL_PARENT_WINDOW` and `RYOFILES_PORTAL_MODAL` values before inserting the sanitized request values, preventing a service-launch environment from spoofing per-request parent metadata.
+Portal parent identifiers are parsed before the picker child is launched. Empty or malformed identifiers degrade to no native parent instead of rejecting the request. Inherited `RYOFILES_PORTAL_*` values are removed before sanitized per-request metadata is inserted.
 
-`PortalParentWindow` accepts only:
+- X11 parents accept only non-zero hexadecimal XIDs and use a retained foreign `QWindow` transient parent on XCB.
+- Wayland handles are bounded/control-character checked. On supported Qt Wayland builds, `PortalWindowParent` imports the handle through xdg-foreign v2 and applies it to the picker surface.
+- Unsupported protocol/platform cases safely continue without a native parent.
 
-- non-zero hexadecimal `x11:<XID>` values, canonicalized before forwarding;
-- bounded, non-empty `wayland:<HANDLE>` strings without control characters.
+The portal `modal` option is a Qt modality hint. xdg-foreign establishes native parent/stacking semantics but does not prove universal application input blocking; that behavior remains a real-session compatibility gate.
 
-The picker consumes this metadata only in internal portal-context mode. X11 uses a retained foreign `QWindow` and `setTransientParent`. On Wayland with Qt 6.9 or newer, `PortalWindowParent` obtains the Qt-owned `wl_display` through `QNativeInterface::QWaylandApplication`, obtains the picker `wl_surface` from the modern Qt Wayland window ID representation, binds `zxdg_importer_v2` if advertised, imports the portal handle, and sends `zxdg_imported_v2.set_parent_of` once. The imported/importer objects remain alive for the picker lifetime and are destroyed on teardown. The Wayland client ABI is resolved from `libwayland-client.so.0` at runtime, so unsupported platforms/compositors degrade without introducing a polling loop or normal-file-manager dependency path.
+### Automated and manual compatibility boundary
 
-The portal `modal` option is applied as a Qt window-modality hint. The xdg-foreign relationship itself controls native parent/stacking semantics but does not promise that the compositor will suppress all input to the requesting application. That behavioral aspect remains part of the real-application compatibility matrix rather than a universal backend guarantee.
+CI runs both the production backend under a private D-Bus and the production backend through the real `xdg-desktop-portal` frontend. The public request matrix covers single/multi file open, single/multi folder selection, SaveFile, SaveFiles, filters, choices, difficult filenames, and cancellation.
 
-CI launches the built production portal process under `dbus-run-session` with a minimal fake picker. The smoke requires the service to acquire its real session-bus name, complete a delayed OpenFile call with a validated local `file://` URI, transfer filter/choice context to the child, accept changed filter/choice selections from structured child output, return those values through typed D-Bus results, forward a valid Wayland parent and `modal=false`, discard malformed parent IDs and inherited spoofed parent environment, export the per-request Request object, honor `Request.Close` against a blocking picker, complete that backend call with response 2, and remain alive after cancellation. This complements pure request/context/parser tests with the actual D-Bus/QProcess lifecycle.
-
-The Arch/CachyOS package registers the backend using only:
-
-- `usr/share/xdg-desktop-portal/portals/ryofiles.portal`;
-- `usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ryofiles.service`.
-
-Registration is deliberately not routing. The `.portal` descriptor has no legacy `UseIn=` selector, packaging does not install `portals.conf` or another `.conf`, and installation does not invoke `xdg-settings`/`xdg-mime` defaults. Ryoku `0.58.6-beta.19` keeps ScreenCast/Screenshot on the Hyprland backend and explicitly routes FileChooser to GTK.
+Firefox, Chromium, Electron/VS Code, GTK, Qt, Flatpak, and compositor-specific parent/focus behavior remain manual V1 release gates on an actual Ryoku/Hyprland session. See `FILECHOOSER_COMPATIBILITY.md`.
 
 ### Reversible Ryoku routing
 
-`ryofiles-portalctl` is a separate QtCore-only process so portal preference management adds no normal GUI bootstrap or idle work. Its managed route targets only Ryoku's existing user config at `$XDG_CONFIG_HOME/xdg-desktop-portal/hyprland-portals.conf` (falling back to `~/.config`). State is stored under `$XDG_STATE_HOME/ryofiles/portal-routing.json` (falling back to `~/.local/state`).
+The package registers only the neutral portal descriptor and D-Bus service. It never writes routing configuration during install/remove.
 
-The manager obeys these rules:
+`ryofiles-portalctl` is a separate QtCore-only helper. It manages only the FileChooser line in Ryoku's user `hyprland-portals.conf`, records the exact previous line, restores it exactly, preserves fallback backend order, uses atomic writes, rejects symlinked configs/ambiguous duplicate sections, and refuses to clobber later external edits. It never restarts portal services automatically.
 
-- only `org.freedesktop.impl.portal.FileChooser` inside the single `[preferred]` section may be edited;
-- the prior FileChooser line is stored verbatim and restored verbatim;
-- the prior backend list remains after `ryofiles` as ordered fallback while enabled;
-- `default`, ScreenCast, Screenshot, comments, unrelated sections, and unrelated keys are preserved;
-- config updates use atomic replacement and preserve permissions;
-- symlinked config files are rejected;
-- duplicate FileChooser keys or multiple `[preferred]` sections are rejected rather than guessed through;
-- if another tool edits the exact managed FileChooser line after enablement, including formatting-only edits, disable refuses to clobber it;
-- if another tool configured Ryofiles before this helper, the helper does not claim ownership and will not remove that route;
-- installation/removal never invokes the helper automatically;
-- portal services are never killed/restarted automatically.
+## Archive architecture
 
-This makes routing opt-in and reversible without turning packaging into configuration management. Users who enabled the managed route should disable it before uninstalling so the exact previous FileChooser line is restored.
+### Extraction
 
-## Archive extraction boundary
+`ArchivePathGuard` is the lexical policy layer. It rejects absolute/rooted/traversal-bearing paths, unsafe hardlink targets, oversized/NUL metadata, and symlink targets that escape the extraction root. Valid Linux filename content such as spaces, quotes, Unicode, colons, and leading dashes remains allowed.
 
-`ArchivePathGuard` is the pure lexical policy layer. It rejects rooted/absolute entry paths, traversal-bearing entry/hardlink paths, NUL/oversized metadata, and symlink targets that escape the extraction root when resolved from the symlink entry's parent. Valid Linux filename content such as spaces, quotes, Unicode, colons, and leading dashes remains allowed.
+`ArchiveExtractor` is the execution layer. Libarchive decodes formats/filters; Ryofiles itself performs destination writes through a descriptor opened on the extraction root. Parent components are traversed with `openat(..., O_DIRECTORY | O_NOFOLLOW)`, regular files are created no-replace, and links are created only after policy validation. The extractor never changes the process-wide working directory and never invokes a shell.
 
-`ArchiveExtractor` is the headless libarchive-backed execution layer. Libarchive is used to decode archive formats and compression filters, but destination writes are performed by Ryofiles itself through a descriptor opened on the extraction root. Parent components are traversed with `openat(..., O_DIRECTORY | O_NOFOLLOW)`, intermediate directories are created with `mkdirat`, files with `O_CREAT | O_EXCL | O_NOFOLLOW`, symlinks with `symlinkat`, and hardlinks with `linkat` between already validated parent directory descriptors. The extractor never changes process-wide working directory and never invokes a shell.
+Only regular files, directories, symlinks, and safe in-root hardlinks are accepted. Failures/cancellation roll back only content created by the current extraction. Defaults cap one extraction at 1,000,000 entries and 1 TiB logical expanded data. Archive path/link metadata must round-trip as UTF-8.
 
-The extraction contract is deliberately conservative for the first v1 slice:
+Extraction is a first-class `OperationManager` job with cancellation and truthful indeterminate telemetry. The QML workflow exposes Extract Here and Extract To; the latter uses the lightweight internal folder picker.
 
-- only regular files, directories, symlinks, and hardlinks are accepted; device nodes, FIFOs, sockets, and other special entries fail the extraction;
-- regular files/links never overwrite an existing destination object;
-- an existing real directory may be used as a container, but a symlink cannot substitute for a traversed directory;
-- hardlinks are deferred and may resolve only to regular files extracted inside the same root, allowing safe forward references without arbitrary host-path linking;
-- failures/cancellation roll back only paths created by the current extraction in reverse order; pre-existing destination content is never removed;
-- progress exposes current entry, completed-entry count, and written bytes; cancellation is checked through an atomic flag at entry/data boundaries;
-- defaults cap one extraction at 1,000,000 entries and 1 TiB of logical expanded file data, with the limits explicit in the core API;
-- archive path/link metadata must round-trip as UTF-8 instead of being lossy-decoded into a different filesystem name.
+### Creation
 
-The production target links `LibArchive::LibArchive`; Arch packaging declares `libarchive` as a runtime dependency, and package CI asserts the installed binary resolves that dependency. UI actions, operation-drawer integration, archive creation/compression, replace/keep-both conflict semantics, archive browsing, and remote archive extraction are intentionally separate later slices.
+`ArchiveCreator` writes tar, tar.gz/tgz, tar.xz, tar.zst, zip, and 7z through libarchive. Regular-file reads use no-follow file descriptors; symlinks are archived as links rather than followed. Special filesystem entries, duplicate selected top-level names, remote inputs, output-inside-selected-directory, and existing output targets are rejected.
 
-## Next engine milestones
+Creation writes to a unique hidden same-parent temporary and publishes with no-replace semantics (`RENAME_NOREPLACE` where available with a safe no-replace fallback). Cancellation/failure removes partial temporary output. The shared operation queue provides cancellation and bounded telemetry; the QML workflow exposes Create Archive while retaining the separate Ryoku compression integration.
 
-- broader Firefox/Chromium/Electron/GTK/Qt/Flatpak FileChooser compatibility testing, including real compositor parent/modal behavior;
-- expose secure archive extraction through the operation queue/context menu with progress/cancel UX;
-- add safe archive creation/compression for zip/tar/tar.gz/tar.xz/tar.zst and evaluate 7z creation separately;
-- broaden lazy preview types only where decoding/resource loading can stay bounded and safe.
+### Preview
+
+`ArchivePreviewStore` inspects headers without extracting contents. The default preview boundary is 32 MiB raw archive input, 128 MiB declared logical regular-file payload, 128 listed entries, and 4 KiB path metadata, with hard API ceilings above those defaults.
+
+The archive itself is opened `O_NOFOLLOW`, its regular-file size is snapshotted with `fstat`, and libarchive read/skip/seek callbacks are constrained to that original snapshot. Seekable ZIP/7z inspection therefore cannot use later file growth to expand the preview stream. Invalid UTF-8 entry paths are rejected.
+
+`ArchivePreviewLoader` runs inspection through `QtConcurrent`, reusing the preview debounce/cancellation/generation pattern so selection changes or preview closure invalidate stale work. QML receives only the completed bounded metadata list and never performs archive I/O itself.
+
+## V1 preview boundary
+
+V1 deliberately stops at image, bounded text/Markdown-as-text, archive-content, and standard metadata preview. Rich PDF, audio/video, and font renderer stacks are post-V1 work. This avoids adding new decoder/resource surfaces during release hardening.
+
+## CI and V1 hardening
+
+Feature branches do not run duplicate full pipelines on every push. The full Build and Packaging workflows are pull-request gates; canonical `main` pushes revalidate the merged state. Packaging pins and verifies the exact source SHA, validates neutral portal packaging, inspects the payload, installs it, checks runtime linkage, and asserts the production binary resolves libarchive.
+
+The remaining V1 work is release hardening rather than feature expansion:
+
+- real-application FileChooser compatibility on Ryoku/Hyprland;
+- large-directory/stale-work and lifecycle regression passes;
+- keyboard/theme/reduced-motion/HiDPI/error-state checks;
+- install/upgrade/uninstall and reversible-routing validation;
+- version/changelog/release metadata and final release-candidate smoke.
