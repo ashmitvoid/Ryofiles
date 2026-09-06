@@ -7,7 +7,6 @@
 #include <QColor>
 #include <QFile>
 #include <QFont>
-#include <QFontDatabase>
 #include <QGlyphRun>
 #include <QImage>
 #include <QJsonArray>
@@ -23,45 +22,55 @@
 
 namespace {
 
-QString writingSystemName(QFontDatabase::WritingSystem system) {
-    switch (system) {
-    case QFontDatabase::Latin: return QStringLiteral("Latin");
-    case QFontDatabase::Greek: return QStringLiteral("Greek");
-    case QFontDatabase::Cyrillic: return QStringLiteral("Cyrillic");
-    case QFontDatabase::Armenian: return QStringLiteral("Armenian");
-    case QFontDatabase::Hebrew: return QStringLiteral("Hebrew");
-    case QFontDatabase::Arabic: return QStringLiteral("Arabic");
-    case QFontDatabase::Syriac: return QStringLiteral("Syriac");
-    case QFontDatabase::Thaana: return QStringLiteral("Thaana");
-    case QFontDatabase::Devanagari: return QStringLiteral("Devanagari");
-    case QFontDatabase::Bengali: return QStringLiteral("Bengali");
-    case QFontDatabase::Gurmukhi: return QStringLiteral("Gurmukhi");
-    case QFontDatabase::Gujarati: return QStringLiteral("Gujarati");
-    case QFontDatabase::Oriya: return QStringLiteral("Oriya");
-    case QFontDatabase::Tamil: return QStringLiteral("Tamil");
-    case QFontDatabase::Telugu: return QStringLiteral("Telugu");
-    case QFontDatabase::Kannada: return QStringLiteral("Kannada");
-    case QFontDatabase::Malayalam: return QStringLiteral("Malayalam");
-    case QFontDatabase::Sinhala: return QStringLiteral("Sinhala");
-    case QFontDatabase::Thai: return QStringLiteral("Thai");
-    case QFontDatabase::Lao: return QStringLiteral("Lao");
-    case QFontDatabase::Tibetan: return QStringLiteral("Tibetan");
-    case QFontDatabase::Myanmar: return QStringLiteral("Myanmar");
-    case QFontDatabase::Georgian: return QStringLiteral("Georgian");
-    case QFontDatabase::Khmer: return QStringLiteral("Khmer");
-    case QFontDatabase::SimplifiedChinese: return QStringLiteral("Simplified Chinese");
-    case QFontDatabase::TraditionalChinese: return QStringLiteral("Traditional Chinese");
-    case QFontDatabase::Japanese: return QStringLiteral("Japanese");
-    case QFontDatabase::Korean: return QStringLiteral("Korean");
-    case QFontDatabase::Vietnamese: return QStringLiteral("Vietnamese");
-    case QFontDatabase::Symbol: return QStringLiteral("Symbol");
-    case QFontDatabase::Ogham: return QStringLiteral("Ogham");
-    case QFontDatabase::Runic: return QStringLiteral("Runic");
-    case QFontDatabase::Nko: return QStringLiteral("Nko");
-    case QFontDatabase::Any:
-    default:
-        return {};
+struct WritingSystemProbe {
+    const char* name;
+    ushort representative;
+};
+
+QJsonArray detectedWritingSystems(const QRawFont& font) {
+    static constexpr std::array<WritingSystemProbe, 31> probes {{
+        {"Latin", 0x0041},
+        {"Vietnamese", 0x0102},
+        {"Greek", 0x0391},
+        {"Cyrillic", 0x0410},
+        {"Armenian", 0x0531},
+        {"Hebrew", 0x05D0},
+        {"Arabic", 0x0627},
+        {"Syriac", 0x0710},
+        {"Thaana", 0x0780},
+        {"Nko", 0x07CA},
+        {"Devanagari", 0x0915},
+        {"Bengali", 0x0995},
+        {"Gurmukhi", 0x0A15},
+        {"Gujarati", 0x0A95},
+        {"Odia", 0x0B15},
+        {"Tamil", 0x0B95},
+        {"Telugu", 0x0C15},
+        {"Kannada", 0x0C95},
+        {"Malayalam", 0x0D15},
+        {"Sinhala", 0x0D9A},
+        {"Thai", 0x0E01},
+        {"Lao", 0x0E81},
+        {"Tibetan", 0x0F40},
+        {"Myanmar", 0x1000},
+        {"Georgian", 0x10D0},
+        {"Ogham", 0x1681},
+        {"Runic", 0x16A0},
+        {"Khmer", 0x1780},
+        {"Japanese", 0x3042},
+        {"CJK", 0x4E2D},
+        {"Korean", 0xAC00},
+    }};
+
+    QJsonArray systems;
+    for (const WritingSystemProbe& probe : probes) {
+        if (!font.supportsCharacter(QChar(probe.representative)))
+            continue;
+        systems.append(QString::fromLatin1(probe.name));
+        if (systems.size() >= PreviewProtocol::kMaxFontWritingSystems)
+            break;
     }
+    return systems;
 }
 
 QString styleLabel(QFont::Style style) {
@@ -348,15 +357,7 @@ QJsonObject probe(
     if (png.isEmpty())
         return {};
 
-    QJsonArray writingSystems;
-    for (const QFontDatabase::WritingSystem system : rawFont.supportedWritingSystems()) {
-        const QString name = writingSystemName(system);
-        if (name.isEmpty())
-            continue;
-        writingSystems.append(name);
-        if (writingSystems.size() >= PreviewProtocol::kMaxFontWritingSystems)
-            break;
-    }
+    const QJsonArray writingSystems = detectedWritingSystems(rawFont);
 
     QJsonObject payload;
     payload.insert(QStringLiteral("family"), rawFont.familyName());
