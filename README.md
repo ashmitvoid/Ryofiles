@@ -2,7 +2,7 @@
 
 Ryofiles is a native C++20 / Qt 6 / QML file manager built specifically for the Ryoku desktop and Hyprland.
 
-> **Status:** V1 hardening. The core daily file-manager feature set is implemented: navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search/filtering, image/text/archive previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, the FileChooser portal backend, and native archive extraction/creation workflows. Remaining V1 work is compatibility, stress/regression, packaging, documentation, and release-candidate validation rather than another major feature subsystem.
+> **Status:** V1 release candidate. The core daily file-manager feature set is implemented and frozen: navigation, tabs/split view, safe local operations, Trash, removable storage, GVfs remotes, search/filtering, image/text/archive previews, Git awareness, Ryoku actions, lightweight open/save/folder picker modes, the FileChooser portal backend, and native archive extraction/creation workflows. Remaining work before the `v1.0.0` tag is release sign-off rather than feature expansion; see `docs/RELEASE_CHECKLIST.md`.
 
 ## Project direction
 
@@ -36,7 +36,7 @@ Rich PDF rendering, audio/video media preview, font rendering, remote archive ex
 
 The implementation is developed against exact upstream snapshots so behavior does not drift silently:
 
-- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `0a3ca72be636eb8ff593dd28fc32f7a16a887806` (`0.58.6-beta.19`).
+- **Ryoku:** `neur0map/ryoku-arch` `unstable-dev` at `0440e3fa02e1a4bed04a26d1c2aeab868a5f8ad4` (`0.59.7-beta.19`).
 
 ## Picker
 
@@ -66,7 +66,7 @@ Portal file filters are presented as **selection guidance**, not an authorizatio
 
 The portal-only picker protocol is bounded to 1 MiB and validates filter counts, filter conditions, expanded filename patterns, choice counts/options, selected filter indices, and returned choice IDs/values. MIME filters are expanded to filename globs once in the backend process; changing the active filter only rebuilds the existing in-memory directory model and does not trigger another filesystem scan. Normal Ryofiles browsing has no active portal filename filter.
 
-The automated public `xdg-desktop-portal` request matrix covers single/multi file open, single/multi folder selection, SaveFile, SaveFiles, filters, choices, difficult filenames, and cancellation. Firefox/Chromium/Electron/GTK/Qt/Flatpak behavior and compositor-specific parent/focus behavior remain explicit manual V1 release gates; see `docs/FILECHOOSER_COMPATIBILITY.md`.
+The automated public `xdg-desktop-portal` request matrix covers single/multi file open, single/multi folder selection, SaveFile, SaveFiles, filters, choices, difficult filenames, and cancellation. Firefox/Chromium/Electron/GTK/Qt/Flatpak behavior and compositor-specific parent/focus behavior remain explicit manual V1 release gates; see `docs/FILECHOOSER_COMPATIBILITY.md` and `docs/RELEASE_CHECKLIST.md`.
 
 ### Parent-window handling
 
@@ -152,19 +152,22 @@ Remote archive extraction is deliberately outside the frozen V1 scope.
 
 ## V1 release gates
 
-The automated hardening baseline now includes a 4,096-entry directory snapshot and a rapid-navigation stale-scan regression that drains outstanding worker tasks before checking the newer path remains authoritative. Before V1 is tagged, the remaining gates are:
+The automated release-candidate baseline includes the full test/smoke suite, a 4,096-entry directory snapshot, a drained rapid-navigation stale-scan regression, exact-head package validation, version-metadata consistency checks, and a one-time version-transition gate that builds the PR base development package and the V1 stable package, migrates between them, verifies installed portal routing enable/disable restores the exact original config, and confirms stable-package uninstall removes package-owned files without leaving routing state.
+
+Before V1 is tagged, the remaining gates are manual/environment-dependent:
 
 - real-application FileChooser matrix on Ryoku/Hyprland;
 - manual performance/stress runs for larger local trees and representative removable/slow/network storage;
 - keyboard, theme, reduced-motion, HiDPI/per-monitor scale, empty/error-state, and lifecycle regression passes;
-- clean Arch/CachyOS install, upgrade, uninstall, and reversible portal-routing validation;
-- final packaging metadata, version/changelog, release artifacts, and release-candidate smoke testing.
+- final release-candidate smoke on the intended Ryoku/CachyOS machine.
 
-These gates do not expand the frozen V1 feature surface.
+The `v1.0.0` tag is the publication signal. Its dedicated workflow rebuilds/tests the exact tag, produces the stable Arch package, source archive, staged Linux install bundle, and SHA-256 sums, then publishes those exact artifacts to the GitHub release. These gates do not expand the frozen V1 feature surface.
 
 ## Build and CI
 
-Ryofiles is built with CMake and Qt 6. Every pull request runs the full application/test suite, FileChooser backend/public-broker smokes, portal-routing-helper tests, and staged-install checks. Pull requests that touch shipped C++/QML, packaging, portal assets, or the packaging workflow also run exact-head Arch package validation. Feature-branch pushes do not duplicate those expensive PR pipelines; pushes to canonical `main` revalidate the merged state. Package CI verifies payload contents, neutral portal registration, exact source SHA, installation, runtime linkage, and the production binary's libarchive dependency.
+Ryofiles is built with CMake and Qt 6. Every pull request runs the full application/test suite, FileChooser backend/public-broker smokes, portal-routing-helper tests, and staged-install checks. Pull requests that touch shipped C++/QML, packaging, portal assets, release metadata, or packaging/release workflows also run exact-head Arch package validation. Feature-branch pushes do not duplicate those expensive PR pipelines; pushes to canonical `main` revalidate the merged state. Package CI verifies payload contents, neutral portal registration, exact source SHA, installation, runtime linkage, and the production binary's libarchive dependency. When the project version changes, an additional migration/uninstall/reversible-routing job validates the stable package transition.
+
+Release history is recorded in `CHANGELOG.md`.
 
 ## License
 
