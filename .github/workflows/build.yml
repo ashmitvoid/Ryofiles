@@ -42,6 +42,9 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure --parallel 2
+      - name: Application QML startup smoke
+        shell: bash
+        run: dbus-run-session -- bash tests/ApplicationStartupSmoke.sh "$PWD/build/ryofiles"
       - name: FileChooser D-Bus smoke
         shell: bash
         run: dbus-run-session -- bash tests/FileChooserPortalSmoke.sh "$PWD/build/ryofiles"

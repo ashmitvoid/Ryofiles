@@ -269,7 +269,6 @@ Item {
                         selectedTextColor: Ryoku.inkOnBone
                         font.family: Ryoku.monoFont
                         font.pixelSize: 10 * root.uiScale
-                        lineHeight: 1.25
                     }
                 }
             }
