@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "FontProbe.hpp"
+#include "ImageProbe.hpp"
 #include "MediaProbe.hpp"
 #include "PreviewFileAccess.hpp"
 #include "PreviewProtocol.hpp"
@@ -27,6 +28,8 @@
 #endif
 
 namespace {
+
+std::unique_ptr<ImageProbe::AnimationSession> g_imageAnimationSession;
 
 QJsonObject response(
     const QString& id,
@@ -255,12 +258,37 @@ QJsonObject handleRequest(const QJsonObject& request) {
         return response({}, false, QStringLiteral("Preview request is missing an id"));
 
     const QString op = request.value(QStringLiteral("op")).toString();
+
+#ifdef Q_OS_UNIX
+    QString error;
+
+    if (op == QStringLiteral("image-animation-next")) {
+        const QString session = request.value(QStringLiteral("session")).toString();
+        if (!g_imageAnimationSession || session.isEmpty()
+            || session != g_imageAnimationSession->token()) {
+            return response(id, false, QStringLiteral("Animation session is not active"));
+        }
+
+        const QJsonObject payload = g_imageAnimationSession->readNext(&error);
+        if (!error.isEmpty()) {
+            g_imageAnimationSession.reset();
+            return response(id, false, error);
+        }
+
+        const int frame = payload.value(QStringLiteral("frame")).toInt(-1);
+        const int frameCount = payload.value(QStringLiteral("frameCount")).toInt(0);
+        if (frame >= 0 && frameCount > 0 && frame + 1 >= frameCount)
+            g_imageAnimationSession.reset();
+        return response(id, true, {}, payload);
+    }
+
     const QString path = request.value(QStringLiteral("path")).toString();
     if (path.isEmpty() || path.contains(QChar::Null) || !QFileInfo(path).isAbsolute())
         return response(id, false, QStringLiteral("Preview path must be an absolute local path"));
 
-#ifdef Q_OS_UNIX
-    QString error;
+    if (op != QStringLiteral("image-animation-start"))
+        g_imageAnimationSession.reset();
+
     if (op == QStringLiteral("stat")) {
         const QJsonObject payload = statPayload(path, &error);
         if (!error.isEmpty())
@@ -307,9 +335,52 @@ QJsonObject handleRequest(const QJsonObject& request) {
         return response(id, true, {}, payload);
     }
 
+    if (op == QStringLiteral("image-probe")) {
+        PreviewFileAccess::OpenedFile opened =
+            PreviewFileAccess::openRegularNoFollow(path, &error);
+        if (!opened)
+            return response(id, false, error);
+
+        const QJsonObject payload = ImageProbe::probe(
+            *opened.file,
+            opened.size,
+            request,
+            &error);
+        if (!error.isEmpty())
+            return response(id, false, error);
+        return response(id, true, {}, payload);
+    }
+
+    if (op == QStringLiteral("image-animation-start")) {
+        g_imageAnimationSession.reset();
+
+        PreviewFileAccess::OpenedFile opened =
+            PreviewFileAccess::openRegularNoFollow(path, &error);
+        if (!opened)
+            return response(id, false, error);
+
+        auto session = ImageProbe::AnimationSession::create(
+            std::move(opened),
+            request,
+            &error);
+        if (!session || !error.isEmpty())
+            return response(
+                id,
+                false,
+                error.isEmpty()
+                    ? QStringLiteral("Could not start animation preview")
+                    : error);
+
+        const QJsonObject payload = session->readNext(&error);
+        if (!error.isEmpty())
+            return response(id, false, error);
+
+        g_imageAnimationSession = std::move(session);
+        return response(id, true, {}, payload);
+    }
+
     return response(id, false, QStringLiteral("Unsupported preview operation"));
 #else
-    Q_UNUSED(path);
     Q_UNUSED(op);
     return response(id, false, QStringLiteral("Preview helper currently requires Unix no-follow file APIs"));
 #endif
